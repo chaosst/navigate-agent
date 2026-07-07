@@ -1,9 +1,8 @@
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
-import { TextLoader } from "langchain/document_loaders/fs/text";
-import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
 import { Document } from "@langchain/core/documents";
 import mammoth from "mammoth";
 import path from "path";
+import { readFileSync } from "node:fs";
 
 export interface LoadedChunk {
   content: string;
@@ -15,18 +14,19 @@ export async function loadDocument(filePath: string, filename: string, chunkSize
   let content: string;
   switch (ext) {
     case ".pdf":
-      const pdfLoader = new PDFLoader(filePath);
-      const pdfDocs = await pdfLoader.load();
-      content = pdfDocs.map(d => d.pageContent).join("\n");
+      // Use pdf-parse directly instead of LangChain PDFLoader
+      const { PDFParse } = await import("pdf-parse");
+      const pdfBuf = readFileSync(filePath);
+      const pdfP = new (PDFParse as any)({}) as { load: (b: Buffer) => Promise<void>; getText: (o: object) => Promise<string> };
+      await pdfP.load(pdfBuf);
+      content = await pdfP.getText({});
       break;
     case ".docx":
       const result = await mammoth.extractRawText({ path: filePath });
       content = result.value;
       break;
     default: // .txt, .md, etc
-      const txtLoader = new TextLoader(filePath);
-      const txtDocs = await txtLoader.load();
-      content = txtDocs.map(d => d.pageContent).join("\n");
+      content = readFileSync(filePath, "utf-8");
   }
 
   const doc = new Document({ pageContent: content, metadata: { filename } });
