@@ -90,6 +90,8 @@ export class ResumeStore {
   async import(data: ResumeData, rawMd: string): Promise<void> {
     const mdHash = this.md5(rawMd);
 
+    this.db.run("BEGIN");
+
     // Update meta
     const now = new Date().toISOString();
     const existing = this.db.exec("SELECT version FROM resume_meta WHERE id = 'current'");
@@ -114,10 +116,6 @@ export class ResumeStore {
     }
 
     for (const section of data.sections) {
-      if (section.items.length === 0) {
-        // Section with just text (e.g. skills as flat list)
-        chunks.push({ content: section.items.map(i => i.description).join("\n"), sectionType: section.type, itemTitle: section.title, seq: seq++ });
-      }
       for (const item of section.items) {
         let content = `${item.title}`;
         if (item.dateRange) content += ` (${item.dateRange})`;
@@ -164,6 +162,7 @@ export class ResumeStore {
       [mdHash, version === 1 ? "Initial import" : `Update to version ${version}`]
     );
 
+    this.db.run("COMMIT");
     this.save();
   }
 
