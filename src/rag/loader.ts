@@ -1,7 +1,8 @@
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
 import { TextLoader } from "langchain/document_loaders/fs/text";
 import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
-import { DocxLoader } from "@langchain/community/document_loaders/fs/docx";
+import { Document } from "@langchain/core/documents";
+import mammoth from "mammoth";
 import path from "path";
 
 export interface LoadedChunk {
@@ -11,20 +12,26 @@ export interface LoadedChunk {
 
 export async function loadDocument(filePath: string, filename: string, chunkSize = 1000, chunkOverlap = 200): Promise<LoadedChunk[]> {
   const ext = path.extname(filename).toLowerCase();
-  let loader;
+  let content: string;
   switch (ext) {
     case ".pdf":
-      loader = new PDFLoader(filePath);
+      const pdfLoader = new PDFLoader(filePath);
+      const pdfDocs = await pdfLoader.load();
+      content = pdfDocs.map(d => d.pageContent).join("\n");
       break;
     case ".docx":
-      loader = new DocxLoader(filePath);
+      const result = await mammoth.extractRawText({ path: filePath });
+      content = result.value;
       break;
     default: // .txt, .md, etc
-      loader = new TextLoader(filePath);
+      const txtLoader = new TextLoader(filePath);
+      const txtDocs = await txtLoader.load();
+      content = txtDocs.map(d => d.pageContent).join("\n");
   }
-  const docs = await loader.load();
+
+  const doc = new Document({ pageContent: content, metadata: { filename } });
   const splitter = new RecursiveCharacterTextSplitter({ chunkSize, chunkOverlap });
-  const splitDocs = await splitter.splitDocuments(docs);
+  const splitDocs = await splitter.splitDocuments([doc]);
   return splitDocs.map(d => ({
     content: d.pageContent,
     metadata: { ...d.metadata, filename, source: filename },
