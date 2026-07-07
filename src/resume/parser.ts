@@ -34,6 +34,9 @@ function parseSections(lines: string[]): ResumeSection[] {
   let currentItem: ResumeItem | null = null;
   let descriptionLines: string[] = [];
   let highlights: string[] = [];
+  // Accumulate content at section level (for flat-list sections like skills)
+  let sectionDescLines: string[] = [];
+  let sectionHighlights: string[] = [];
 
   for (const raw of lines) {
     const line = raw.trimEnd();
@@ -42,10 +45,10 @@ function parseSections(lines: string[]): ResumeSection[] {
     const sectionMatch = line.match(/^##\s+(.+)/);
     if (sectionMatch) {
       if (currentItem) finalizeItem(currentItem, descriptionLines, highlights);
-      if (currentSection && currentSection.items.length === 0 && currentItem) {
-        currentSection.items.push(currentItem);
+      if (currentSection) {
+        finalizeSection(currentSection, currentItem, sectionDescLines, sectionHighlights);
+        sections.push(currentSection);
       }
-      if (currentSection) sections.push(currentSection);
       const title = sectionMatch[1].trim();
       currentSection = {
         type: SECTION_MAP[title] || "experience",
@@ -55,12 +58,26 @@ function parseSections(lines: string[]): ResumeSection[] {
       currentItem = null;
       descriptionLines = [];
       highlights = [];
+      sectionDescLines = [];
+      sectionHighlights = [];
       continue;
     }
 
     // Item heading (###)
     const itemMatch = line.match(/^###\s+(.+)/);
     if (itemMatch && currentSection) {
+      // If there is accumulated section content before the first ###,
+      // create a synthetic item for it first
+      if (currentItem === null && (sectionDescLines.length > 0 || sectionHighlights.length > 0)) {
+        currentSection.items.push({
+          title: currentSection.title,
+          description: sectionDescLines.join("\n").trim(),
+          highlights: [...sectionHighlights],
+        });
+        sectionDescLines = [];
+        sectionHighlights = [];
+      }
+
       if (currentItem) finalizeItem(currentItem, descriptionLines, highlights);
       const title = itemMatch[1].trim();
       currentItem = {
@@ -81,8 +98,13 @@ function parseSections(lines: string[]): ResumeSection[] {
 
     // Bullet — highlight
     const bulletMatch = line.match(/^-\s+(.+)/);
-    if (bulletMatch && currentItem) {
-      highlights.push(bulletMatch[1].trim());
+    if (bulletMatch) {
+      if (currentItem) {
+        highlights.push(bulletMatch[1].trim());
+      } else if (currentSection) {
+        // Capture bullets at section level (flat-list sections like skills)
+        sectionHighlights.push(bulletMatch[1].trim());
+      }
       continue;
     }
 
@@ -93,21 +115,45 @@ function parseSections(lines: string[]): ResumeSection[] {
     }
 
     // Regular description text (for subtitle detection)
-    if (currentItem && line && !line.startsWith("#")) {
-      descriptionLines.push(line);
+    if (line && !line.startsWith("#")) {
+      if (currentItem) {
+        descriptionLines.push(line);
+      } else if (currentSection) {
+        // Capture text at section level
+        sectionDescLines.push(line);
+      }
     }
   }
 
   // Finalize last item/section
   if (currentItem) finalizeItem(currentItem, descriptionLines, highlights);
   if (currentSection) {
-    if (currentItem && !currentSection.items.includes(currentItem)) {
-      currentSection.items.push(currentItem);
-    }
+    finalizeSection(currentSection, currentItem, sectionDescLines, sectionHighlights);
     sections.push(currentSection);
   }
 
   return sections;
+}
+
+/** Finalize a section: add pending item and create synthetic item for flat content. */
+function finalizeSection(
+  section: ResumeSection,
+  lastItem: ResumeItem | null,
+  descLines: string[],
+  highlights: string[],
+): void {
+  if (lastItem && !section.items.includes(lastItem)) {
+    section.items.push(lastItem);
+  }
+  // If no items were created from ### headings but there is accumulated
+  // content, create a synthetic ResumeItem for the whole section.
+  if (section.items.length === 0 && (descLines.length > 0 || highlights.length > 0)) {
+    section.items.push({
+      title: section.title,
+      description: descLines.join("\n").trim(),
+      highlights,
+    });
+  }
 }
 
 function finalizeItem(item: ResumeItem, descLines: string[], highlights: string[]) {

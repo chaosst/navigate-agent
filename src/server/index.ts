@@ -34,6 +34,10 @@ export function createRagServer(
   app.use(express.json());
   app.use(express.static(path.join(__dirname, "public")));
 
+  // Explicit routes for resume pages (SIG-UI navigation)
+  app.get("/resume", (_req, res) => res.sendFile(path.join(__dirname, "public", "resume.html")));
+  app.get("/resume/chat", (_req, res) => res.sendFile(path.join(__dirname, "public", "resume-chat.html")));
+
   app.post("/api/upload", upload.single("file"), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ error: "No file uploaded" });
@@ -88,7 +92,33 @@ export function createRagServer(
   });
 
   // SSE chat endpoint
-  const sessions = new Map<string, { messages: { role: string; content: string }[] }>();
+  const SESSION_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
+  const SESSION_MAX_COUNT = 100;
+
+  interface SessionData {
+    messages: { role: string; content: string }[];
+    createdAt: number;
+  }
+
+  const sessions = new Map<string, SessionData>();
+
+  function cleanSessions(): void {
+    const now = Date.now();
+    // Remove sessions older than 1 hour
+    for (const [sid, data] of sessions) {
+      if (now - data.createdAt > SESSION_MAX_AGE_MS) {
+        sessions.delete(sid);
+      }
+    }
+    // If still over the limit, evict the oldest
+    if (sessions.size > SESSION_MAX_COUNT) {
+      const sorted = [...sessions.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt);
+      const toRemove = sorted.slice(0, sorted.length - SESSION_MAX_COUNT);
+      for (const [sid] of toRemove) {
+        sessions.delete(sid);
+      }
+    }
+  }
 
   app.post("/api/resume/chat", async (req, res) => {
     if (!executor) {
@@ -104,7 +134,10 @@ export function createRagServer(
     res.setHeader("X-Accel-Buffering", "no");
 
     const sid = sessionId || randomUUID();
-    if (!sessions.has(sid)) sessions.set(sid, { messages: [] });
+    if (!sessions.has(sid)) {
+      cleanSessions();
+      sessions.set(sid, { messages: [], createdAt: Date.now() });
+    }
     const session = sessions.get(sid)!;
     session.messages.push({ role: "user", content: question });
 
