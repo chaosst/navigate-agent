@@ -11,6 +11,17 @@ import type { ResumeData } from "../resume/types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+/** Fix Chinese filename encoding from multer (Latin-1 → UTF-8) */
+function fixEncoding(str: string): string {
+  try {
+    const decoded = Buffer.from(str, "latin1").toString("utf8");
+    // Only use decoded if it looks different (has multi-byte chars)
+    return decoded !== str ? decoded : str;
+  } catch {
+    return str;
+  }
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AgentExecutor = any;
 
@@ -42,7 +53,8 @@ export function createRagServer(
     try {
       if (!req.file) return res.status(400).json({ error: "No file uploaded" });
       const docId = randomUUID();
-      const filename = req.file.originalname;
+      // Fix Chinese filename encoding: browser sends UTF-8, multer may decode as Latin-1
+      const filename = fixEncoding(req.file.originalname);
       const filePath = req.file.path;
       const chunks = await loadDocument(filePath, filename);
       await store.addChunks(chunks, docId);
@@ -166,7 +178,7 @@ export function createRagServer(
       }
       session.messages.push({ role: "assistant", content: fullAnswer });
 
-      res.write(`event: done\ndata: ${JSON.stringify(fullAnswer)}\n\n`);
+      res.write(`event: done\ndata: __DONE__\n\n`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
       res.write(`event: error\ndata: ${JSON.stringify(msg)}\n\n`);
