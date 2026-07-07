@@ -1,4 +1,4 @@
-﻿---
+---
 title: Core Agent - Iter 1 设计文档
 date: 2026-07-07
 status: draft
