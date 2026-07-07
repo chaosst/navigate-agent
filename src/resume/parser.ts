@@ -118,7 +118,8 @@ function finalizeItem(item: ResumeItem, descLines: string[], highlights: string[
     const first = nonEmpty[0].trim();
     if (!first.startsWith("[") && !first.startsWith("!") && first.length < 80) {
       item.subtitle = first;
-      descLines = descLines.filter(l => l.trim() !== first);
+      const idx = descLines.findIndex(l => l.trim() === first);
+      if (idx >= 0) descLines.splice(idx, 1);
     }
   }
   item.description = descLines.join("\n").trim();
