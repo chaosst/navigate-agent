@@ -1,27 +1,30 @@
 {
-    "name":  "navigate",
-    "version":  "0.1.0",
-    "type":  "module",
-    "scripts":  {
-                    "dev":  "tsx src/index.ts",
-                    "build":  "tsc",
-                    "start":  "node dist/index.js"
-                },
-    "dependencies":  {
-                         "@langchain/core":  "^0.3.0",
-                         "@langchain/openai":  "^0.4.0",
-                         "langchain":  "^0.3.0",
-                        "ink":  "^5.0.0",
-                         "zod":  "^3.23.0",
-                         "react":  "^18.0.0",
-                         "dotenv":  "^16.0.0"
-                     },
-    "devDependencies":  {
-                            "@types/react":  "^18.0.0",
-                            "tsx":  "^4.0.0",
-                            "typescript":  "^5.4.0"
-                        },
-    "engines":  {
-                    "node":  "\u003e=18"
-                }
+    "name": "navigate",
+    "version": "0.1.0",
+    "type": "module",
+    "scripts": {
+        "dev": "tsx src/index.ts",
+        "build": "tsc",
+        "start": "node dist/index.js"
+    },
+    "dependencies": {
+        "@langchain/community": "^0.3.0",
+        "@langchain/core": "^0.3.0",
+        "@langchain/openai": "^0.4.0",
+        "dotenv": "^16.0.0",
+        "ink": "^5.0.0",
+        "langchain": "^0.3.0",
+        "react": "^18.0.0",
+        "sql.js": "^1.11.0",
+        "zod": "^3.23.0"
+    },
+    "devDependencies": {
+        "@types/react": "^18.0.0",
+        "@types/sql.js": "^1.4.11",
+        "tsx": "^4.0.0",
+        "typescript": "^5.4.0"
+    },
+    "engines": {
+        "node": ">=18"
+    }
 }
