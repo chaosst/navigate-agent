@@ -17,6 +17,7 @@ import { ResumeStore } from "./resume/store.js";
 import { ResumeSearchTool } from "./resume/search-tool.js";
 import { parseResume } from "./resume/parser.js";
 import { existsSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 
 async function main() {
   const config = loadConfig();
@@ -45,7 +46,7 @@ async function main() {
       const rawMd = readFileSync("resume.md", "utf-8");
       resumeData = parseResume("resume.md");
 
-      const hash = simpleHash(rawMd);
+      const hash = md5(rawMd);
       if (await resumeStore.hasChanged(hash)) {
         await resumeStore.import(resumeData, rawMd);
         console.log("Resume indexed successfully");
@@ -74,14 +75,8 @@ async function main() {
   render(React.createElement(App, { executor, memory }));
 }
 
-function simpleHash(s: string): string {
-  let hash = 0;
-  for (let i = 0; i < s.length; i++) {
-    const chr = s.charCodeAt(i);
-    hash = ((hash << 5) - hash) + chr;
-    hash |= 0;
-  }
-  return hash.toString(16);
+function md5(s: string): string {
+  return createHash("md5").update(s).digest("hex");
 }
 
 main().catch(err => { console.error("Fatal:", err); process.exit(1); });

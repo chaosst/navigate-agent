@@ -1,5 +1,6 @@
 import initSqlJs, { Database } from "sql.js";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { OpenAIEmbeddings } from "@langchain/openai";
 import type { ResumeData, ResumeSection, SectionType } from "./types.js";
 import type { RagResult } from "../rag/types.js";
@@ -268,8 +269,13 @@ export class ResumeStore {
     };
   }
 
+  /** Cryptographic MD5 hash for reliable change detection. */
   private md5(content: string): string {
-    // Simple hash for content comparison
+    return createHash("md5").update(content).digest("hex");
+  }
+
+  /** Non-cryptographic hash for lightweight comparisons (legacy). */
+  private simpleHash(content: string): string {
     let hash = 0;
     for (let i = 0; i < content.length; i++) {
       const chr = content.charCodeAt(i);
