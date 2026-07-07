@@ -10,18 +10,30 @@ import { createAgentExecutor } from "./agent/loop.js";
 import { createTools } from "./tools/registry.js";
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { AgentMemory } from "./memory/index.js";
+import { RagVectorStore } from "./rag/vectorstore.js";
+import { RagSearchTool } from "./rag/retriever.js";
+import { createRagServer } from "./server/index.js";
 
 async function main() {
   const config = loadConfig();
   const llm = createChatModel(config);
-  const tools = createTools();
-  const systemPrompt = buildSystemPrompt();
-  const executor = await createAgentExecutor(llm, tools, systemPrompt, config.maxIterations);
+
   const embeddings = new OpenAIEmbeddings({
     apiKey: config.openAIApiKey,
     model: "text-embedding-3-small",
   });
+
   const memory = await AgentMemory.create("navigate.db", embeddings);
+
+  // RAG setup
+  const ragStore = new RagVectorStore(embeddings);
+  const ragTool = new RagSearchTool(ragStore);
+  createRagServer(ragStore);
+
+  const allTools = [...createTools(), ragTool];
+  const systemPrompt = buildSystemPrompt();
+  const executor = await createAgentExecutor(llm, allTools, systemPrompt, config.maxIterations);
+
   render(React.createElement(App, { executor, memory }));
 }
 

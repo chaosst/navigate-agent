@@ -1,4 +1,4 @@
-﻿import { SqliteStore } from "./sqlite-store.js";
+import { SqliteStore } from "./sqlite-store.js";
 import { VectorMemory } from "./vector-memory.js";
 import { OpenAIEmbeddings } from "@langchain/openai";
 import type { Session, SearchResult } from "./types.js";

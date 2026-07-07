@@ -1,4 +1,4 @@
-﻿import initSqlJs, { Database } from "sql.js";
+import initSqlJs, { Database } from "sql.js";
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import type { Session, MemoryMessage } from "./types.js";
 
