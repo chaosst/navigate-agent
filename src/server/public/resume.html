@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>简历</title>
+<style>
+  :root {
+    --bg: #f8f9fa;
+    --surface: #ffffff;
+    --text: #1a1a2e;
+    --text-muted: #6b7280;
+    --primary: #2563eb;
+    --primary-light: #eff6ff;
+    --border: #e5e7eb;
+    --shadow: rgba(0,0,0,0.06);
+    --radius: 12px;
+    --tag-frontend: #3b82f6;
+    --tag-backend: #10b981;
+    --tag-ai: #8b5cf6;
+    --tag-devops: #f59e0b;
+    --tag-tool: #6b7280;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --primary: #60a5fa;
+      --primary-light: #1e3a5f;
+      --border: #334155;
+      --shadow: rgba(0,0,0,0.3);
+    }
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 24px;
+  }
+  .container { max-width: 860px; margin: 0 auto; }
+  .card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 32px;
+    margin-bottom: 24px;
+    box-shadow: 0 1px 3px var(--shadow);
+  }
+  .header { text-align: center; }
+  .header h1 { font-size: 2rem; font-weight: 700; margin-bottom: 4px; }
+  .header .title { font-size: 1.1rem; color: var(--primary); font-weight: 500; margin-bottom: 16px; }
+  .contact-row {
+    display: flex; flex-wrap: wrap; gap: 12px; justify-content: center;
+    font-size: 0.85rem; color: var(--text-muted);
+  }
+  .contact-row a { color: var(--primary); text-decoration: none; }
+  .contact-row a:hover { text-decoration: underline; }
+
+  .section-title {
+    font-size: 1.25rem; font-weight: 600; margin-bottom: 20px;
+    padding-bottom: 8px; border-bottom: 2px solid var(--primary);
+  }
+  .summary-text { color: var(--text-muted); line-height: 1.8; }
+
+  /* Timeline */
+  .timeline-item {
+    padding-left: 20px; border-left: 2px solid var(--border);
+    margin-bottom: 24px; position: relative;
+  }
+  .timeline-item::before {
+    content: ""; position: absolute; left: -6px; top: 6px;
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--primary); border: 2px solid var(--surface);
+  }
+  .timeline-item h3 { font-size: 1rem; font-weight: 600; }
+  .timeline-item .meta {
+    font-size: 0.85rem; color: var(--text-muted); margin: 4px 0 8px;
+  }
+  .timeline-item ul { padding-left: 20px; color: var(--text-muted); font-size: 0.9rem; }
+  .timeline-item li { margin-bottom: 4px; }
+
+  /* Skills */
+  .skills-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+  .skill-tag {
+    padding: 6px 14px; border-radius: 20px; font-size: 0.85rem;
+    font-weight: 500; color: #fff; cursor: default;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .skill-tag:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+
+  /* Projects */
+  .project-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 600px) { .project-grid { grid-template-columns: 1fr; } }
+  .project-card {
+    border: 1px solid var(--border); border-radius: 8px; padding: 16px;
+  }
+  .project-card h4 { font-size: 0.95rem; font-weight: 600; margin-bottom: 4px; }
+  .project-card .date { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px; }
+  .project-card p { font-size: 0.85rem; color: var(--text-muted); }
+  .project-card ul { padding-left: 16px; font-size: 0.85rem; color: var(--text-muted); margin-top: 8px; }
+
+  .footer { text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 16px; }
+  .footer a { color: var(--primary); text-decoration: none; }
+  .footer a:hover { text-decoration: underline; }
+
+  .nav-bar {
+    display: flex; gap: 16px; margin-bottom: 24px;
+    justify-content: center; font-size: 0.9rem;
+  }
+  .nav-bar a { color: var(--text-muted); text-decoration: none; padding: 6px 16px; border-radius: 8px; }
+  .nav-bar a:hover, .nav-bar a.active { background: var(--primary-light); color: var(--primary); }
+
+  .loading { text-align: center; padding: 48px; color: var(--text-muted); }
+  .loading::after { content: "..."; animation: dots 1.5s steps(4, end) infinite; }
+  @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+
+  .btn {
+    display: inline-block; padding: 8px 20px; border-radius: 8px;
+    font-size: 0.85rem; font-weight: 500; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface);
+    color: var(--text); text-decoration: none; transition: all 0.15s;
+  }
+  .btn:hover { border-color: var(--primary); color: var(--primary); }
+  .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .btn-primary:hover { opacity: 0.9; color: #fff; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="nav-bar">
+    <a href="/">📄 文档管理</a>
+    <a href="/resume" class="active">👤 简历</a>
+    <a href="/resume/chat">💬 简历问答</a>
+  </div>
+
+  <div id="app">
+    <div class="loading">加载中</div>
+  </div>
+
+  <div class="footer">
+    <span id="footer-info"></span>
+    <br><br>
+    <a href="javascript:void(0)" id="downloadPdf" class="btn">⬇ 下载 PDF</a>
+  </div>
+</div>
+
+<script>
+async function loadResume() {
+  try {
+    const res = await fetch("/api/resume");
+    const data = await res.json();
+    renderResume(data);
+  } catch (err) {
+    document.getElementById("app").innerHTML =
+      `<div style="text-align:center;padding:48px;color:#dc2626;">
+        ❌ 简历加载失败: ${err.message}
+      </div>`;
+  }
+}
+
+function getSkillCategory(tag) {
+  const t = tag.toLowerCase();
+  if (["react","vue","angular","next.js","nuxt","tailwind","css","html","svelte","webpack","vite","redux","typescript"].some(s => t.includes(s))) return "前端";
+  if (["node.js","node","express","nestjs","python","go","java","rust","postgresql","mysql","mongodb","redis","graphql","rest","api"].some(s => t.includes(s))) return "后端";
+  if (["langchain","openai","rag","llm","machine learning","ai","tensorflow","pytorch","vector"].some(s => t.includes(s))) return "AI/ML";
+  if (["docker","kubernetes","ci/cd","github actions","linux","nginx","aws","gcp","azure","devops"].some(s => t.includes(s))) return "DevOps";
+  return "工具";
+}
+
+function skillColor(category) {
+  const map = {
+    "前端": "var(--tag-frontend)",
+    "后端": "var(--tag-backend)",
+    "AI/ML": "var(--tag-ai)",
+    "DevOps": "var(--tag-devops)",
+  };
+  return map[category] || "var(--tag-tool)";
+}
+
+function renderResume(data) {
+  document.getElementById("footer-info").textContent =
+    `最后更新: ${new Date().toLocaleDateString("zh-CN")}`;
+
+  const html = [];
+  html.push(`<div class="card header"><h1>${esc(data.name)}</h1>`);
+  if (data.title) html.push(`<div class="title">${esc(data.title)}</div>`);
+  if (data.contact) {
+    html.push(`<div class="contact-row">`);
+    if (data.contact.email) html.push(`<a href="mailto:${esc(data.contact.email)}">✉ ${esc(data.contact.email)}</a>`);
+    if (data.contact.github) html.push(`<a href="https://${esc(data.contact.github)}" target="_blank">🐙 ${esc(data.contact.github)}</a>`);
+    if (data.contact.linkedin) html.push(`<a href="https://${esc(data.contact.linkedin)}" target="_blank">💼 ${esc(data.contact.linkedin)}</a>`);
+    if (data.contact.website) html.push(`<a href="${esc(data.contact.website)}" target="_blank">🌐 ${esc(data.contact.website)}</a>`);
+    html.push(`</div>`);
+  }
+  html.push(`</div>`);
+
+  if (data.summary) {
+    html.push(`<div class="card"><h2 class="section-title">📋 个人简介</h2><p class="summary-text">${esc(data.summary)}</p></div>`);
+  }
+
+  if (data.sections) {
+    for (const section of data.sections) {
+      if (section.type === "experience" || section.type === "education") {
+        const icon = section.type === "experience" ? "💼" : "🎓";
+        html.push(`<div class="card"><h2 class="section-title">${icon} ${esc(section.title)}</h2>`);
+        for (const item of section.items) {
+          html.push(`<div class="timeline-item"><h3>${esc(item.title)}</h3>`);
+          if (item.subtitle || item.dateRange) {
+            html.push(`<div class="meta">${[item.subtitle, item.dateRange].filter(Boolean).join(" · ")}</div>`);
+          }
+          if (item.highlights && item.highlights.length) {
+            html.push(`<ul>${item.highlights.map(h => `<li>${esc(h)}</li>`).join("")}</ul>`);
+          }
+          html.push(`</div>`);
+        }
+        html.push(`</div>`);
+      }
+
+      if (section.type === "skills") {
+        html.push(`<div class="card"><h2 class="section-title">🔧 ${esc(section.title)}</h2><div class="skills-grid">`);
+        for (const item of section.items) {
+          if (item.tags) {
+            for (const tag of item.tags) {
+              const cat = getSkillCategory(tag);
+              html.push(`<span class="skill-tag" style="background:${skillColor(cat)}">${esc(tag)}</span>`);
+            }
+          }
+          if (item.description) {
+            item.description.split(/[,，\/\n]/).map(t => t.trim()).filter(Boolean).forEach(t => {
+              const cat = getSkillCategory(t);
+              html.push(`<span class="skill-tag" style="background:${skillColor(cat)}">${esc(t)}</span>`);
+            });
+          }
+        }
+        html.push(`</div></div>`);
+      }
+
+      if (section.type === "projects") {
+        html.push(`<div class="card"><h2 class="section-title">🚀 ${esc(section.title)}</h2><div class="project-grid">`);
+        for (const item of section.items) {
+          html.push(`<div class="project-card"><h4>${esc(item.title)}</h4>`);
+          if (item.dateRange) html.push(`<div class="date">${esc(item.dateRange)}</div>`);
+          if (item.subtitle) html.push(`<p>${esc(item.subtitle)}</p>`);
+          if (item.description) html.push(`<p>${esc(item.description)}</p>`);
+          if (item.highlights && item.highlights.length) {
+            html.push(`<ul>${item.highlights.map(h => `<li>${esc(h)}</li>`).join("")}</ul>`);
+          }
+          html.push(`</div>`);
+        }
+        html.push(`</div></div>`);
+      }
+    }
+  }
+
+  document.getElementById("app").innerHTML = html.join("");
+}
+
+function esc(s) {
+  const d = document.createElement("div");
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+loadResume();
+</script>
+</body>
+</html>
