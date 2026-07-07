@@ -1,6 +1,9 @@
-import { execSync } from "node:child_process";
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
 import { StructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
+const execPromise = promisify(exec);
+
 
 export class ShellTool extends StructuredTool {
   name = "execute_command";
@@ -13,16 +16,16 @@ export class ShellTool extends StructuredTool {
 
   protected async _call({ command, workdir, timeout }: z.infer<typeof this.schema>): Promise<string> {
     try {
-      const output = execSync(command, {
+      const { stdout, stderr } = await execPromise(command, {
         cwd: workdir || process.cwd(),
         timeout: timeout || 30000,
         encoding: "utf-8",
         maxBuffer: 10 * 1024 * 1024,
       });
-      return `Exit code: 0\n\n${output.toString()}`;
+      return `Exit code: 0\n\n${stdout}`;
     } catch (error: unknown) {
-      const err = error as { status?: number; stdout?: string; stderr?: string; message?: string };
-      return `Exit code: ${err.status ?? 1}\n\nstdout:\n${err.stdout || ""}\nstderr:\n${err.stderr || ""}\n${err.message || ""}`;
+      const err = error as { code?: number; stdout?: string; stderr?: string; message?: string };
+      return `Exit code: ${err.code ?? 1}\n\nstdout:\n${err.stdout || ""}\nstderr:\n${err.stderr || ""}\n${err.message || ""}`;
     }
   }
 }
