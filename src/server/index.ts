@@ -6,8 +6,13 @@ import { RagVectorStore } from "../rag/vectorstore.js";
 import { loadDocument } from "../rag/loader.js";
 import { dirname } from "path";
 import { fileURLToPath } from "url";
+import type { ResumeStore } from "../resume/store.js";
+import type { ResumeData } from "../resume/types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AgentExecutor = any;
 
 interface DocMeta {
   filename: string;
@@ -15,7 +20,13 @@ interface DocMeta {
   indexedAt: Date;
 }
 
-export function createRagServer(store: RagVectorStore, port: number = 3001) {
+export function createRagServer(
+  store: RagVectorStore,
+  port: number = 3001,
+  executor?: AgentExecutor,
+  resumeStore?: ResumeStore,
+  resumeData?: ResumeData,
+) {
   const app = express();
   const upload = multer({ dest: "rag_uploads/" });
   const docMeta = new Map<string, DocMeta>();
@@ -63,6 +74,71 @@ export function createRagServer(store: RagVectorStore, port: number = 3001) {
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
+  });
+
+  // === Resume routes ===
+
+  // Provide resume data as JSON
+  app.get("/api/resume", async (_req, res) => {
+    if (!resumeStore) return res.status(404).json({ error: "Resume not available" });
+    const data = await resumeStore.getResumeData();
+    if (!data) return res.status(404).json({ error: "No resume data found" });
+    // For full sections, return the parsed data passed from index.ts
+    res.json({ ...data, sections: resumeData?.sections || [] });
+  });
+
+  // SSE chat endpoint
+  const sessions = new Map<string, { messages: { role: string; content: string }[] }>();
+
+  app.post("/api/resume/chat", async (req, res) => {
+    if (!executor) {
+      return res.status(503).json({ error: "Agent executor not available" });
+    }
+
+    const { question, sessionId } = req.body;
+    if (!question) return res.status(400).json({ error: "Missing question" });
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+
+    const sid = sessionId || randomUUID();
+    if (!sessions.has(sid)) sessions.set(sid, { messages: [] });
+    const session = sessions.get(sid)!;
+    session.messages.push({ role: "user", content: question });
+
+    let fullAnswer = "";
+    try {
+      // Build LangChain message history from session messages
+      const { HumanMessage, AIMessage } = await import("@langchain/core/messages");
+      const messages = session.messages.map((m: { role: string; content: string }) =>
+        m.role === "user" ? new HumanMessage(m.content) : new AIMessage(m.content)
+      );
+
+      const stream = await executor.stream({ messages });
+      for await (const chunk of stream) {
+        if (chunk.output !== undefined && chunk.output !== null) {
+          const text = String(chunk.output);
+          fullAnswer += text;
+          res.write(`event: token\ndata: ${JSON.stringify(text)}\n\n`);
+        }
+        // Flush if res.flushHeaders exists (Express 5)
+        if (typeof (res as any).flush === "function") (res as any).flush();
+      }
+
+      // Limit history to last 50 messages
+      if (session.messages.length > 50) {
+        session.messages = session.messages.slice(-50);
+      }
+      session.messages.push({ role: "assistant", content: fullAnswer });
+
+      res.write(`event: done\ndata: ${JSON.stringify(fullAnswer)}\n\n`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      res.write(`event: error\ndata: ${JSON.stringify(msg)}\n\n`);
+    }
+    res.end();
   });
 
   app.listen(port, () => console.log(`RAG server on http://localhost:${port}`));
