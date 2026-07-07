@@ -1,6 +1,4 @@
-import { config } from "dotenv";
-
-config();
+﻿import { config } from "dotenv";
 
 export interface AppConfig {
   openAIApiKey: string;
@@ -10,16 +8,20 @@ export interface AppConfig {
 }
 
 export function loadConfig(): AppConfig {
+  config();
+
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    console.error("OPENAI_API_KEY is required but not set.");
-    process.exit(1);
+    throw new Error("OPENAI_API_KEY is required but not set.");
   }
+
+  const maxIterationsRaw = parseInt(process.env.MAX_ITERATIONS ?? "25", 10);
+  const maxIterations = Number.isNaN(maxIterationsRaw) ? 25 : maxIterationsRaw;
 
   return {
     openAIApiKey: apiKey,
     modelName: process.env.OPENAI_MODEL ?? "gpt-4o",
-    maxIterations: parseInt(process.env.MAX_ITERATIONS ?? "25", 10),
+    maxIterations,
     baseURL: process.env.OPENAI_BASE_URL ?? "",
   };
 }
