@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAG Document Manager</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #f5f5f5;
+    color: #1a1a1a;
+    line-height: 1.5;
+  }
+
+  .container { max-width: 860px; margin: 0 auto; padding: 32px 24px; }
+
+  h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: 24px; }
+
+  /* Upload area */
+  .upload-zone {
+    border: 2px dashed #c0c0c0;
+    border-radius: 8px;
+    padding: 48px 24px;
+    text-align: center;
+    background: #fafafa;
+    transition: border-color 0.2s, background 0.2s;
+    cursor: pointer;
+    margin-bottom: 24px;
+  }
+  .upload-zone.drag-over {
+    border-color: #2563eb;
+    background: #eff6ff;
+  }
+  .upload-zone p { font-size: 0.95rem; color: #555; }
+  .upload-zone span { font-size: 0.8rem; color: #888; display: block; margin-top: 6px; }
+  .upload-zone input { display: none; }
+
+  /* Status */
+  .status { font-size: 0.85rem; color: #2563eb; margin-bottom: 16px; min-height: 20px; }
+  .status.error { color: #dc2626; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06); margin-bottom: 32px; }
+  th, td { text-align: left; padding: 10px 16px; font-size: 0.875rem; }
+  th { background: #fafafa; font-weight: 600; color: #555; border-bottom: 1px solid #e5e5e5; }
+  td { border-bottom: 1px solid #f0f0f0; }
+  tr:last-child td { border-bottom: none; }
+
+  button {
+    font-size: 0.8rem; padding: 4px 12px; border-radius: 4px; border: 1px solid #d0d0d0;
+    background: #fff; color: #333; cursor: pointer; transition: background 0.15s;
+  }
+  button:hover { background: #f0f0f0; }
+  button.danger { color: #dc2626; border-color: #fca5a5; }
+  button.danger:hover { background: #fef2f2; }
+  button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+  button.primary:hover { background: #1d4ed8; }
+
+  .empty { text-align: center; color: #999; padding: 32px 0; font-size: 0.9rem; }
+
+  /* Query */
+  .query-section { background: #fff; border-radius: 8px; padding: 20px 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  .query-section h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 12px; }
+  .query-row { display: flex; gap: 8px; }
+  .query-row input { flex: 1; padding: 8px 12px; border: 1px solid #d0d0d0; border-radius: 4px; font-size: 0.875rem; outline: none; }
+  .query-row input:focus { border-color: #2563eb; }
+
+  .results { margin-top: 16px; }
+  .result-item { padding: 10px 12px; border: 1px solid #e5e5e5; border-radius: 4px; margin-bottom: 8px; font-size: 0.85rem; }
+  .result-item .meta { color: #888; font-size: 0.75rem; margin-bottom: 4px; }
+  .result-item .score { color: #2563eb; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>RAG Document Manager</h1>
+
+  <div class="upload-zone" id="uploadZone">
+    <p>Drop files here or click to upload</p>
+    <span>.txt .pdf .md .docx</span>
+    <input type="file" id="fileInput" accept=".txt,.pdf,.md,.docx" multiple>
+  </div>
+  <div class="status" id="status"></div>
+
+  <table id="docTable">
+    <thead>
+      <tr><th>Filename</th><th>Chunks</th><th>Indexed At</th><th></th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <div class="query-section">
+    <h2>Query Documents</h2>
+    <div class="query-row">
+      <input type="text" id="queryInput" placeholder="Enter your query...">
+      <button class="primary" id="queryBtn">Search</button>
+    </div>
+    <div class="results" id="results"></div>
+  </div>
+</div>
+
+<script>
+  const zone = document.getElementById("uploadZone");
+  const input = document.getElementById("fileInput");
+  const status = document.getElementById("status");
+  const tbody = document.querySelector("#docTable tbody");
+  const queryInput = document.getElementById("queryInput");
+  const queryBtn = document.getElementById("queryBtn");
+  const results = document.getElementById("results");
+
+  zone.addEventListener("click", () => input.click());
+  zone.addEventListener("dragover", e => { e.preventDefault(); zone.classList.add("drag-over"); });
+  zone.addEventListener("dragleave", () => zone.classList.remove("drag-over"));
+  zone.addEventListener("drop", e => {
+    e.preventDefault();
+    zone.classList.remove("drag-over");
+    uploadFiles(e.dataTransfer.files);
+  });
+  input.addEventListener("change", () => { uploadFiles(input.files); input.value = ""; });
+
+  async function uploadFiles(files) {
+    for (const f of files) {
+      const valid = [".txt", ".pdf", ".md", ".docx"].some(ext => f.name.toLowerCase().endsWith(ext));
+      if (!valid) { setStatus(`Skipped ${f.name}: unsupported type`, true); continue; }
+      setStatus(`Uploading ${f.name}...`);
+      const form = new FormData();
+      form.append("file", f);
+      try {
+        const res = await fetch("/api/upload", { method: "POST", body: form });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        setStatus(`Uploaded ${data.filename} (${data.chunks} chunks)`);
+      } catch (err) {
+        setStatus(`Failed to upload ${f.name}: ${err.message}`, true);
+      }
+    }
+    loadDocs();
+  }
+
+  async function loadDocs() {
+    try {
+      const res = await fetch("/api/documents");
+      const docs = await res.json();
+      tbody.innerHTML = docs.length === 0
+        ? `<tr><td colspan="4" class="empty">No documents indexed</td></tr>`
+        : docs.map(d => `<tr>
+            <td>${esc(d.filename)}</td>
+            <td>${d.chunks}</td>
+            <td>${new Date(d.indexedAt).toLocaleString()}</td>
+            <td><button class="danger" data-id="${esc(d.id)}">Delete</button></td>
+          </tr>`).join("");
+      tbody.querySelectorAll("button.danger").forEach(btn => {
+        btn.addEventListener("click", () => deleteDoc(btn.dataset.id));
+      });
+    } catch { /* ignore */ }
+  }
+
+  async function deleteDoc(id) {
+    try {
+      await fetch(`/api/documents/${id}`, { method: "DELETE" });
+      setStatus("Document removed from index");
+      loadDocs();
+    } catch (err) {
+      setStatus(`Delete failed: ${err.message}`, true);
+    }
+  }
+
+  queryBtn.addEventListener("click", async () => {
+    const q = queryInput.value.trim();
+    if (!q) return;
+    results.innerHTML = "<p style='color:#888;font-size:0.85rem;'>Searching...</p>";
+    try {
+      const res = await fetch("/api/query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: q, k: 5 }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      results.innerHTML = data.results.length === 0
+        ? "<p style='color:#888;font-size:0.85rem;'>No results found</p>"
+        : data.results.map(r => `<div class="result-item">
+            <div class="meta">${esc(r.source)} &middot; <span class="score">score ${r.score.toFixed(4)}</span></div>
+            <div>${esc(r.content.substring(0, 300))}${r.content.length > 300 ? "..." : ""}</div>
+          </div>`).join("");
+    } catch (err) {
+      results.innerHTML = `<p style="color:#dc2626;font-size:0.85rem;">Error: ${esc(err.message)}</p>`;
+    }
+  });
+
+  queryInput.addEventListener("keydown", e => { if (e.key === "Enter") queryBtn.click(); });
+
+  function setStatus(msg, isError) {
+    status.textContent = msg;
+    status.className = "status" + (isError ? " error" : "");
+  }
+  function esc(s) {
+    const d = document.createElement("div");
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  loadDocs();
+</script>
+</body>
+</html>
