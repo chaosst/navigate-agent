@@ -13,6 +13,10 @@ import { AgentMemory } from "./memory/index.js";
 import { RagVectorStore } from "./rag/vectorstore.js";
 import { RagSearchTool } from "./rag/retriever.js";
 import { createRagServer } from "./server/index.js";
+import { ResumeStore } from "./resume/store.js";
+import { ResumeSearchTool } from "./resume/search-tool.js";
+import { parseResume } from "./resume/parser.js";
+import { existsSync, readFileSync } from "node:fs";
 
 async function main() {
   const config = loadConfig();
@@ -28,13 +32,56 @@ async function main() {
   // RAG setup
   const ragStore = new RagVectorStore(embeddings);
   const ragTool = new RagSearchTool(ragStore);
-  createRagServer(ragStore);
 
-  const allTools = [...createTools(), ragTool];
-  const systemPrompt = buildSystemPrompt();
+  // Resume setup
+  let resumeSummary: string | undefined;
+  let resumeTool: ResumeSearchTool | undefined;
+  let resumeData: Awaited<ReturnType<typeof parseResume>> | undefined;
+  let resumeStore: ResumeStore | undefined;
+
+  if (existsSync("resume.md")) {
+    try {
+      resumeStore = await ResumeStore.create("navigate.db", embeddings);
+      const rawMd = readFileSync("resume.md", "utf-8");
+      resumeData = parseResume("resume.md");
+
+      const hash = simpleHash(rawMd);
+      if (await resumeStore.hasChanged(hash)) {
+        await resumeStore.import(resumeData, rawMd);
+        console.log("Resume indexed successfully");
+      } else {
+        console.log("Resume unchanged, using cached index");
+      }
+
+      resumeSummary = await resumeStore.getSummary();
+      resumeTool = new ResumeSearchTool(resumeStore);
+    } catch (err) {
+      console.error("Resume loading skipped:", (err as Error).message);
+    }
+  }
+
+  const allTools = [
+    ...createTools(),
+    ragTool,
+    ...(resumeTool ? [resumeTool] : []),
+  ];
+
+  const systemPrompt = buildSystemPrompt(resumeSummary);
   const executor = await createAgentExecutor(llm, allTools, systemPrompt, config.maxIterations);
 
+  createRagServer(ragStore, 3001, executor, resumeStore, resumeData);
+
   render(React.createElement(App, { executor, memory }));
+}
+
+function simpleHash(s: string): string {
+  let hash = 0;
+  for (let i = 0; i < s.length; i++) {
+    const chr = s.charCodeAt(i);
+    hash = ((hash << 5) - hash) + chr;
+    hash |= 0;
+  }
+  return hash.toString(16);
 }
 
 main().catch(err => { console.error("Fatal:", err); process.exit(1); });
