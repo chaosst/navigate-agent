@@ -1,15 +1,17 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import { Box, Text } from "ink";
 import { Input } from "./input.js";
 import { Output, type OutputMessage } from "./output.js";
 import { handleCommand } from "./commands.js";
 import type { AgentExecutor } from "langchain/agents";
 import { runAgent } from "../agent/loop.js";
+import type { AgentMessage } from "../agent/types.js";
 
 interface AppProps { executor: AgentExecutor; }
 
 export function App({ executor }: AppProps) {
   const [messages, setMessages] = useState<OutputMessage[]>([]);
+  const historyRef = useRef<AgentMessage[]>([]);
   const [input, setInput] = useState("");
   const [running, setRunning] = useState(false);
   const [streamingText, setStreamingText] = useState("");
@@ -17,7 +19,7 @@ export function App({ executor }: AppProps) {
   const onSubmit = useCallback(async (value: string) => {
     if (value.startsWith("/")) {
       const result = handleCommand(value);
-      if (result === "CLEAR") { setMessages([]); return; }
+      if (result === "CLEAR") { setMessages([]); historyRef.current = []; return; }
       if (result) setMessages(prev => [...prev, { role: "system", content: result, timestamp: new Date() }]);
       return;
     }
@@ -25,7 +27,7 @@ export function App({ executor }: AppProps) {
     setRunning(true);
     setStreamingText("");
     try {
-      const output = await runAgent(executor, value, undefined, {
+      const output = await runAgent(executor, value, historyRef.current, {
         onToolStart(tool, input) {
           setMessages(prev => [...prev, { role: "tool", content: `Calling: ${tool}\n${JSON.stringify(input, null, 2)}`, name: tool, timestamp: new Date() }]);
         },
@@ -40,6 +42,8 @@ export function App({ executor }: AppProps) {
         },
       });
       setMessages(prev => [...prev, { role: "assistant", content: output, timestamp: new Date() }]);
+      historyRef.current.push({ role: "user", content: value } as AgentMessage);
+      historyRef.current.push({ role: "assistant", content: output } as AgentMessage);
       setStreamingText("");
     } catch (error) {
       setMessages(prev => [...prev, { role: "system", content: `Error: ${(error as Error).message}`, timestamp: new Date() }]);
