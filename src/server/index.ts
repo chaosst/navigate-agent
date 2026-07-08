@@ -31,8 +31,8 @@ interface DocMeta {
   indexedAt: Date;
 }
 
-/** HTML page shown when token is missing or invalid */
-const ACCESS_DENIED_PAGE = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Access Denied</title><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0f172a;color:#f1f5f9;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}.card{background:#1e293b;padding:48px 40px;border-radius:16px;max-width:480px;box-shadow:0 4px 24px rgba(0,0,0,.3)}h1{font-size:1.6rem;margin-bottom:8px}.hint{color:#94a3b8;font-size:.9rem;margin:20px 0;line-height:1.6}.token-box{background:#0f172a;padding:12px 16px;border-radius:8px;font-family:monospace;font-size:.85rem;word-break:break-all;color:#60a5fa}.footer{color:#64748b;font-size:.8rem;margin-top:24px}</style></head><body><div class="card"><h1>🔒 Access Denied</h1><p class="hint">需要有效的访问令牌才能使用此页面。<br>请使用 <code>?token=xxx</code> 参数访问。</p><p class="hint">在启动应用的终端中查找访问令牌。</p></div></body></html>`;
+/** HTML page shown when token is missing or invalid — checks sessionStorage first */
+const ACCESS_DENIED_PAGE = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Access Denied</title><script>var t=sessionStorage.getItem("navigate_token");if(t&&location.search.indexOf("token=")<0){location.search="?token="+t;throw"";}</script><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0f172a;color:#f1f5f9;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}.card{background:#1e293b;padding:48px 40px;border-radius:16px;max-width:480px;box-shadow:0 4px 24px rgba(0,0,0,.3)}h1{font-size:1.6rem;margin-bottom:8px}.hint{color:#94a3b8;font-size:.9rem;margin:20px 0;line-height:1.6}.token-box{background:#0f172a;padding:12px 16px;border-radius:8px;font-family:monospace;font-size:.85rem;word-break:break-all;color:#60a5fa}.footer{color:#64748b;font-size:.8rem;margin-top:24px}</style></head><body><div class="card"><h1>🔒 Access Denied</h1><p class="hint">需要有效的访问令牌才能使用此页面。<br>请使用 <code>?token=xxx</code> 参数访问。</p><p class="hint">在启动应用的终端中查找访问令牌。</p></div></body></html>`;
 
 /** Helper to extract token from query or body */
 function getToken(req: express.Request): string | undefined {
@@ -91,7 +91,13 @@ export function createRagServer(
     }
   });
 
-  // Generate a new token (requires valid current token)
+  // Generate a new token (no auth needed — restrict at network level in production)
+  app.post("/api/token/new", (_req, res) => {
+    const newToken = tokenManager.generate();
+    res.json({ token: newToken, expiresIn: 30 * 60 });
+  });
+
+  // Renew using existing valid token
   app.post("/api/token/renew", requireToken, (_req, res) => {
     const newToken = tokenManager.generate();
     res.json({ token: newToken, expiresIn: 30 * 60 });

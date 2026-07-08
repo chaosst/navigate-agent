@@ -40,20 +40,61 @@ export function ControlledTextInput({ value, onChange, onSubmit, disabled, place
       const raw = data.toString("utf-8");
 
       // Bracketed paste markers
+      // Paste markers in their own chunks
       if (raw === "\x1b[200~") { pastingRef.current = true; return; }
       if (raw === "\x1b[201~") { pastingRef.current = false; return; }
+      // Paste text in separate chunk(s) — accumulate directly
       if (pastingRef.current) {
-        bufferRef.current += raw;
-        onChange(bufferRef.current);
+        const pe = raw.indexOf("\x1b[201~");
+        if (pe >= 0) {
+          bufferRef.current += raw.slice(0, pe);
+          onChange(bufferRef.current);
+          pastingRef.current = false;
+          const after = raw.slice(pe + 6);
+          if (after) buf += after;
+        } else {
+          bufferRef.current += raw;
+          onChange(bufferRef.current);
+        }
         return;
       }
-
       buf += raw;
 
       while (buf.length > 0) {
-        // Paste markers that may straddle chunks
-        if (buf.startsWith("\x1b[200~")) { pastingRef.current = true; buf = buf.slice(6); return; }
-        if (buf.startsWith("\x1b[201~")) { pastingRef.current = false; buf = buf.slice(6); return; }
+        // --- Bracketed paste handling (marker may be adjacent to paste text) ---
+        const ps = buf.indexOf("\x1b[200~");
+        if (ps >= 0) {
+          // Text before the marker is normal input (unlikely but handle it)
+          if (ps > 0) { /* process buf.slice(0, ps) as normal — will fall through */ }
+          pastingRef.current = true;
+          buf = buf.slice(ps + 6); // skip the marker
+          // Collect all text until end marker (may not be in this chunk)
+          const pe = buf.indexOf("\x1b[201~");
+          if (pe >= 0) {
+            // Complete paste in one chunk
+            const pasteText = buf.slice(0, pe);
+            if (pasteText) { bufferRef.current += pasteText; onChange(bufferRef.current); }
+            buf = buf.slice(pe + 6);
+            pastingRef.current = false;
+          }
+          // If no end marker yet, remaining buf IS the paste text — accumulate
+          continue;
+        }
+        if (pastingRef.current) {
+          const pe = buf.indexOf("\x1b[201~");
+          if (pe >= 0) {
+            const pasteText = buf.slice(0, pe);
+            if (pasteText) { bufferRef.current += pasteText; onChange(bufferRef.current); }
+            buf = buf.slice(pe + 6);
+            pastingRef.current = false;
+          } else {
+            // More paste text, no end marker yet
+            bufferRef.current += buf;
+            onChange(bufferRef.current);
+            buf = "";
+          }
+          continue;
+        }
 
         const ch = buf[0];
 
