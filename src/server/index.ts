@@ -256,6 +256,9 @@ export function createRagServer(
     });
   });
 
+  // Favicon — silent 204
+  app.get("/favicon.ico", (_req, res) => res.status(204).end());
+
   // Catch‑all: any unprotected page → denied
   app.use((req, res) => {
     if (req.accepts("html")) return res.status(401).send(ACCESS_DENIED_PAGE);
