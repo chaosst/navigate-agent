@@ -26,7 +26,7 @@ const options = {
   port: 3001,
   path: "/api/token/renew",
   method: "POST",
-  headers: { "Content-Type": "application/json" },
+  headers: { "Content-Type": "application/json", "Accept": "application/json" },
 };
 
 const req = request(options, (res) => {
