@@ -10,18 +10,13 @@ interface TextInputProps {
 }
 
 /**
- * Multi-line raw stdin input handler with history, paste, and IME support.
- *
- * Arrow Up/Down  — cycle through command history
- * Ctrl+U        — clear line
- * Ctrl+C        — exit
- * Backspace     — delete last char
- * Paste / IME   — handled via buffer accumulation
+ * Raw stdin input handler with history, bracketed paste, and IME support.
  */
 export function ControlledTextInput({ value, onChange, onSubmit, disabled, placeholder }: TextInputProps) {
   const bufferRef = useRef(value);
   const historyRef = useRef<string[]>([]);
   const historyIdxRef = useRef(-1);
+  const pastingRef = useRef(false);
 
   useEffect(() => { bufferRef.current = value; }, [value]);
 
@@ -42,60 +37,62 @@ export function ControlledTextInput({ value, onChange, onSubmit, disabled, place
     let buf = "";
 
     const handler = (data: Buffer) => {
-      buf += data.toString("utf-8");
+      const raw = data.toString("utf-8");
 
-      // Process complete sequences from the buffer
+      // Bracketed paste markers
+      if (raw === "\x1b[200~") { pastingRef.current = true; return; }
+      if (raw === "\x1b[201~") { pastingRef.current = false; return; }
+      if (pastingRef.current) {
+        bufferRef.current += raw;
+        onChange(bufferRef.current);
+        return;
+      }
+
+      buf += raw;
+
       while (buf.length > 0) {
-        // Escape sequences: \x1b[... (CSI) or \x1b + single char
-        if (buf[0] === "\x1b") {
+        // Paste markers that may straddle chunks
+        if (buf.startsWith("\x1b[200~")) { pastingRef.current = true; buf = buf.slice(6); return; }
+        if (buf.startsWith("\x1b[201~")) { pastingRef.current = false; buf = buf.slice(6); return; }
+
+        const ch = buf[0];
+
+        // ESC sequences
+        if (ch === "\x1b") {
           if (buf.length >= 3 && buf[1] === "[") {
             const csi = buf[2];
-            if (buf.length >= 3) {
-              buf = buf.slice(3);
-              if (csi === "A") {
-                // Arrow Up
-                if (historyIdxRef.current < historyRef.current.length - 1) {
-                  historyIdxRef.current++;
-                  bufferRef.current = historyRef.current[historyRef.current.length - 1 - historyIdxRef.current];
-                  onChange(bufferRef.current);
-                }
-              } else if (csi === "B") {
-                // Arrow Down
-                if (historyIdxRef.current > 0) {
-                  historyIdxRef.current--;
-                  bufferRef.current = historyRef.current[historyRef.current.length - 1 - historyIdxRef.current];
-                  onChange(bufferRef.current);
-                } else if (historyIdxRef.current === 0) {
-                  historyIdxRef.current = -1;
-                  bufferRef.current = "";
-                  onChange("");
-                }
+            buf = buf.slice(3);
+            if (csi === "A") {
+              if (historyIdxRef.current < historyRef.current.length - 1) {
+                historyIdxRef.current++;
+                bufferRef.current = historyRef.current[historyRef.current.length - 1 - historyIdxRef.current];
+                onChange(bufferRef.current);
               }
-              // Ignore other CSI sequences (left/right/home/end/del)
+            } else if (csi === "B") {
+              if (historyIdxRef.current > 0) {
+                historyIdxRef.current--;
+                bufferRef.current = historyRef.current[historyRef.current.length - 1 - historyIdxRef.current];
+                onChange(bufferRef.current);
+              } else if (historyIdxRef.current === 0) {
+                historyIdxRef.current = -1;
+                bufferRef.current = "";
+                onChange("");
+              }
             }
-          } else if (buf.length >= 2) {
-            // Single-char escape (e.g. ESC alone)
-            buf = buf.slice(2);
+          } else {
+            buf = buf.slice(1);
           }
           continue;
         }
 
         // Ctrl+C
-        if (buf[0] === "\x03") {
-          buf = buf.slice(1);
-          process.exit(0);
-        }
+        if (ch === "\x03") { buf = buf.slice(1); process.exit(0); }
 
-        // Ctrl+U — clear line
-        if (buf[0] === "\x15") {
-          buf = buf.slice(1);
-          bufferRef.current = "";
-          onChange("");
-          continue;
-        }
+        // Ctrl+U
+        if (ch === "\x15") { buf = buf.slice(1); bufferRef.current = ""; onChange(""); continue; }
 
-        // Backspace / DEL
-        if (buf[0] === "\x7f" || buf[0] === "\b") {
+        // Backspace
+        if (ch === "\x7f" || ch === "\b") {
           buf = buf.slice(1);
           bufferRef.current = bufferRef.current.slice(0, -1);
           onChange(bufferRef.current);
@@ -103,47 +100,33 @@ export function ControlledTextInput({ value, onChange, onSubmit, disabled, place
         }
 
         // Enter
-        if (buf[0] === "\r" || buf[0] === "\n") {
-          buf = buf.slice(1);
-          commitLine(bufferRef.current);
-          continue;
-        }
+        if (ch === "\r" || ch === "\n") { buf = buf.slice(1); commitLine(bufferRef.current); continue; }
 
-        // Regular visible character or multi-byte sequence
-        // Consume one character (may be multi-byte UTF-8)
-        const char = buf[0];
-        const codePoint = char.charCodeAt(0);
-
-        if (codePoint >= 0x20 && codePoint !== 0x7f) {
-          // Single-byte ASCII printable
+        // Multi-byte UTF-8: determine byte length from first byte
+        const cc = ch.charCodeAt(0);
+        if (cc >= 0x20 && cc !== 0x7f) {
+          // ASCII printable
           buf = buf.slice(1);
-          bufferRef.current += char;
+          bufferRef.current += ch;
           onChange(bufferRef.current);
-        } else if (codePoint >= 0x80) {
-          // Multi-byte UTF-8: find where this character ends
-          let byteLen = 1;
-          if ((codePoint & 0xe0) === 0xc0) byteLen = 2;
-          else if ((codePoint & 0xf0) === 0xe0) byteLen = 3;
-          else if ((codePoint & 0xf8) === 0xf0) byteLen = 4;
-
-          if (buf.length >= byteLen) {
-            bufferRef.current += buf.slice(0, byteLen);
-            buf = buf.slice(byteLen);
+        } else if (cc >= 0x80) {
+          let len = 1;
+          if ((cc & 0xe0) === 0xc0) len = 2;
+          else if ((cc & 0xf0) === 0xe0) len = 3;
+          else if ((cc & 0xf8) === 0xf0) len = 4;
+          if (buf.length >= len) {
+            bufferRef.current += buf.slice(0, len);
+            buf = buf.slice(len);
             onChange(bufferRef.current);
-          } else {
-            // Incomplete multi-byte — wait for more data
-            break;
-          }
+          } else break; // incomplete — wait for more data
         } else {
-          // Non-printable control char — skip
-          buf = buf.slice(1);
+          buf = buf.slice(1); // skip other control chars
         }
       }
     };
 
     process.stdin.on("data", handler);
     process.stdin.setRawMode?.(true);
-
     return () => {
       process.stdin.off("data", handler);
       process.stdin.setRawMode?.(false);

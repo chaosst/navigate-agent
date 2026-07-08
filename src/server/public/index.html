@@ -107,11 +107,18 @@
 </div>
 
 <script>
-  const urlParams = new URLSearchParams(location.search);
-  const TOKEN = urlParams.get("token");
+  // Token from URL → sessionStorage; fallback to stored token
+  const urlToken = new URLSearchParams(location.search).get("token");
+  if (urlToken) sessionStorage.setItem("navigate_token", urlToken);
+  const TOKEN = sessionStorage.getItem("navigate_token");
   if (!TOKEN) {
-    document.body.innerHTML = '<div style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;font-size:1.2rem;color:#dc2626;background:#0f172a;color:#f1f5f9;">❌ Missing token parameter. <a href="/" style="margin-left:8px;color:#60a5fa;">Go back</a></div>';
+    document.body.innerHTML = '<div style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;font-size:1.2rem;color:#dc2626;background:#0f172a;color:#f1f5f9;">❌ No access token. Please access via a token URL.</div>';
   }
+  // Rewrite nav links to include token
+  document.querySelectorAll(".nav-bar a").forEach(a => {
+    const href = a.getAttribute("href");
+    if (href && !href.includes("token=")) a.setAttribute("href", href + "?token=" + TOKEN);
+  });
 
   const zone = document.getElementById("uploadZone");
   const input = document.getElementById("fileInput");
