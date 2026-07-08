@@ -31,8 +31,11 @@ interface DocMeta {
   indexedAt: Date;
 }
 
-/** HTML page shown when token is missing or invalid — checks sessionStorage first */
-const ACCESS_DENIED_PAGE = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Access Denied</title><script>var t=sessionStorage.getItem("navigate_token");if(t&&location.search.indexOf("token=")<0){location.search="?token="+t;throw"";}</script><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0f172a;color:#f1f5f9;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}.card{background:#1e293b;padding:48px 40px;border-radius:16px;max-width:480px;box-shadow:0 4px 24px rgba(0,0,0,.3)}h1{font-size:1.6rem;margin-bottom:8px}.hint{color:#94a3b8;font-size:.9rem;margin:20px 0;line-height:1.6}.token-box{background:#0f172a;padding:12px 16px;border-radius:8px;font-family:monospace;font-size:.85rem;word-break:break-all;color:#60a5fa}.footer{color:#64748b;font-size:.8rem;margin-top:24px}</style></head><body><div class="card"><h1>🔒 Access Denied</h1><p class="hint">需要有效的访问令牌才能使用此页面。<br>请使用 <code>?token=xxx</code> 参数访问。</p><p class="hint">在启动应用的终端中查找访问令牌。</p></div></body></html>`;
+/** Page served when URL has a token param but the token is invalid */
+const ACCESS_DENIED_PAGE = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Access Denied</title><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0f172a;color:#f1f5f9;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}.card{background:#1e293b;padding:48px 40px;border-radius:16px;max-width:480px;box-shadow:0 4px 24px rgba(0,0,0,.3)}h1{font-size:1.6rem;margin-bottom:8px;color:#f87171}.icn{font-size:3rem;margin-bottom:8px}.hint{color:#94a3b8;font-size:.9rem;margin:20px 0;line-height:1.6}.token-box{background:#0f172a;padding:12px 16px;border-radius:8px;font-family:monospace;font-size:.85rem;word-break:break-all;color:#60a5fa}.footer{color:#64748b;font-size:.8rem;margin-top:24px}</style></head><body><div class="card"><div class="icn">🔒</div><h1>Access Denied</h1><p class="hint">当前令牌无效或已过期。<br>请获取新的访问令牌后重试。</p></div></body></html>`;
+
+/** Minimal page that reads sessionStorage and redirects with the stored token */
+const SESSION_REDIRECT_PAGE = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><script>var t=sessionStorage.getItem("navigate_token");if(t&&location.search.indexOf("token")<0){location.href=location.pathname+"?token="+encodeURIComponent(t);}else{document.write('<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0f172a;color:#f1f5f9;font-family:sans-serif;text-align:center;flex-direction:column;gap:12px"><span style="font-size:3rem">🔒</span><h1 style="margin:0;color:#f87171">Access Denied</h1><p style="color:#94a3b8;max-width:360px;line-height:1.6">当前没有访问权限。请使用 <code style="background:#1e293b;padding:2px 8px;border-radius:4px">?token=xxx</code> 参数访问。</p></div>');}</script></head><body></body></html>`;
 
 /** Helper to extract token from query or body */
 function getToken(req: express.Request): string | undefined {
@@ -52,10 +55,10 @@ function requireToken(req: express.Request, res: express.Response, next: express
   }
   // API calls → JSON; browser page loads → HTML denied page
   if (req.accepts("json") || req.path.startsWith("/api/")) {
-    res.status(401).json({ error: "Invalid or expired token" });
-  } else {
-    res.status(401).send(ACCESS_DENIED_PAGE);
+    res.status(401).json({ error: "Invalid or expired token" }); return;
   }
+  const hasTokenParam = req.query?.token !== undefined;
+  res.status(401).send(hasTokenParam ? ACCESS_DENIED_PAGE : SESSION_REDIRECT_PAGE);
 }
 
 export function createRagServer(
@@ -268,9 +271,10 @@ export function createRagServer(
   // Catch‑all: any unprotected page → denied
   app.use((req, res) => {
     if (req.accepts("json") || req.path.startsWith("/api/")) {
-      return res.status(404).json({ error: "Not found" });
+      res.status(404).json({ error: "Not found" }); return;
     }
-    res.status(401).send(ACCESS_DENIED_PAGE);
+    const hasTokenParam = req.query?.token !== undefined;
+    res.status(401).send(hasTokenParam ? ACCESS_DENIED_PAGE : SESSION_REDIRECT_PAGE);
   });
 
   app.listen(port, () => console.log(`RAG server on http://localhost:${port}`));
