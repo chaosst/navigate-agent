@@ -152,7 +152,9 @@ const SUGGESTIONS = [
   "📊 分析我的技能优势",
 ];
 
-let sessionId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36);
+const urlParams = new URLSearchParams(location.search);
+const TOKEN = urlParams.get("token");
+if (!TOKEN) { document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-size:1.2rem;color:#dc2626;">❌ Missing token parameter. Please add ?token=xxx to the URL.</div>'; throw new Error("no token"); }
 let loading = false;
 
 const chatArea = document.getElementById("chat-area");
@@ -173,6 +175,22 @@ input.addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
 });
 sendBtn.addEventListener("click", send);
+
+// Load chat history for this token
+async function loadHistory() {
+  try {
+    const res = await fetch(`/api/chat/history?token=${TOKEN}`);
+    const data = await res.json();
+    if (data.messages && data.messages.length > 0) {
+      const placeholder = chatArea.querySelector(".placeholder");
+      if (placeholder) placeholder.remove();
+      for (const m of data.messages) {
+        appendMessage(m.role, m.content);
+      }
+    }
+  } catch { /* no history */ }
+}
+if (TOKEN) loadHistory();
 
 async function send() {
   const q = input.value.trim();
@@ -201,7 +219,7 @@ async function ask(question) {
     const res = await fetch("/api/resume/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, sessionId }),
+      body: JSON.stringify({ question, sessionId: TOKEN, token: TOKEN }),
     });
 
     if (!res.ok) {
