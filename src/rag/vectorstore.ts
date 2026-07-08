@@ -46,10 +46,18 @@ export class RagVectorStore {
   }
 
   private keywordSearch(query: string, k: number = 5): RagResult[] {
-    const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+    // Build terms: English words + individual CJK characters (Chinese has no word boundaries)
+    const terms: string[] = [];
+    const lowerQ = query.toLowerCase();
+    const engWords = lowerQ.match(/[a-z0-9_+#.-]+/gi) || [];
+    terms.push(...engWords);
+    for (const ch of lowerQ) {
+      const code = ch.charCodeAt(0);
+      if (code >= 0x4e00 && code <= 0x9fff) terms.push(ch);
+    }
     if (terms.length === 0 || this.rawChunks.length === 0) return [];
 
-    const scored = this.rawChunks.map((c, i) => {
+    const scored = this.rawChunks.map((c) => {
       const lower = c.content.toLowerCase();
       let score = 0;
       for (const t of terms) {

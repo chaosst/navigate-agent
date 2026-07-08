@@ -152,9 +152,14 @@ const SUGGESTIONS = [
   "📊 分析我的技能优势",
 ];
 
-const urlParams = new URLSearchParams(location.search);
-const TOKEN = urlParams.get("token");
-if (!TOKEN) { document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-size:1.2rem;color:#dc2626;">❌ Missing token parameter. Please add ?token=xxx to the URL.</div>'; throw new Error("no token"); }
+const urlToken = new URLSearchParams(location.search).get("token");
+if (urlToken) sessionStorage.setItem("navigate_token", urlToken);
+const TOKEN = sessionStorage.getItem("navigate_token");
+if (!TOKEN) { document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-size:1.2rem;color:#dc2626;">❌ No access token.</div>'; throw new Error("no token"); }
+document.querySelectorAll(".nav-bar a").forEach(function(a) {
+  var href = a.getAttribute("href");
+  if (href && href.indexOf("token=") === -1) a.setAttribute("href", href + "?token=" + TOKEN);
+});
 let loading = false;
 
 const chatArea = document.getElementById("chat-area");
