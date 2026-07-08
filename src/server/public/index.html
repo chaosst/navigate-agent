@@ -107,6 +107,12 @@
 </div>
 
 <script>
+  const urlParams = new URLSearchParams(location.search);
+  const TOKEN = urlParams.get("token");
+  if (!TOKEN) {
+    document.body.innerHTML = '<div style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;font-size:1.2rem;color:#dc2626;background:#0f172a;color:#f1f5f9;">❌ Missing token parameter. <a href="/" style="margin-left:8px;color:#60a5fa;">Go back</a></div>';
+  }
+
   const zone = document.getElementById("uploadZone");
   const input = document.getElementById("fileInput");
   const status = document.getElementById("status");
@@ -133,7 +139,7 @@
       const form = new FormData();
       form.append("file", f);
       try {
-        const res = await fetch("/api/upload", { method: "POST", body: form });
+        const res = await fetch(`/api/upload?token=${TOKEN}`, { method: "POST", body: form });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
         setStatus(`Uploaded ${data.filename} (${data.chunks} chunks)`);
@@ -146,7 +152,7 @@
 
   async function loadDocs() {
     try {
-      const res = await fetch("/api/documents");
+      const res = await fetch(`/api/documents?token=${TOKEN}`);
       const docs = await res.json();
       tbody.innerHTML = docs.length === 0
         ? `<tr><td colspan="4" class="empty">No documents indexed</td></tr>`
@@ -164,7 +170,7 @@
 
   async function deleteDoc(id) {
     try {
-      await fetch(`/api/documents/${id}`, { method: "DELETE" });
+      await fetch(`/api/documents/${id}?token=${TOKEN}`, { method: "DELETE" });
       setStatus("Document removed from index");
       loadDocs();
     } catch (err) {
@@ -177,7 +183,7 @@
     if (!q) return;
     results.innerHTML = "<p style='color:#888;font-size:0.85rem;'>Searching...</p>";
     try {
-      const res = await fetch("/api/query", {
+      const res = await fetch(`/api/query?token=${TOKEN}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: q, k: 5 }),
