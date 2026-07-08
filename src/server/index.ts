@@ -50,11 +50,11 @@ function requireToken(req: express.Request, res: express.Response, next: express
     next();
     return;
   }
-  // For page requests (Accept: text/html), show the denied page
-  if (req.accepts("html")) {
-    res.status(401).send(ACCESS_DENIED_PAGE);
-  } else {
+  // API calls → JSON; browser page loads → HTML denied page
+  if (req.accepts("json") || req.path.startsWith("/api/")) {
     res.status(401).json({ error: "Invalid or expired token" });
+  } else {
+    res.status(401).send(ACCESS_DENIED_PAGE);
   }
 }
 
@@ -261,8 +261,10 @@ export function createRagServer(
 
   // Catch‑all: any unprotected page → denied
   app.use((req, res) => {
-    if (req.accepts("html")) return res.status(401).send(ACCESS_DENIED_PAGE);
-    res.status(404).json({ error: "Not found" });
+    if (req.accepts("json") || req.path.startsWith("/api/")) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    res.status(401).send(ACCESS_DENIED_PAGE);
   });
 
   app.listen(port, () => console.log(`RAG server on http://localhost:${port}`));
