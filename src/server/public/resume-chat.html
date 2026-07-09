@@ -221,10 +221,10 @@ async function ask(question) {
   const aiMsgEl = appendMessage("ai", "", true);
 
   try {
-    const res = await fetch("/api/resume/chat", {
+    const res = await fetch(`/api/resume/chat?token=${TOKEN}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, sessionId: TOKEN, token: TOKEN }),
+      body: JSON.stringify({ question, sessionId: TOKEN }),
     });
 
     if (!res.ok) {
