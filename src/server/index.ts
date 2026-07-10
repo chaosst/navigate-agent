@@ -7,7 +7,6 @@ import { loadDocument } from "../rag/loader.js";
 import { dirname } from "path";
 import { fileURLToPath } from "url";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
 import type { ResumeStore } from "../resume/store.js";
 import type { ResumeData } from "../resume/types.js";
 import { tokenManager } from "./token.js";
