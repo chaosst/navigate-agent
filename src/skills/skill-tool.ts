@@ -24,7 +24,7 @@ async function callHttp(action: SkillAction, params: Record<string, unknown>): P
   }
   const body = action.body ? renderTemplate(action.body, params) : undefined;
 
-  const res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  const res = await fetch(url, { method, headers, body: body || undefined });
   const text = await res.text();
   if (!res.ok) return `HTTP ${res.status}: ${text}`;
   try {
