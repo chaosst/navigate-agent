@@ -260,6 +260,39 @@ export class WikiStore {
     return article;
   }
 
+  /** Create a wiki article from an uploaded file (no RAG sync — already indexed by upload handler) */
+  async createArticleFromUpload(filename: string, content: string): Promise<WikiArticle> {
+    const id = randomUUID();
+    const title = filename.replace(/\.(md|txt|pdf|docx)$/i, "");
+    const slug = this.slugify(title);
+    const now = new Date().toISOString();
+    const summary = content.slice(0, 200).replace(/\n/g, " ");
+
+    this.db.run("BEGIN");
+    try {
+      this.db.run(
+        `INSERT INTO wiki_articles (id, title, slug, content_md, summary, category_id, tags, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, title, slug, content, summary, null, "", "published", now, now]
+      );
+      this.db.run(
+        `INSERT INTO wiki_revisions (id, article_id, content_md, summary, editor_note, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+        [randomUUID(), id, content, summary, "从文件上传创建", now]
+      );
+      this.db.run("COMMIT");
+    } catch (err) {
+      this.db.run("ROLLBACK");
+      throw err;
+    }
+    this.save();
+
+    return {
+      id, title, slug, contentMd: content,
+      summary, categoryId: null, tags: [],
+      status: "published", createdAt: new Date(now), updatedAt: new Date(now),
+    };
+  }
+
   async updateArticle(id: string, data: { title?: string; contentMd?: string; summary?: string; categoryId?: string | null; tags?: string[]; status?: "draft" | "published" }): Promise<WikiArticle | null> {
     const existing = await this.getArticle(id);
     if (!existing) return null;
