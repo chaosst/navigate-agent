@@ -155,6 +155,18 @@ export function createRagServer(
       await store.addChunks(chunks, docId);
       docMeta.set(docId, { filename, chunks: chunks.length, indexedAt: new Date() });
       saveDocMeta();
+
+      // Also create a wiki article from the uploaded file
+      if (wikiStore) {
+        try {
+          const fullContent = chunks.map(c => c.content).join("\n\n");
+          const article = await wikiStore.createArticleFromUpload(filename, fullContent);
+          console.log(`[wiki] Created article from upload: ${article.title} (${article.slug})`);
+        } catch (wikiErr) {
+          console.warn(`[wiki] Could not create article from upload:`, (wikiErr as Error).message);
+        }
+      }
+
       res.json({ docId, filename, chunks: chunks.length });
     } catch (err) {
       console.error("[upload] Error:", err);
