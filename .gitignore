@@ -6,6 +6,8 @@ navigate.db
 rag_data/
 rag_uploads/
 .vscode/
+wiki-js/node_modules/
+wiki-js/data/
 .superpowers/sdd/task-*-brief.md
 .superpowers/sdd/task-*-report.md
 .superpowers/sdd/review-*.diff
