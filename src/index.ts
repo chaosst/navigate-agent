@@ -15,7 +15,6 @@ import { RagVectorStore } from "./rag/vectorstore.js";
 import { RagSearchTool } from "./rag/retriever.js";
 import { createRagServer } from "./server/index.js";
 import { ResumeStore } from "./resume/store.js";
-import { WikiStore } from "./wiki/store.js";
 import { ResumeSearchTool } from "./resume/search-tool.js";
 import { parseResume } from "./resume/parser.js";
 import { existsSync, readFileSync } from "node:fs";
@@ -64,15 +63,6 @@ async function main() {
     }
   }
 
-  // Wiki setup
-  let wikiStore: WikiStore | undefined;
-  try {
-    wikiStore = await WikiStore.create("navigate.db", ragStore);
-    console.log("Wiki knowledge base initialized");
-  } catch (err) {
-    console.warn("Wiki initialization skipped:", (err as Error).message);
-  }
-
   // Skill system setup
   let skillTools: StructuredTool[] = [];
   try {
@@ -92,7 +82,7 @@ async function main() {
   const systemPrompt = buildSystemPrompt(resumeSummary);
   const executor = await createAgentExecutor(llm, allTools, systemPrompt, config.maxIterations);
 
-  createRagServer(ragStore, 3001, executor, resumeStore, resumeData, wikiStore);
+  createRagServer(ragStore, 3001, executor, resumeStore, resumeData);
 
   render(React.createElement(App, { executor, memory }));
 }
