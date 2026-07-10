@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wiki 知识库</title>
+<style>
+  :root { --bg: #f8f9fa; --surface: #fff; --text: #1a1a2e; --text-muted: #6b7280; --primary: #2563eb; --primary-light: #eff6ff; --border: #e5e7eb; --radius: 12px; --danger: #dc2626; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0f172a; --surface: #1e293b; --text: #f1f5f9; --text-muted: #94a3b8; --primary: #60a5fa; --primary-light: #1e3a5f; --border: #334155; --danger: #ef4444; } }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; padding: 24px; }
+  .container { max-width: 960px; margin: 0 auto; }
+  .nav-bar { display: flex; gap: 16px; margin-bottom: 24px; justify-content: center; font-size: 0.9rem; }
+  .nav-bar a { color: var(--text-muted); text-decoration: none; padding: 6px 16px; border-radius: 8px; }
+  .nav-bar a:hover, .nav-bar a.active { background: var(--primary-light); color: var(--primary); }
+  .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+  .header h1 { font-size: 1.5rem; font-weight: 700; }
+  .btn { display: inline-flex; align-items: center; gap: 4px; padding: 8px 20px; border-radius: 8px; font-size: 0.85rem; font-weight: 500; cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--text); text-decoration: none; transition: all 0.15s; }
+  .btn:hover { border-color: var(--primary); color: var(--primary); }
+  .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .btn-primary:hover { opacity: 0.9; color: #fff; }
+  .btn-sm { padding: 4px 12px; font-size: 0.8rem; }
+  .toolbar { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+  .toolbar input, .toolbar select { padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.9rem; background: var(--surface); color: var(--text); }
+  .toolbar input { flex: 1; min-width: 200px; }
+  .article-list { display: flex; flex-direction: column; gap: 8px; }
+  .article-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--surface); border-radius: 8px; border: 1px solid var(--border); transition: box-shadow 0.15s; }
+  .article-row:hover { box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+  .article-info { flex: 1; cursor: pointer; }
+  .article-info h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 2px; }
+  .article-info .meta { font-size: 0.8rem; color: var(--text-muted); }
+  .article-info .summary { font-size: 0.85rem; color: var(--text-muted); margin-top: 4px; }
+  .article-actions { display: flex; gap: 8px; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; background: var(--primary-light); color: var(--primary); margin-right: 4px; }
+  .category-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; background: #f0fdf4; color: #16a34a; }
+  @media (prefers-color-scheme: dark) { .category-badge { background: #052e16; color: #4ade80; } }
+  .empty { text-align: center; padding: 48px; color: var(--text-muted); }
+  .pagination { display: flex; justify-content: center; gap: 8px; margin-top: 20px; }
+  .pagination .btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .loading { text-align: center; padding: 48px; color: var(--text-muted); }
+  .toast { position: fixed; bottom: 24px; right: 24px; padding: 12px 24px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.1); font-size: 0.9rem; z-index: 100; display: none; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="nav-bar">
+    <a href="/">📄 文档管理</a>
+    <a href="/wiki" class="active">📚 Wiki</a>
+    <a href="/resume">👤 简历</a>
+    <a href="/resume/chat">💬 问答</a>
+  </div>
+
+  <div class="header">
+    <h1>📚 Wiki 知识库</h1>
+    <a href="/wiki/edit" class="btn btn-primary">✏ 新建文章</a>
+  </div>
+
+  <div class="toolbar">
+    <input type="text" id="searchInput" placeholder="搜索文章..." oninput="loadArticles()">
+    <select id="categoryFilter" onchange="loadArticles()"><option value="">全部分类</option></select>
+  </div>
+
+  <div id="articleList"><div class="loading">加载中...</div></div>
+  <div class="pagination" id="pagination"></div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+let currentPage = 1;
+
+async function loadCategories() {
+  try {
+    const res = await fetch("/api/wiki/categories");
+    const cats = await res.json();
+    const sel = document.getElementById("categoryFilter");
+    cats.forEach(c => { const o = document.createElement("option"); o.value = c.id; o.textContent = c.name; sel.appendChild(o); });
+  } catch {}
+}
+
+async function loadArticles() {
+  const list = document.getElementById("articleList");
+  list.innerHTML = '<div class="loading">加载中...</div>';
+  try {
+    const search = document.getElementById("searchInput").value;
+    const category = document.getElementById("categoryFilter").value;
+    const params = new URLSearchParams({ page: currentPage, limit: 20 });
+    if (search) params.set("search", search);
+    if (category) params.set("category", category);
+    const res = await fetch(`/api/wiki/articles?${params}`);
+    const data = await res.json();
+    renderArticles(data);
+  } catch (err) {
+    list.innerHTML = `<div class="empty">❌ 加载失败: ${err.message}</div>`;
+  }
+}
+
+function renderArticles(data) {
+  const list = document.getElementById("articleList");
+  const pag = document.getElementById("pagination");
+  if (!data.items.length) {
+    list.innerHTML = '<div class="empty">📝 暂无文章，点击右上角新建</div>';
+    pag.innerHTML = "";
+    return;
+  }
+  list.innerHTML = '<div class="article-list">' + data.items.map(a => `
+    <div class="article-row">
+      <div class="article-info" onclick="location.href='/wiki/article?slug=${encodeURIComponent(a.slug)}'">
+        <h3>${esc(a.title)} ${a.status === 'draft' ? '<span style="color:#f59e0b;font-size:0.75rem;">[草稿]</span>' : ''}</h3>
+        <div class="meta">${a.categoryName ? `<span class="category-badge">${esc(a.categoryName)}</span> ` : ''}${a.tags.map(t => `<span class="tag">${esc(t)}</span>`).join('')} 更新于 ${formatTime(a.updatedAt)}</div>
+        ${a.summary ? `<div class="summary">${esc(a.summary.slice(0, 120))}</div>` : ''}
+      </div>
+      <div class="article-actions">
+        <a href="/wiki/edit?id=${a.id}" class="btn btn-sm">编辑</a>
+        <button class="btn btn-sm" onclick="deleteArticle('${a.id}')" style="color:var(--danger)">删除</button>
+      </div>
+    </div>
+  `).join('') + '</div>';
+
+  // Pagination
+  const totalPages = Math.ceil(data.total / data.limit);
+  if (totalPages <= 1) { pag.innerHTML = ""; return; }
+  let pagHtml = "";
+  for (let i = 1; i <= totalPages; i++) {
+    pagHtml += `<button class="btn btn-sm ${i === currentPage ? 'active' : ''}" onclick="currentPage=${i};loadArticles()">${i}</button>`;
+  }
+  pag.innerHTML = pagHtml;
+}
+
+async function deleteArticle(id) {
+  if (!confirm("确定删除这篇文章？")) return;
+  try {
+    const res = await fetch(`/api/wiki/articles/${id}`, { method: "DELETE" });
+    if (!res.ok) throw new Error((await res.json()).error);
+    showToast("✅ 已删除");
+    loadArticles();
+  } catch (err) {
+    showToast("❌ " + err.message);
+  }
+}
+
+function showToast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.style.display = "block";
+  setTimeout(() => t.style.display = "none", 3000);
+}
+
+function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+function formatTime(s) { try { return new Date(s).toLocaleDateString("zh-CN"); } catch { return s; } }
+
+loadCategories();
+loadArticles();
+</script>
+</body>
+</html>

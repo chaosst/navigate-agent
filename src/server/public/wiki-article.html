@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wiki 文章</title>
+<style>
+  :root { --bg: #f8f9fa; --surface: #fff; --text: #1a1a2e; --text-muted: #6b7280; --primary: #2563eb; --primary-light: #eff6ff; --border: #e5e7eb; --radius: 12px; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0f172a; --surface: #1e293b; --text: #f1f5f9; --text-muted: #94a3b8; --primary: #60a5fa; --primary-light: #1e3a5f; --border: #334155; } }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.8; padding: 24px; }
+  .container { max-width: 800px; margin: 0 auto; }
+  .nav-bar { display: flex; gap: 16px; margin-bottom: 24px; justify-content: center; font-size: 0.9rem; }
+  .nav-bar a { color: var(--text-muted); text-decoration: none; padding: 6px 16px; border-radius: 8px; }
+  .nav-bar a:hover, .nav-bar a.active { background: var(--primary-light); color: var(--primary); }
+  .article-header { margin-bottom: 32px; }
+  .article-header h1 { font-size: 2rem; font-weight: 700; margin-bottom: 8px; line-height: 1.3; }
+  .article-meta { font-size: 0.85rem; color: var(--text-muted); display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .article-meta .tag { display: inline-block; padding: 2px 8px; border-radius: 12px; background: var(--primary-light); color: var(--primary); font-size: 0.75rem; }
+  .article-actions { margin-bottom: 24px; display: flex; gap: 8px; }
+  .btn { display: inline-flex; align-items: center; gap: 4px; padding: 6px 16px; border-radius: 8px; font-size: 0.85rem; cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--text); text-decoration: none; transition: all 0.15s; }
+  .btn:hover { border-color: var(--primary); color: var(--primary); }
+  .article-content { background: var(--surface); border-radius: var(--radius); padding: 32px 40px; border: 1px solid var(--border); }
+  .article-content h1 { font-size: 1.75rem; margin: 24px 0 12px; } .article-content h2 { font-size: 1.35rem; margin: 20px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  .article-content h3 { font-size: 1.15rem; margin: 16px 0 8px; }
+  .article-content p { margin-bottom: 16px; }
+  .article-content code { background: var(--primary-light); padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+  .article-content pre { background: var(--bg); padding: 16px; border-radius: 8px; overflow-x: auto; margin: 16px 0; }
+  .article-content pre code { background: none; padding: 0; }
+  .article-content ul, .article-content ol { padding-left: 24px; margin-bottom: 16px; }
+  .article-content li { margin-bottom: 4px; }
+  .article-content blockquote { border-left: 4px solid var(--primary); padding-left: 16px; color: var(--text-muted); margin: 16px 0; }
+  .article-content img { max-width: 100%; border-radius: 8px; margin: 16px 0; }
+  .article-content a { color: var(--primary); }
+  .article-content table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  .article-content th, .article-content td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
+  .article-content th { background: var(--bg); font-weight: 600; }
+  .loading { text-align: center; padding: 48px; color: var(--text-muted); }
+  .toc { background: var(--bg); border-radius: 8px; padding: 16px 20px; margin-bottom: 24px; font-size: 0.9rem; }
+  .toc h3 { font-size: 0.9rem; color: var(--text-muted); margin-bottom: 8px; }
+  .toc a { color: var(--primary); text-decoration: none; display: block; padding: 2px 0; }
+  .toc a:hover { text-decoration: underline; }
+  @media (max-width: 600px) { .article-content { padding: 16px; } .article-header h1 { font-size: 1.5rem; } }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="nav-bar">
+    <a href="/">📄 文档</a>
+    <a href="/wiki">📚 Wiki</a>
+    <a href="/resume">👤 简历</a>
+  </div>
+
+  <div id="content">
+    <div class="loading">加载中...</div>
+  </div>
+</div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const slug = params.get("slug");
+
+async function loadArticle() {
+  if (!slug) { document.getElementById("content").innerHTML = '<p style="text-align:center;padding:48px;color:var(--text-muted);">请指定文章 slug</p>'; return; }
+  try {
+    // Need to get article by slug — call list with search
+    const res = await fetch(`/api/wiki/articles?search=${encodeURIComponent(slug)}&limit=100`);
+    const data = await res.json();
+    const article = data.items.find(a => a.slug === slug);
+    if (!article) throw new Error("文章不存在");
+
+    // Fetch full content
+    const fullRes = await fetch(`/api/wiki/articles/${article.id}`);
+    const full = await fullRes.json();
+    renderArticle(full);
+  } catch (err) {
+    document.getElementById("content").innerHTML = `<div style="text-align:center;padding:48px;color:#dc2626;">❌ ${err.message}</div>`;
+  }
+}
+
+function renderArticle(a) {
+  // Simple markdown to HTML
+  let body = a.contentMd
+    .replace(/^### (.+)/gm, '<h3 id="$1">$1</h3>')
+    .replace(/^## (.+)/gm, '<h2 id="$1">$1</h2>')
+    .replace(/^# (.+)/gm, '<h1 id="$1">$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/^- (.+)/gm, '<li>$1</li>')
+    .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
+    .replace(/^\d+\. (.+)/gm, '<li>$1</li>')
+    .replace(/(<li>.*<\/li>\n?)+/g, function(m) { return m.includes('<ul>') ? m : '<ol>' + m + '</ol>'; })
+    .replace(/^> (.+)/gm, '<blockquote>$1</blockquote>')
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/^([^<].+)$/gm, function(m) { return m.trim() && !m.startsWith('<') && !m.startsWith('</') ? '<p>' + escHtml(m) + '</p>' : m; });
+
+  const tags = (a.tags || []).map(t => `<span class="tag">${escHtml(t)}</span>`).join('');
+
+  document.getElementById("content").innerHTML = `
+    <div class="article-header">
+      <h1>${escHtml(a.title)}</h1>
+      <div class="article-meta">
+        ${tags}
+        <span>更新于 ${new Date(a.updatedAt).toLocaleDateString("zh-CN")}</span>
+        ${a.status === 'draft' ? '<span style="color:#f59e0b;">[草稿]</span>' : ''}
+      </div>
+    </div>
+    <div class="article-actions">
+      <a href="/wiki/edit?id=${a.id}" class="btn">✏ 编辑</a>
+      <button class="btn" onclick="navigator.clipboard.writeText(location.href);alert('链接已复制')">🔗 复制链接</button>
+    </div>
+    <div class="article-content">${body}</div>
+  `;
+}
+
+function escHtml(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+
+loadArticle();
+</script>
+</body>
+</html>
