@@ -26,3 +26,5 @@ Task 8: complete (commit 40cf3a6, direct implementation, typecheck pass)
 Task 8: complete (commit 40cf3a6, review clean - direct impl)
 Task 9: complete (commit 9cfa3fd, review clean - direct impl)
 Task 10: complete - full typecheck PASS, smoke test PASS (Wiki+2 skills loaded), file structure verified
+Task 2: complete (commits 9898925..f7b5e53, review clean)
+Task 3: complete (commits f7b5e53..e77068c, review clean)
