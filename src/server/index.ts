@@ -6,9 +6,13 @@ import { RagVectorStore } from "../rag/vectorstore.js";
 import { loadDocument } from "../rag/loader.js";
 import { dirname } from "path";
 import { fileURLToPath } from "url";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import type { ResumeStore } from "../resume/store.js";
 import type { ResumeData } from "../resume/types.js";
 import { tokenManager } from "./token.js";
+import { createWikiRouter } from "../wiki/router.js";
+import type { WikiStore } from "../wiki/store.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -62,10 +66,38 @@ export function createRagServer(
   executor?: AgentExecutor,
   resumeStore?: ResumeStore,
   resumeData?: ResumeData,
+  wikiStore?: WikiStore,
 ) {
   const app = express();
   const upload = multer({ dest: "rag_uploads/" });
   const docMeta = new Map<string, DocMeta>();
+  const metaDir = "rag_data";
+  const metaPath = path.join(metaDir, "docmeta.json");
+
+  // Persistence helpers for docMeta
+  function saveDocMeta(): void {
+    try {
+      mkdirSync(metaDir, { recursive: true });
+      const data = Array.from(docMeta.entries()).map(([id, meta]) => ({ id, ...meta }));
+      writeFileSync(metaPath, JSON.stringify(data, null, 2), "utf-8");
+    } catch (err) {
+      console.warn("[server] Could not persist docMeta:", (err as Error)?.message);
+    }
+  }
+  function loadDocMeta(): void {
+    try {
+      if (!existsSync(metaPath)) return;
+      const raw = readFileSync(metaPath, "utf-8");
+      const items = JSON.parse(raw) as { id: string; filename: string; chunks: number; indexedAt: string }[];
+      for (const item of items) {
+        docMeta.set(item.id, { filename: item.filename, chunks: item.chunks, indexedAt: new Date(item.indexedAt) });
+      }
+      if (items.length > 0) console.log(`[server] Restored ${items.length} document metadata entries`);
+    } catch (err) {
+      console.warn("[server] Could not load docMeta:", (err as Error)?.message);
+    }
+  }
+  loadDocMeta();
 
   app.use(express.json());
 
@@ -75,7 +107,8 @@ export function createRagServer(
   const initialToken = tokenManager.generate();
   console.log(`\n🔑 Access token: ${initialToken} (valid 30 min)`);
   console.log(`   RAG Document Manager: http://localhost:${port}/?token=${initialToken}`);
-  console.log(`   Resume Chat:          http://localhost:${port}/resume/chat?token=${initialToken}\n`);
+  console.log(`   Resume Chat:          http://localhost:${port}/resume/chat?token=${initialToken}`);
+  console.log(`   Wiki Knowledge Base:   http://localhost:${port}/wiki?token=${initialToken}\n`);
 
   // Get token info / check validity
   app.get("/api/token", (req, res) => {
@@ -122,6 +155,7 @@ export function createRagServer(
       const chunks = await loadDocument(filePath, filename);
       await store.addChunks(chunks, docId);
       docMeta.set(docId, { filename, chunks: chunks.length, indexedAt: new Date() });
+      saveDocMeta();
       res.json({ docId, filename, chunks: chunks.length });
     } catch (err) {
       console.error("[upload] Error:", err);
@@ -142,6 +176,7 @@ export function createRagServer(
   app.delete("/api/documents/:id", requireToken, (req, res) => {
     const id = req.params.id as string;
     docMeta.delete(id);
+    saveDocMeta();
     res.json({ deleted: id });
   });
 
@@ -258,6 +293,14 @@ export function createRagServer(
       createdAt: session.createdAt,
     });
   });
+
+  // Serve public directory for wiki static assets
+  app.use(express.static(path.join(__dirname, "public")));
+
+  // === Wiki routes ===
+  if (wikiStore) {
+    app.use(createWikiRouter(wikiStore));
+  }
 
   // Favicon — silent 204
   app.get("/favicon.ico", (_req, res) => res.status(204).end());
