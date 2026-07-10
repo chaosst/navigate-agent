@@ -6,14 +6,15 @@
  * and creates them in Wiki.js via its GraphQL API.
  *
  * Usage:
- *   WIKIJS_API_TOKEN=<token> npx tsx scripts/migrate-wiki-to-wikijs.ts
+ *   npx tsx scripts/migrate-wiki-to-wikijs.ts
  *
- * Environment:
+ * Environment (reads from .env automatically via dotenv):
  *   WIKIJS_URL        Wiki.js server URL (default: http://localhost:3003)
  *   WIKIJS_API_TOKEN  Wiki.js GraphQL API token (required)
  *   DB_PATH           Path to navigate.db (default: navigate.db)
  */
 
+import "dotenv/config";
 import initSqlJs from "sql.js";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
@@ -24,7 +25,6 @@ const WIKIJS_URL = process.env.WIKIJS_URL || "http://localhost:3003";
 const WIKIJS_API_TOKEN = process.env.WIKIJS_API_TOKEN;
 const DB_PATH = process.env.DB_PATH || "navigate.db";
 const GRAPHQL_ENDPOINT = `${WIKIJS_URL}/graphql`;
-const UNCATEGORIZED_SLUG = "uncategorized";
 
 if (!WIKIJS_API_TOKEN) {
   console.error("❌ WIKIJS_API_TOKEN environment variable is required");
@@ -56,25 +56,17 @@ interface OldArticle {
 }
 
 interface MigrationResult {
-  categoriesCreated: number;
-  categoriesAlreadyExisted: number;
-  categoriesTotal: number;
   articlesMigrated: number;
   articlesTotal: number;
   articlesSkipped: number;
-  errors: { type: "namespace" | "article"; name: string; message: string }[];
+  errors: { type: "article"; name: string; message: string }[];
 }
 
-interface NamespaceResult {
+interface ResponseStatus {
   succeeded: boolean;
-  errorCode?: string;
-  slug?: string;
-}
-
-interface PageResult {
-  succeeded: boolean;
-  errorCode?: string;
-  slug?: string;
+  errorCode: number;
+  slug: string;
+  message?: string;
 }
 
 // ─── GraphQL helpers ─────────────────────────────────────────────────────────
@@ -109,35 +101,13 @@ async function graphqlRequest<T>(
   return body.data;
 }
 
-// ─── Namespace creation ──────────────────────────────────────────────────────
-
-const CREATE_NAMESPACE_MUTATION = `
-mutation ($name: String!, $slug: String!) {
-  namespaces {
-    create(name: $name, slug: $slug) {
-      responseResult { succeeded errorCode slug }
-    }
-  }
-}
-`;
-
-async function createNamespace(
-  name: string,
-  slug: string,
-): Promise<NamespaceResult> {
-  const data = await graphqlRequest<{
-    namespaces: { create: { responseResult: NamespaceResult } };
-  }>(CREATE_NAMESPACE_MUTATION, { name, slug });
-  return data.namespaces.create.responseResult;
-}
-
 // ─── Page creation ───────────────────────────────────────────────────────────
 
 const CREATE_PAGE_MUTATION = `
-mutation ($content: String!, $title: String!, $tags: [String], $namespaceSlug: String!) {
+mutation ($content: String!, $description: String!, $editor: String!, $isPublished: Boolean!, $isPrivate: Boolean!, $locale: String!, $path: String!, $tags: [String]!, $title: String!) {
   pages {
-    create(content: $content, title: $title, tags: $tags, namespaceSlug: $namespaceSlug, isPublished: true, editor: "markdown") {
-      responseResult { succeeded errorCode slug }
+    create(content: $content, description: $description, editor: $editor, isPublished: $isPublished, isPrivate: $isPrivate, locale: $locale, path: $path, tags: $tags, title: $title) {
+      responseResult { succeeded errorCode slug message }
     }
   }
 }
@@ -146,19 +116,23 @@ mutation ($content: String!, $title: String!, $tags: [String], $namespaceSlug: S
 async function createPage(
   content: string,
   title: string,
-  tags: string[] | undefined,
-  namespaceSlug: string,
-): Promise<PageResult> {
-  const variables: Record<string, unknown> = {
+  description: string,
+  tags: string[],
+  path: string,
+): Promise<ResponseStatus> {
+  const variables = {
     content,
+    description,
+    editor: "markdown",
+    isPublished: true,
+    isPrivate: false,
+    locale: "zh_CN",
+    path,
+    tags,
     title,
-    namespaceSlug,
   };
-  if (tags !== undefined) {
-    variables.tags = tags;
-  }
   const data = await graphqlRequest<{
-    pages: { create: { responseResult: PageResult } };
+    pages: { create: { responseResult: ResponseStatus } };
   }>(CREATE_PAGE_MUTATION, variables);
   return data.pages.create.responseResult;
 }
@@ -251,116 +225,52 @@ async function migrate(): Promise<void> {
   }
 
   const result: MigrationResult = {
-    categoriesCreated: 0,
-    categoriesAlreadyExisted: 0,
-    categoriesTotal: categories.length,
     articlesMigrated: 0,
     articlesTotal: articles.length,
     articlesSkipped: 0,
     errors: [],
   };
 
-  // Build category-id -> slug map
+  // Build category-id -> slug map for path construction
   const categorySlugMap = new Map<string, string>();
   for (const cat of categories) {
     categorySlugMap.set(cat.id, cat.slug);
   }
 
-  // Check if we need the "uncategorized" namespace
-  const needsUncategorized = articles.some(
-    (a) => !a.categoryId || !categorySlugMap.has(a.categoryId),
-  );
-
-  // ── Step 1: Migrate categories -> namespaces ────────────────────────────
-
-  if (categories.length > 0) {
-    console.log(
-      `Found ${categories.length} categories, migrating as namespaces...`,
-    );
-    for (const cat of categories) {
-      try {
-        const resp = await createNamespace(cat.name, cat.slug);
-        if (resp.succeeded) {
-          console.log(`  ✓ Created namespace: ${cat.name} (${cat.slug})`);
-          result.categoriesCreated++;
-        } else if (resp.errorCode === "slug_already_taken") {
-          console.log(
-            `  ~ Namespace already exists: ${cat.name} (${cat.slug})`,
-          );
-          result.categoriesAlreadyExisted++;
-        } else {
-          const msg = resp.errorCode ?? "unknown_error";
-          result.errors.push({ type: "namespace", name: cat.name, message: msg });
-          console.log(`  ✗ Failed: ${cat.name} — ${msg}`);
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        result.errors.push({ type: "namespace", name: cat.name, message: msg });
-        console.log(`  ✗ Error: ${cat.name} — ${msg}`);
-      }
-    }
-    console.log("");
-  }
-
-  // ── Step 1b: Create uncategorized namespace if needed ───────────────────
-
-  if (needsUncategorized) {
-    try {
-      const resp = await createNamespace("未分类", UNCATEGORIZED_SLUG);
-      if (resp.succeeded) {
-        console.log(`  ✓ Created namespace: 未分类 (${UNCATEGORIZED_SLUG})`);
-      } else if (resp.errorCode === "slug_already_taken") {
-        console.log(
-          `  ~ Namespace already exists: 未分类 (${UNCATEGORIZED_SLUG})`,
-        );
-      } else {
-        const msg = resp.errorCode ?? "unknown_error";
-        result.errors.push({
-          type: "namespace",
-          name: "未分类",
-          message: msg,
-        });
-        console.log(`  ✗ Failed: 未分类 — ${msg}`);
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      result.errors.push({ type: "namespace", name: "未分类", message: msg });
-      console.log(`  ✗ Error: 未分类 — ${msg}`);
-    }
-  }
-
-  // ── Step 2: Migrate articles -> pages ───────────────────────────────────
+  // ── Step 1: Migrate articles -> pages ───────────────────────────────────
 
   console.log(`Found ${articles.length} articles, migrating...`);
   for (const article of articles) {
-    const namespaceSlug =
-      article.categoryId && categorySlugMap.has(article.categoryId)
-        ? categorySlugMap.get(article.categoryId)!
-        : UNCATEGORIZED_SLUG;
-
-    const tags = article.tags.length > 0 ? article.tags : undefined;
+    // Build path: /category-slug/article-slug or /uncategorized/article-slug
+    const catSlug = article.categoryId && categorySlugMap.has(article.categoryId)
+      ? categorySlugMap.get(article.categoryId)!
+      : "uncategorized";
+    const slug = article.slug || article.title.toLowerCase().replace(/[^a-z0-9一-鿿]+/g, "-").replace(/^-|-$/g, "");
+    const path = `/${catSlug}/${slug}`;
 
     try {
       const resp = await createPage(
         article.contentMd,
         article.title,
-        tags,
-        namespaceSlug,
+        article.summary || "",
+        article.tags,
+        path,
       );
       if (resp.succeeded) {
-        console.log(`  ✓ Migrated: ${article.title}`);
+        console.log(`  ✓ Migrated: ${article.title} → ${path}`);
         result.articlesMigrated++;
-      } else if (resp.errorCode === "slug_already_taken") {
-        console.log(`  ~ Skipped (slug exists): ${article.title}`);
+      } else if (resp.errorCode === 4102) {
+        // errorCode 4102 = slug already taken (duplicate path)
+        console.log(`  ~ Skipped (path exists): ${article.title} → ${path}`);
         result.articlesSkipped++;
       } else {
-        const msg = resp.errorCode ?? "unknown_error";
-        result.errors.push({ type: "article", name: article.title, message: msg });
+        const msg = resp.message ?? `errorCode ${resp.errorCode}`;
+        result.errors.push({ type: "article", name: article.title, message: `${msg} (path: ${path})` });
         console.log(`  ✗ Failed: ${article.title} — ${msg}`);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      result.errors.push({ type: "article", name: article.title, message: msg });
+      result.errors.push({ type: "article", name: article.title, message: `${msg} (path: ${path})` });
       console.log(`  ✗ Error: ${article.title} — ${msg}`);
     }
   }
@@ -378,9 +288,6 @@ function printReport(result: MigrationResult): void {
   console.log(sep);
   console.log("      Migration Report");
   console.log(sep);
-  console.log(
-    `  Categories created:  ${result.categoriesCreated + result.categoriesAlreadyExisted}/${result.categoriesTotal}`,
-  );
   console.log(
     `  Articles migrated:   ${result.articlesMigrated}/${result.articlesTotal}`,
   );
