@@ -8,6 +8,7 @@ import { createChatModel } from "./agent/langchain.js";
 import { buildSystemPrompt } from "./agent/prompt.js";
 import { createAgentExecutor } from "./agent/loop.js";
 import { createTools } from "./tools/registry.js";
+import type { StructuredTool } from "@langchain/core/tools";
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { AgentMemory } from "./memory/index.js";
 import { RagVectorStore } from "./rag/vectorstore.js";
@@ -19,6 +20,7 @@ import { ResumeSearchTool } from "./resume/search-tool.js";
 import { parseResume } from "./resume/parser.js";
 import { existsSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { SkillRegistry } from "./skills/registry.js";
 
 async function main() {
   const config = loadConfig();
@@ -71,10 +73,20 @@ async function main() {
     console.warn("Wiki initialization skipped:", (err as Error).message);
   }
 
+  // Skill system setup
+  let skillTools: StructuredTool[] = [];
+  try {
+    const skillRegistry = new SkillRegistry("skills");
+    skillTools = await skillRegistry.loadAll();
+  } catch (err) {
+    console.warn("Skill loading skipped:", (err as Error).message);
+  }
+
   const allTools = [
     ...createTools(),
     ragTool,
     ...(resumeTool ? [resumeTool] : []),
+    ...skillTools,
   ];
 
   const systemPrompt = buildSystemPrompt(resumeSummary);
