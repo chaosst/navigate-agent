@@ -7,7 +7,7 @@
         "build": "tsc",
         "start": "node dist/index.js",
         "gen-token": "tsx scripts/gen-token.ts",
-"dev:wiki": "cd wiki-js && node server start"
+        "dev:wiki": "cd wiki-js && node server start"
     },
     "dependencies": {
         "@langchain/community": "^0.3.0",

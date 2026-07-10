@@ -19,7 +19,7 @@ export class WikiSyncService {
    * - page:deleted → 从 RAG 删除对应索引
    * - 其他事件 → 打印日志忽略
    */
-  async handleEvent(event: string, pageId: number, slug: string): Promise<void> {
+  async handleEvent(event: "page:created" | "page:updated" | "page:deleted", pageId: number, slug: string): Promise<void> {
     switch (event) {
       case "page:created":
       case "page:updated": {
