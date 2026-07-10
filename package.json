@@ -12,7 +12,6 @@
         "@langchain/community": "^0.3.0",
         "@langchain/core": "^0.3.0",
         "@langchain/openai": "^0.4.0",
-        "@modelcontextprotocol/sdk": "^1.29.0",
         "dotenv": "^16.0.0",
         "express": "^5.2.1",
         "ink": "^5.0.0",
@@ -26,7 +25,9 @@
         "zod": "^3.23.0"
     },
     "devDependencies": {
+        "@types/express": "^5.0.6",
         "@types/js-yaml": "^4.0.9",
+        "@types/multer": "^2.2.0",
         "@types/react": "^18.0.0",
         "@types/sql.js": "^1.4.11",
         "tsx": "^4.0.0",
