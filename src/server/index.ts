@@ -111,7 +111,7 @@ export function createRagServer(
   console.log(`\n🔑 Access token: ${initialToken} (valid 30 min)`);
   console.log(`   RAG Document Manager: http://localhost:${port}/?token=${initialToken}`);
   console.log(`   Resume Chat:          http://localhost:${port}/resume/chat?token=${initialToken}`);
-  console.log(`   Wiki Knowledge Base:   http://localhost:${port}/wiki?token=${initialToken}\n`);
+  console.log(`   Wiki Knowledge Base:   http://localhost:3003\n`);
 
   // Get token info / check validity
   app.get("/api/token", (req, res) => {
