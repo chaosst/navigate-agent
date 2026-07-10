@@ -1,5 +1,9 @@
 import { Router } from "express";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
 import type { WikiStore } from "./store.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export function createWikiRouter(store: WikiStore): Router {
   const router = Router();
@@ -116,15 +120,15 @@ export function createWikiRouter(store: WikiStore): Router {
 
   // === Serve wiki pages ===
   router.get("/wiki", (_req, res) => {
-    res.sendFile(new URL("../server/public/wiki.html", import.meta.url).pathname);
+    res.sendFile(join(__dirname, "..", "server", "public", "wiki.html"));
   });
 
   router.get("/wiki/edit", (_req, res) => {
-    res.sendFile(new URL("../server/public/wiki-edit.html", import.meta.url).pathname);
+    res.sendFile(join(__dirname, "..", "server", "public", "wiki-edit.html"));
   });
 
   router.get("/wiki/article", (_req, res) => {
-    res.sendFile(new URL("../server/public/wiki-article.html", import.meta.url).pathname);
+    res.sendFile(join(__dirname, "..", "server", "public", "wiki-article.html"));
   });
 
   return router;
