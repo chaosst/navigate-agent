@@ -28,3 +28,6 @@ Task 9: complete (commit 9cfa3fd, review clean - direct impl)
 Task 10: complete - full typecheck PASS, smoke test PASS (Wiki+2 skills loaded), file structure verified
 Task 2: complete (commits 9898925..f7b5e53, review clean)
 Task 3: complete (commits f7b5e53..e77068c, review clean)
+Task 4: complete (commits 73fd831..740357a, review clean)
+Task 5: complete (commit f497291, review clean)
+Task 6: complete (commits c726ca1..dbe27fb, review clean)
