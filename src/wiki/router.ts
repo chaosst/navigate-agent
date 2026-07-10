@@ -23,6 +23,16 @@ export function createWikiRouter(store: WikiStore): Router {
     }
   });
 
+  router.get("/api/wiki/articles/slug/:slug", async (req, res) => {
+    try {
+      const article = await store.getArticleBySlug(req.params.slug);
+      if (!article) return res.status(404).json({ error: "Article not found" });
+      res.json(article);
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
   router.post("/api/wiki/articles", async (req, res) => {
     try {
       const { title, contentMd, summary, categoryId, tags, status } = req.body;
