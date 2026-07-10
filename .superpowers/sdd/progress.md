@@ -1,1 +1,28 @@
-﻿Task M1: pending
+# Resume RAG Progress Ledger
+
+Task 1: complete (commit 450f04c, review pending)
+Task 1: complete (commit 450f04c, review clean)
+Task 2: complete (commits a5a8c64..6225f7d, review clean + minor fix)
+Task 3: complete (commits 0f60a62..d90894e, review clean + transaction/empty-chunk fix)
+Task 4: complete (commit fb01d05, review clean - quick verify)
+Task 5: complete (commit d544f26, review clean - markdown file)
+Task 6: complete (commit 304f396, review clean - small edit)
+Task 7: complete (commit 4e8a992, review clean - server routes)
+Task 8: complete (commit 2716c82, review clean - HTML page)
+Task 9: complete (commit bee4209, review clean - HTML chat page)
+Task 10: complete (commit cf0d659, review clean - nav link)
+Task 11: complete (commit 8ba0a5d, review clean - integration)
+Task 12: complete - typecheck PASS, smoke test PASS, all files verified
+Bug fixes: commit 770971c - fixed double SSE answer, garbled filenames, silent RAG errors
+Bug fixes: commit b7fba1c - fixed DOCX upload, filename encoding, SSE double answer, RAG keyword fallback
+Task 1: complete (commit 8276578, review clean - only new code was embeddings field + deleteDoc method; reviewer findings about loadFromDisk/saveToDisk were pre-existing)
+Task 2: complete (commit eef116a, review clean)
+Task 3: complete (commits 7bf2510..cf92f0c, review clean after fixes: count query, transactions, slugify, unused imports)
+Task 4: complete (commit d92fd60, review clean)
+Task 5: complete (commit 996848a, review: fixed const->let)
+Task 6: complete (commits aaa1281..6dda3a8, review clean after fix)
+Task 7: complete (commits 135ebc6..2b42dd2, review clean after fixes: removed MCP SDK, fixed body encoding)
+Task 8: complete (commit 40cf3a6, direct implementation, typecheck pass)
+Task 8: complete (commit 40cf3a6, review clean - direct impl)
+Task 9: complete (commit 9cfa3fd, review clean - direct impl)
+Task 10: complete - full typecheck PASS, smoke test PASS (Wiki+2 skills loaded), file structure verified

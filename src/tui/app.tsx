@@ -63,6 +63,27 @@ export function App({ executor, memory }: AppProps) {
     if (value.startsWith("/")) {
       const result = handleCommand(value);
       if (result === "CLEAR") { setMessages([]); historyRef.current = []; return; }
+      if (value.startsWith("/show")) {
+        const parts = value.split(/\s+/);
+        setMessages(prev => {
+          const toolIndices: number[] = [];
+          prev.forEach((m, i) => { if (m.role === "tool" && !m.running) toolIndices.push(i); });
+          const copy = [...prev];
+          if (parts[1] === "all") {
+            for (const idx of toolIndices) copy[idx] = { ...copy[idx], expanded: true };
+          } else if (parts[1] === "none") {
+            for (const idx of toolIndices) copy[idx] = { ...copy[idx], expanded: false };
+          } else {
+            const n = parts[1] ? parseInt(parts[1], 10) : 1;
+            if (!isNaN(n) && n >= 1 && n <= toolIndices.length) {
+              const idx = toolIndices[toolIndices.length - n];
+              copy[idx] = { ...copy[idx], expanded: !copy[idx].expanded };
+            }
+          }
+          return copy;
+        });
+        return;
+      }
       if (result) setMessages(prev => [...prev, { role: "system", content: result, timestamp: new Date() }]);
       return;
     }
@@ -74,10 +95,19 @@ export function App({ executor, memory }: AppProps) {
     try {
       const output = await runAgent(executor, value, historyRef.current, {
         onToolStart(tool, input) {
-          setMessages(prev => [...prev, { role: "tool", content: `Calling: ${tool}\n${JSON.stringify(input, null, 2)}`, name: tool, timestamp: new Date() }]);
+          setMessages(prev => [...prev, { role: "tool", content: `Calling: ${tool}\n${JSON.stringify(input, null, 2)}`, name: tool, timestamp: new Date(), running: true }]);
         },
         onToolEnd(result) {
-          setMessages(prev => [...prev, { role: "tool", content: `Result: ${result.output}`, name: result.tool, timestamp: new Date() }]);
+          setMessages(prev => {
+            const copy = [...prev];
+            for (let i = copy.length - 1; i >= 0; i--) {
+              if (copy[i].role === "tool" && copy[i].running) {
+                copy[i] = { ...copy[i], running: false, content: `→ ${result.output}` };
+                break;
+              }
+            }
+            return copy;
+          });
         },
         onToken(token) {
           setStreamingText(prev => prev + token);
@@ -90,7 +120,7 @@ export function App({ executor, memory }: AppProps) {
       historyRef.current.push({ role: "user", content: value } as AgentMessage);
       historyRef.current.push({ role: "assistant", content: output } as AgentMessage);
       memory.addAssistantMessage(output);
-      await memory.summarizeAndStore(`User: ${value}\nAssistant: ${output}`);
+      try { await memory.summarizeAndStore(`User: ${value}\nAssistant: ${output}`) } catch {};
       setStreamingText("");
     } catch (error) {
       setMessages(prev => [...prev, { role: "system", content: `Error: ${(error as Error).message}`, timestamp: new Date() }]);
