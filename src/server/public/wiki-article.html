@@ -63,16 +63,10 @@ const slug = params.get("slug");
 async function loadArticle() {
   if (!slug) { document.getElementById("content").innerHTML = '<p style="text-align:center;padding:48px;color:var(--text-muted);">请指定文章 slug</p>'; return; }
   try {
-    // Need to get article by slug — call list with search
-    const res = await fetch(`/api/wiki/articles?search=${encodeURIComponent(slug)}&limit=100`);
-    const data = await res.json();
-    const article = data.items.find(a => a.slug === slug);
-    if (!article) throw new Error("文章不存在");
-
-    // Fetch full content
-    const fullRes = await fetch(`/api/wiki/articles/${article.id}`);
-    const full = await fullRes.json();
-    renderArticle(full);
+    const res = await fetch(`/api/wiki/articles/slug/${encodeURIComponent(slug)}`);
+    if (!res.ok) throw new Error("文章不存在");
+    const article = await res.json();
+    renderArticle(article);
   } catch (err) {
     document.getElementById("content").innerHTML = `<div style="text-align:center;padding:48px;color:#dc2626;">❌ ${err.message}</div>`;
   }
