@@ -3,7 +3,6 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import type { WikiArticle, WikiCategory, WikiRevision, WikiArticleListItem, WikiArticleListResponse } from "./types.js";
 import { RagVectorStore } from "../rag/vectorstore.js";
-import { loadDocument } from "../rag/loader.js";
 
 export class WikiStore {
   private db: Database;
@@ -67,21 +66,22 @@ export class WikiStore {
     writeFileSync(this.dbPath, Buffer.from(this.db.export()));
   }
 
-  /** Generate a unique slug from title */
-  private slugify(title: string): string {
+  /** Generate a unique slug from title (checks both articles and categories) */
+  private slugify(title: string, forCategory = false): string {
     let slug = title.toLowerCase()
       .replace(/[^\w一-鿿]+/g, "-")
       .replace(/^-+|-+$/g, "")
       .slice(0, 80);
     if (!slug) slug = "article";
 
-    // Check uniqueness, append number if needed
-    const existing = this.db.exec("SELECT slug FROM wiki_articles WHERE slug = ?", [slug]);
+    // Check uniqueness across both articles and categories
+    const table = forCategory ? "wiki_categories" : "wiki_articles";
+    const existing = this.db.exec(`SELECT slug FROM ${table} WHERE slug = ?`, [slug]);
     if (existing.length && existing[0].values.length > 0) {
       let i = 2;
       while (true) {
         const candidate = `${slug}-${i}`;
-        const r = this.db.exec("SELECT slug FROM wiki_articles WHERE slug = ?", [candidate]);
+        const r = this.db.exec(`SELECT slug FROM ${table} WHERE slug = ?`, [candidate]);
         if (!r.length || !r[0].values.length) return candidate;
         i++;
       }
@@ -108,8 +108,20 @@ export class WikiStore {
     }
 
     // Count
-    const countSql = sql.replace(/SELECT .*? FROM/, "SELECT COUNT(*) as cnt FROM").replace(/LEFT JOIN.*?ON.*?/, "");
-    const countResult = this.db.exec(countSql, params);
+    let countSql = "SELECT COUNT(*) as cnt FROM wiki_articles a";
+    if (category) {
+      countSql += " LEFT JOIN wiki_categories c ON a.category_id = c.id";
+      countSql += " WHERE a.category_id = ?";
+    } else {
+      countSql += " WHERE 1=1";
+    }
+    if (search) {
+      countSql += " AND (a.title LIKE ? OR a.content_md LIKE ?)";
+    }
+    const countParams = category
+      ? [category, ...(search ? [`%${search}%`, `%${search}%`] : [])]
+      : (search ? [`%${search}%`, `%${search}%`] : []);
+    const countResult = this.db.exec(countSql, countParams);
     const total = countResult.length && countResult[0].values.length
       ? (countResult[0].values[0][0] as number) : 0;
 
@@ -214,17 +226,24 @@ export class WikiStore {
     const now = new Date().toISOString();
     const tags = (data.tags || []).join(",");
 
-    this.db.run(
-      `INSERT INTO wiki_articles (id, title, slug, content_md, summary, category_id, tags, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, data.title, slug, data.contentMd, data.summary || "", data.categoryId || null, tags, data.status || "published", now, now]
-    );
+    this.db.run("BEGIN");
+    try {
+      this.db.run(
+        `INSERT INTO wiki_articles (id, title, slug, content_md, summary, category_id, tags, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, data.title, slug, data.contentMd, data.summary || "", data.categoryId || null, tags, data.status || "published", now, now]
+      );
 
-    // Save revision
-    this.db.run(
-      `INSERT INTO wiki_revisions (id, article_id, content_md, summary, editor_note, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-      [randomUUID(), id, data.contentMd, data.summary || "", "创建文章", now]
-    );
+      // Save revision
+      this.db.run(
+        `INSERT INTO wiki_revisions (id, article_id, content_md, summary, editor_note, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+        [randomUUID(), id, data.contentMd, data.summary || "", "创建文章", now]
+      );
+      this.db.run("COMMIT");
+    } catch (err) {
+      this.db.run("ROLLBACK");
+      throw err;
+    }
 
     this.save();
 
@@ -254,17 +273,24 @@ export class WikiStore {
     const tags = (data.tags ?? existing.tags).join(",");
     const status = data.status ?? existing.status;
 
-    this.db.run(
-      `UPDATE wiki_articles SET title=?, slug=?, content_md=?, summary=?, category_id=?, tags=?, status=?, updated_at=? WHERE id=?`,
-      [title, slug, contentMd, summary, categoryId, tags, status, now, id]
-    );
-
-    // Save revision if content changed
-    if (data.contentMd && data.contentMd !== existing.contentMd) {
+    this.db.run("BEGIN");
+    try {
       this.db.run(
-        `INSERT INTO wiki_revisions (id, article_id, content_md, summary, editor_note, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-        [randomUUID(), id, contentMd, summary, "更新文章", now]
+        `UPDATE wiki_articles SET title=?, slug=?, content_md=?, summary=?, category_id=?, tags=?, status=?, updated_at=? WHERE id=?`,
+        [title, slug, contentMd, summary, categoryId, tags, status, now, id]
       );
+
+      // Save revision if content changed
+      if (data.contentMd && data.contentMd !== existing.contentMd) {
+        this.db.run(
+          `INSERT INTO wiki_revisions (id, article_id, content_md, summary, editor_note, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+          [randomUUID(), id, contentMd, summary, "更新文章", now]
+        );
+      }
+      this.db.run("COMMIT");
+    } catch (err) {
+      this.db.run("ROLLBACK");
+      throw err;
     }
 
     this.save();
@@ -296,8 +322,15 @@ export class WikiStore {
     }
 
     // Delete revisions + article
-    this.db.run("DELETE FROM wiki_revisions WHERE article_id = ?", [id]);
-    this.db.run("DELETE FROM wiki_articles WHERE id = ?", [id]);
+    this.db.run("BEGIN");
+    try {
+      this.db.run("DELETE FROM wiki_revisions WHERE article_id = ?", [id]);
+      this.db.run("DELETE FROM wiki_articles WHERE id = ?", [id]);
+      this.db.run("COMMIT");
+    } catch (err) {
+      this.db.run("ROLLBACK");
+      throw err;
+    }
     this.save();
     return true;
   }
@@ -335,7 +368,7 @@ export class WikiStore {
 
   async createCategory(data: { name: string; description?: string; parentId?: string; sortOrder?: number }): Promise<WikiCategory> {
     const id = randomUUID();
-    const slug = this.slugify(data.name);
+    const slug = this.slugify(data.name, true);
     this.db.run(
       `INSERT INTO wiki_categories (id, name, slug, description, parent_id, sort_order) VALUES (?, ?, ?, ?, ?, ?)`,
       [id, data.name, slug, data.description || "", data.parentId || null, data.sortOrder || 0]
@@ -364,9 +397,16 @@ export class WikiStore {
     if (children.length && children[0].values.length > 0) {
       throw new Error("Cannot delete category with subcategories");
     }
-    // Unlink articles
-    this.db.run("UPDATE wiki_articles SET category_id = NULL WHERE category_id = ?", [id]);
-    this.db.run("DELETE FROM wiki_categories WHERE id = ?", [id]);
+    // Unlink articles + delete category
+    this.db.run("BEGIN");
+    try {
+      this.db.run("UPDATE wiki_articles SET category_id = NULL WHERE category_id = ?", [id]);
+      this.db.run("DELETE FROM wiki_categories WHERE id = ?", [id]);
+      this.db.run("COMMIT");
+    } catch (err) {
+      this.db.run("ROLLBACK");
+      throw err;
+    }
     this.save();
     return true;
   }
