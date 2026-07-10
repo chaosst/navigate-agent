@@ -382,7 +382,7 @@ export class WikiStore {
     if (!existing.length || !existing[0].values.length) return null;
     const row = existing[0].values[0];
     const name = data.name ?? (row[1] as string);
-    const slug = data.name ? this.slugify(name) : (row[2] as string);
+    const slug = data.name ? this.slugify(name, true) : (row[2] as string);
     this.db.run(
       `UPDATE wiki_categories SET name=?, slug=?, description=?, parent_id=?, sort_order=? WHERE id=?`,
       [name, slug, data.description ?? (row[3] as string), data.parentId !== undefined ? data.parentId : (row[4] as string | null), data.sortOrder ?? (row[5] as number), id]
