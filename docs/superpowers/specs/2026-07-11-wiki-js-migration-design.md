@@ -311,26 +311,42 @@ Wiki.js 发送的 webhook payload 结构：
 执行流程：
 
 ```
-1. 读取旧 SQLite 库 (rag_data/wiki.db)
+1. 读取旧 SQLite 库 (navigate.db)
    - 获取所有 wiki_articles
    - 获取所有 wiki_categories
 
-2. 在 Wiki.js 中重建目录结构
-   - 每个分类 → Wiki.js 命名空间 (namespace)
-   - 无分类文章 → 放到 "未分类" 命名空间
+2. 通过 Wiki.js GraphQL API 创建文章
+   - 每篇文章使用 pages.create mutation
+   - path: /{category-slug}/{article-slug}（无分类 → /uncategorized/）
+   - editor: "markdown", locale: "zh_CN", isPublished: true
+   - 无需预先创建 namespace（Wiki.js 通过 path 自动管理层级）
 
-3. 迁移文章
-   - 调用 Wiki.js GraphQL API (pages.create) 逐一创建页面
-   - 将 contentMd 作为页面内容写入
-   - 保留原始创建/更新时间
-
-4. 验证
+3. 验证
    - 对比文章数量
    - 抽样检查内容完整性
 
-5. 输出报告
+4. 输出报告
    - 成功: N 篇
    - 失败: N 篇（列出详情）
+```
+
+> **注意:** Wiki.js v2 的 GraphQL API 没有独立的 namespaces.create mutation。
+> 页面通过 `path` 参数组织（如 `/guide/getting-started`），层级由路径结构自动管理。
+
+### GraphQL 接口
+
+```
+mutation ($content: String!, $description: String!, $editor: String!,
+         $isPublished: Boolean!, $isPrivate: Boolean!, $locale: String!,
+         $path: String!, $tags: [String]!, $title: String!) {
+  pages {
+    create(content: $content, description: $description, editor: $editor,
+           isPublished: $isPublished, isPrivate: $isPrivate, locale: $locale,
+           path: $path, tags: $tags, title: $title) {
+      responseResult { succeeded errorCode slug message }
+    }
+  }
+}
 ```
 
 ### 边界情况
