@@ -180,6 +180,7 @@
 <div class="nav-bar">
   <span class="title">🤖 简历AI问答</span>
   <a href="/">📄 文档</a>
+  <a href="http://localhost:3003" target="_blank">📚 Wiki ↗</a>
   <a href="/resume">👤 简历</a>
   <a href="/resume/chat" class="active">💬 问答</a>
 </div>
@@ -217,7 +218,7 @@ const TOKEN = sessionStorage.getItem("navigate_token");
 if (!TOKEN) { document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-size:1.2rem;color:#dc2626;">❌ No access token.</div>'; throw new Error("no token"); }
 document.querySelectorAll(".nav-bar a").forEach(function(a) {
   var href = a.getAttribute("href");
-  if (href && href.indexOf("token=") === -1) a.setAttribute("href", href + "?token=" + TOKEN);
+  if (href && href.indexOf("token=") === -1 && href.indexOf("http") !== 0) a.setAttribute("href", href + "?token=" + TOKEN);
 });
 let loading = false;
 
