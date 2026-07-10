@@ -2,6 +2,10 @@ node_modules/
 dist/
 .env
 *.log
+navigate.db
+rag_data/
+rag_uploads/
+.vscode/
 .superpowers/sdd/task-*-brief.md
 .superpowers/sdd/task-*-report.md
 .superpowers/sdd/review-*.diff
