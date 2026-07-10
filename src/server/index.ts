@@ -10,8 +10,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import type { ResumeStore } from "../resume/store.js";
 import type { ResumeData } from "../resume/types.js";
 import { tokenManager } from "./token.js";
-import { createWikiRouter } from "../wiki/router.js";
-import type { WikiStore } from "../wiki/store.js";
+import { WikiSyncService } from "../wiki-sync/service.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -65,7 +64,6 @@ export function createRagServer(
   executor?: AgentExecutor,
   resumeStore?: ResumeStore,
   resumeData?: ResumeData,
-  wikiStore?: WikiStore,
 ) {
   const app = express();
   const upload = multer({ dest: "rag_uploads/" });
@@ -99,6 +97,12 @@ export function createRagServer(
   loadDocMeta();
 
   app.use(express.json());
+
+  const wikiSyncService = new WikiSyncService(
+    process.env.WIKIJS_URL || "http://localhost:3003",
+    process.env.WIKIJS_API_TOKEN || "",
+    store,
+  );
 
   // === Token management ===
 
@@ -155,17 +159,6 @@ export function createRagServer(
       await store.addChunks(chunks, docId);
       docMeta.set(docId, { filename, chunks: chunks.length, indexedAt: new Date() });
       saveDocMeta();
-
-      // Also create a wiki article from the uploaded file
-      if (wikiStore) {
-        try {
-          const fullContent = chunks.map(c => c.content).join("\n\n");
-          const article = await wikiStore.createArticleFromUpload(filename, fullContent);
-          console.log(`[wiki] Created article from upload: ${article.title} (${article.slug})`);
-        } catch (wikiErr) {
-          console.warn(`[wiki] Could not create article from upload:`, (wikiErr as Error).message);
-        }
-      }
 
       res.json({ docId, filename, chunks: chunks.length });
     } catch (err) {
@@ -308,10 +301,20 @@ export function createRagServer(
   // Serve public directory for wiki static assets
   app.use(express.static(path.join(__dirname, "public")));
 
-  // === Wiki routes ===
-  if (wikiStore) {
-    app.use(createWikiRouter(wikiStore));
-  }
+  // === Wiki-Sync webhook ===
+  app.post("/api/wiki-sync", async (req, res) => {
+    try {
+      const { event, pageId, slug } = req.body;
+      if (!event || !pageId) {
+        return res.status(400).json({ error: "Missing event or pageId" });
+      }
+      await wikiSyncService.handleEvent(event, pageId, slug || "");
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[wiki-sync] Error:", (err as Error).message);
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
 
   // Favicon — silent 204
   app.get("/favicon.ico", (_req, res) => res.status(204).end());
