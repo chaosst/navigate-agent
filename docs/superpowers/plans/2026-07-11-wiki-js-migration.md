@@ -386,18 +386,15 @@ npx tsc --noEmit
 ```
 Expected: 无类型错误。
 
-- [ ] **Step 5: 配置 Wiki.js Webhook**
+- [ ] **Step 5: 确认同步方式**
 
-Wiki.js 管理后台 → **Webhook** → 新增：
-
-| 字段 | 值 |
-|------|-----|
-| 名称 | Navigate RAG Sync |
-| 触发事件 | `page:created`, `page:updated`, `page:deleted` |
-| URL | `http://localhost:3001/api/wiki-sync` |
-| 签名密钥 | （留空） |
-
-保存后，在 Wiki.js 中创建/编辑一篇文章，观察主应用控制台是否输出 `[wiki-sync] Synced` 日志。
+> Wiki.js v2 没有内置 Webhook 功能。同步通过手动调用 API 触发：
+> ```bash
+> curl -X POST http://localhost:3001/api/wiki-sync \
+>   -H "Content-Type: application/json" \
+>   -d '{"event":"page:updated","pageId":1,"slug":"my-article"}'
+> ```
+> （无需在 Wiki.js 管理后台配置 Webhook）
 
 ---
 

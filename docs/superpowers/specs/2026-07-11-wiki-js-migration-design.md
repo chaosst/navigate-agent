@@ -274,26 +274,23 @@ app.post("/api/wiki-sync", async (req, res) => {
 });
 ```
 
-### Wiki.js Webhook 配置
+### 手动触发同步
 
-在 Wiki.js 管理后台 → **Webhooks** → 新增全局 Webhook：
+Wiki.js v2 没有内置 Webhook 功能，因此使用手动触发方式。通过调用主应用的 API 端点来同步特定文章到 RAG：
 
-| 字段 | 值 |
-|------|-----|
-| 名称 | Navigate RAG Sync |
-| 触发事件 | `page:created`, `page:updated`, `page:deleted` |
-| URL | `http://localhost:3001/api/wiki-sync` |
-| 签名密钥 | (可选) 设置一个密钥，服务端验证 |
+```bash
+curl -X POST http://localhost:3001/api/wiki-sync \
+  -H "Content-Type: application/json" \
+  -d '{"event":"page:updated","pageId":1,"slug":"my-article"}'
+```
 
-### Webhook 数据格式
-
-Wiki.js 发送的 webhook payload 结构：
+### API 端点调用格式
 
 ```json
 {
-  "event": "page:updated",
+  "event": "page:created | page:updated | page:deleted",
   "pageId": 3,
-  "slug": "my-article",
+  "slug": "my-article"
   "title": "My Article",
   "editor": "admin",
   "description": "",
