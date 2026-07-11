@@ -74,9 +74,12 @@ export async function runAgent(
   let output = "";
   let previousStepCount = 0;
   try {
-    const stream = await executor.stream(
-      { messages: messageHistory },
+    // 30s 超时包装
+    const streamPromise = executor.stream({ messages: messageHistory });
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Agent execution timeout (30s)")), 30000)
     );
+    const stream = await Promise.race([streamPromise, timeoutPromise]);
     for await (const chunk of stream) {
       const steps =
         (chunk.intermediateSteps as AgentStep[] | undefined) ?? [];
