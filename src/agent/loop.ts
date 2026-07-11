@@ -11,6 +11,7 @@ import type { StructuredToolInterface } from "@langchain/core/tools";
 import type { ChatOpenAI } from "@langchain/openai";
 import type { AgentStep } from "@langchain/core/agents";
 import type { AgentEvents, AgentMessage } from "./types.js";
+import { logAgent } from "./logger.js";
 
 /**
  * Create an agent executor using OpenAI tools agent with streaming support.
@@ -65,6 +66,7 @@ export async function runAgent(
   history?: AgentMessage[],
   events?: AgentEvents,
 ): Promise<string> {
+  logAgent({ type: "info", message: `User: ${input.slice(0, 200)}` });
   const messageHistory: BaseMessage[] = history
     ? parseHistory(history)
     : [];
@@ -83,11 +85,14 @@ export async function runAgent(
           const step = steps[i];
           const action = step.action;
           const toolInput = normalizeToolInput(action.toolInput);
+          logAgent({ type: "tool_call", message: `${action.tool}`, details: toolInput });
           events?.onToolStart?.(action.tool, toolInput);
+          const observation = step.observation?.toString() ?? "";
+          logAgent({ type: "tool_result", message: `${action.tool}`, details: observation.slice(0, 500) });
           events?.onToolEnd?.({
             tool: action.tool,
             input: toolInput,
-            output: step.observation,
+            output: observation,
             success: true,
             durationMs: 0,
           });
@@ -102,9 +107,11 @@ export async function runAgent(
     }
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
+    logAgent({ type: "error", message: err.message, details: err.stack });
     events?.onError?.(err);
     throw err;
   }
+  logAgent({ type: "llm_response", message: `Output: ${output.slice(0, 200)}` });
   events?.onFinish?.(output);
   return output;
 }
