@@ -57,6 +57,45 @@ export class WikiSyncService {
   }
 
   /**
+   * 在 Wiki.js 中创建一篇新页面。
+   * 返回创建后的 pageId。
+   */
+  async createPage(title: string, content: string, description = ""): Promise<number> {
+    const mutation = `
+      mutation ($content: String!, $description: String!, $editor: String!, $isPublished: Boolean!, $isPrivate: Boolean!, $locale: String!, $path: String!, $tags: [String]!, $title: String!) {
+        pages {
+          create(content: $content, description: $description, editor: $editor, isPublished: $isPublished, isPrivate: $isPrivate, locale: $locale, path: $path, tags: $tags, title: $title) {
+            responseResult { succeeded errorCode slug message }
+            page { id }
+          }
+        }
+      }
+    `;
+    const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").replace(/-+/g, "-").slice(0, 80);
+    const path = `/uploads/${slug}`;
+
+    const data = await this.graphqlRequest<{
+      pages: { create: { responseResult: { succeeded: boolean; errorCode: number; slug: string; message?: string }; page: { id: number } | null } };
+    }>(mutation, {
+      content,
+      description,
+      editor: "markdown",
+      isPublished: true,
+      isPrivate: false,
+      locale: "en",
+      path,
+      tags: ["upload"],
+      title,
+    });
+
+    const result = data.pages.create.responseResult;
+    if (!result.succeeded) {
+      throw new Error(`Wiki.js create page failed: ${result.message || `errorCode ${result.errorCode}`}`);
+    }
+    return data.pages.create.page?.id ?? 0;
+  }
+
+  /**
    * 通用的 GraphQL 请求方法。
    */
   private async graphqlRequest<T>(

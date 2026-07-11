@@ -169,6 +169,16 @@ export function createRagServer(
       docMeta.set(docId, { filename, chunks: chunks.length, indexedAt: new Date() });
       saveDocMeta();
 
+      // Also create a Wiki.js page from the uploaded content
+      try {
+        const fullContent = chunks.map(c => c.content).join("\n\n");
+        const title = filename.replace(/\.(md|txt|pdf|docx)$/i, "");
+        await wikiSyncService.createPage(title, fullContent, `Uploaded: ${filename}`);
+        console.log(`[upload] Created Wiki.js page: ${title}`);
+      } catch (wikiErr) {
+        console.warn(`[upload] Could not create Wiki.js page:`, (wikiErr as Error).message);
+      }
+
       res.json({ docId, filename, chunks: chunks.length });
     } catch (err) {
       console.error("[upload] Error:", err);
