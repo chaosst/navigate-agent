@@ -3,8 +3,20 @@ import { Document } from "@langchain/core/documents";
 import type { RagVectorStore } from "../rag/vectorstore.js";
 
 /**
- * WikiSyncService: 监听 Wiki.js webhook 事件，通过 GraphQL API 获取页面内容
- * 并同步到 RagVectorStore 以实现 RAG 检索。
+ * Wiki.js 页面列表项（来自 pages.list GraphQL 查询）
+ */
+export interface WikiPageItem {
+  id: number;
+  path: string;
+  title: string | null;
+  description: string | null;
+  contentType: string;
+  isPublished: boolean;
+  updatedAt: string;
+}
+
+/**
+ * WikiSyncService: 通过 Wiki.js GraphQL API 获取页面内容并同步到 RagVectorStore。
  */
 export class WikiSyncService {
   constructor(
@@ -12,6 +24,73 @@ export class WikiSyncService {
     private apiToken: string,
     private ragStore: RagVectorStore,
   ) {}
+
+  /**
+   * 获取 Wiki.js 中所有已发布页面的列表。
+   */
+  async listPages(): Promise<WikiPageItem[]> {
+    const query = `
+      query {
+        pages {
+          list(orderBy: UPDATED, orderByDirection: DESC) {
+            id
+            path
+            title
+            description
+            contentType
+            isPublished
+            updatedAt
+          }
+        }
+      }
+    `;
+
+    const data = await this.graphqlRequest<{
+      pages: { list: WikiPageItem[] };
+    }>(query, {});
+
+    if (!data.pages?.list) {
+      throw new Error("Wiki.js API: unexpected response — missing pages.list");
+    }
+
+    return data.pages.list.filter((p) => p.isPublished);
+  }
+
+  /**
+   * 通用的 GraphQL 请求方法。
+   */
+  private async graphqlRequest<T>(
+    query: string,
+    variables: Record<string, unknown>,
+  ): Promise<T> {
+    const res = await fetch(`${this.wikiUrl}/graphql`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.apiToken}`,
+      },
+      body: JSON.stringify({ query, variables }),
+    });
+
+    if (!res.ok) {
+      throw new Error(`Wiki.js API error: ${res.status} ${res.statusText}`);
+    }
+
+    const json = await res.json() as {
+      data?: T;
+      errors?: unknown;
+    };
+
+    if (json.errors) {
+      throw new Error(`Wiki.js GraphQL error: ${JSON.stringify(json.errors)}`);
+    }
+
+    if (json.data === undefined) {
+      throw new Error("Wiki.js API: empty response data");
+    }
+
+    return json.data;
+  }
 
   /**
    * 处理 Wiki.js webhook 事件
@@ -99,43 +178,14 @@ export class WikiSyncService {
       }
     `;
 
-    const res = await fetch(`${this.wikiUrl}/graphql`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.apiToken}`,
-      },
-      body: JSON.stringify({
-        query,
-        variables: { id: pageId },
-      }),
-    });
+    const data = await this.graphqlRequest<{
+      pages: { single: { content: string } };
+    }>(query, { id: pageId });
 
-    if (!res.ok) {
-      throw new Error(`Wiki.js API error: ${res.status} ${res.statusText}`);
+    if (!data.pages?.single?.content) {
+      throw new Error(`Wiki.js API: page ${pageId} not found or has no content`);
     }
 
-    const json = await res.json() as {
-      data?: {
-        pages?: {
-          single?: {
-            content: string;
-          };
-        };
-      };
-      errors?: unknown;
-    };
-
-    // GraphQL 业务错误（如查询语法错误、页面不存在等）
-    if (json.errors) {
-      throw new Error(`Wiki.js GraphQL error: ${JSON.stringify(json.errors)}`);
-    }
-
-    const content = json.data?.pages?.single?.content;
-    if (typeof content !== "string") {
-      throw new Error(`Wiki.js API: unexpected response structure — missing pages.single.content`);
-    }
-
-    return content;
+    return data.pages.single.content;
   }
 }
