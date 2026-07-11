@@ -126,7 +126,7 @@ async function createPage(
     editor: "markdown",
     isPublished: true,
     isPrivate: false,
-    locale: "zh_CN",
+    locale: "en",
     path,
     tags,
     title,
@@ -245,7 +245,8 @@ async function migrate(): Promise<void> {
     const catSlug = article.categoryId && categorySlugMap.has(article.categoryId)
       ? categorySlugMap.get(article.categoryId)!
       : "uncategorized";
-    const slug = article.slug || article.title.toLowerCase().replace(/[^a-z0-9一-鿿]+/g, "-").replace(/^-|-$/g, "");
+    const rawSlug = (article.slug || article.title).toLowerCase();
+    const slug = rawSlug.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").replace(/-+/g, "-").slice(0, 80);
     const path = `/${catSlug}/${slug}`;
 
     try {
