@@ -11,6 +11,7 @@ import type { ResumeStore } from "../resume/store.js";
 import type { ResumeData } from "../resume/types.js";
 import { tokenManager } from "./token.js";
 import { WikiSyncService } from "../wiki-sync/service.js";
+import { WikiPoller } from "../wiki-sync/poller.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -103,6 +104,14 @@ export function createRagServer(
     process.env.WIKIJS_API_TOKEN || "",
     store,
   );
+
+  // Start Wiki.js poller for automatic RAG sync
+  const wikiPoller = new WikiPoller(wikiSyncService);
+  if (process.env.WIKIJS_API_TOKEN) {
+    wikiPoller.start();
+  } else {
+    console.log("[wiki-poller] Skipped (WIKIJS_API_TOKEN not set)");
+  }
 
   // === Token management ===
 
