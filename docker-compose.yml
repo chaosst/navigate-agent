@@ -1,0 +1,22 @@
+version: "3.9"
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: Dockerfile.pg
+    environment:
+      POSTGRES_DB: navigate
+      POSTGRES_USER: navigate
+      POSTGRES_PASSWORD: navigate
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init-pg.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U navigate -d navigate"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+volumes:
+  pgdata:
