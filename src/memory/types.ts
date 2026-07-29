@@ -15,6 +15,10 @@ export interface MemoryConfig {
   dbPath: string;
   sessionId?: string;
   maxContextMessages?: number;
+  /** Token 感知上下文预算（默认 6000） */
+  maxContextTokens?: number;
+  /** 为 LLM 回复预留的 token 数（默认 2000） */
+  responseReserve?: number;
 }
 
 export interface SearchResult {
@@ -23,6 +27,7 @@ export interface SearchResult {
   source: string;
 }
 
+/** 摘要记录 */
 export interface Summary {
   id: number;
   sessionId: string;

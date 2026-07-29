@@ -31,10 +31,12 @@ async function main() {
     model: "text-embedding-3-small",
   });
 
-  const memory = await AgentMemory.create("navigate.db", embeddings);
+  // 连接池（被 AgentMemory 和 PgVectorStore 共享）
+  const pool = await getPool(config);
+
+  const memory = await AgentMemory.create(pool, embeddings);
 
   // RAG setup
-  const pool = await getPool(config);
   const ragStore = new PgVectorStore(pool, embeddings);
   const ragTool = new RagSearchTool(ragStore);
 
