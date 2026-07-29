@@ -22,3 +22,13 @@ export interface SearchResult {
   score: number;
   source: string;
 }
+
+export interface Summary {
+  id: number;
+  sessionId: string;
+  content: string;
+  msgStartId: number | null;
+  msgEndId: number | null;
+  originalTokens: number;
+  createdAt: Date;
+}
