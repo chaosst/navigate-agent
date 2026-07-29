@@ -3,12 +3,18 @@ import { OpenAIEmbeddings } from "@langchain/openai";
 import { randomUUID } from "node:crypto";
 import type { RagDocument, RagResult } from "../rag/types.js";
 import type { DocMeta } from "./types.js";
+import { HotCache } from "./cache.js";
 
 export class PgVectorStore {
+  private cache: HotCache;
+
   constructor(
     private pool: Pool,
     private embeddings: OpenAIEmbeddings,
-  ) {}
+    cache?: HotCache,
+  ) {
+    this.cache = cache ?? new HotCache({ maxChunks: 5000 });
+  }
 
   async addChunks(
     chunks: { content: string; metadata: Record<string, unknown> }[],
@@ -66,11 +72,17 @@ export class PgVectorStore {
   }
 
   async deleteDoc(docId: string): Promise<void> {
+    this.cache.invalidateDoc(docId);
     // CASCADE 会自动删除关联的 doc_chunks
     await this.pool.query("DELETE FROM documents WHERE id = $1", [docId]);
   }
 
   async getDocMeta(docId: string): Promise<DocMeta | null> {
+    // L1: 尝试缓存命中
+    const cached = this.cache.getDocMeta(docId);
+    if (cached) return cached as DocMeta;
+
+    // L2: 数据库查询
     const { rows } = await this.pool.query(
       `SELECT filename, stored_filename, chunk_count, indexed_at,
               wiki_page_id, owner, project, tags, visibility, permissions, metadata
@@ -79,7 +91,7 @@ export class PgVectorStore {
     );
     if (rows.length === 0) return null;
     const r = rows[0];
-    return {
+    const meta: DocMeta = {
       filename: r.filename,
       storedFilename: r.stored_filename,
       chunkCount: r.chunk_count,
@@ -92,6 +104,9 @@ export class PgVectorStore {
       permissions: r.permissions,
       metadata: r.metadata,
     };
+    // 回填 L1 缓存
+    this.cache.setDocMeta(docId, meta);
+    return meta;
   }
 
   async listDocs(): Promise<RagDocument[]> {
