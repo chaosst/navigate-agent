@@ -230,6 +230,7 @@ export class PgVectorStore {
           score: r.score,
           source: "",
           docId: r.doc_id,
+          chunkIndex: r.chunk_index,
         });
       }
     } catch (e) {
