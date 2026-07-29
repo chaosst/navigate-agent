@@ -69,7 +69,9 @@ export class HotCache {
   // ── 统计 ──
 
   get stats() {
-    return { entries: this.store.size };
+    const docKeys = [...this.store.keys()].filter(k => k.startsWith("doc:")).length;
+    const sessionKeys = [...this.store.keys()].filter(k => k.startsWith("session:")).length;
+    return { docMeta: docKeys, sessions: sessionKeys, total: this.store.size };
   }
 
   clear(): void {
