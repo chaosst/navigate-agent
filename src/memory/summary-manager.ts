@@ -125,11 +125,6 @@ export class SummaryManager {
 
   /** 限制每个 session 的摘要数量，超出的删最旧的 */
   private async enforceLimit(sessionId: string): Promise<void> {
-    await (this.store as any).pool.query(
-      `DELETE FROM summaries WHERE session_id = $1 AND id NOT IN (
-         SELECT id FROM summaries WHERE session_id = $1 ORDER BY created_at DESC LIMIT $2
-       )`,
-      [sessionId, this.maxSummariesPerSession],
-    );
+    await this.store.pruneSummaries(sessionId, this.maxSummariesPerSession);
   }
 }

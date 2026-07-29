@@ -17,4 +17,5 @@ export interface RagResult {
   score: number;
   source: string;
   docId: string;
+  chunkIndex?: number;
 }

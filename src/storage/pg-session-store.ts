@@ -130,6 +130,16 @@ export class PgSessionStore {
       .join("\n");
   }
 
+  /** 限制 session 的摘要数量，超出上限的删除（供 SummaryManager 使用） */
+  async pruneSummaries(sessionId: string, maxCount: number): Promise<void> {
+    await this.pool.query(
+      `DELETE FROM summaries WHERE session_id = $1 AND id NOT IN (
+        SELECT id FROM summaries WHERE session_id = $1 ORDER BY created_at DESC LIMIT $2
+      )`,
+      [sessionId, maxCount],
+    );
+  }
+
   /** 执行摘要向量检索（供 SummaryManager 使用） */
   async searchSummaries(sessionId: string, embedding: number[], limit: number): Promise<any[]> {
     const vec = `[${embedding.join(",")}]`;
