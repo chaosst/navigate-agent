@@ -205,6 +205,7 @@ export class PgVectorStore {
             score: r.score,
             source: "",
             docId: r.doc_id,
+            chunkIndex: r.chunk_index,
           });
         }
       }
@@ -257,19 +258,21 @@ export class PgVectorStore {
     const combined = new Map<string, { result: RagResult; score: number }>();
 
     for (let i = 0; i < vectorResults.length; i++) {
-      combined.set(vectorResults[i].docId + ":" + i, {
-        result: vectorResults[i],
+      const r = vectorResults[i];
+      combined.set(r.docId + ":" + (r.chunkIndex ?? i), {
+        result: r,
         score: 1 / (K + i + 1),
       });
     }
 
     for (let i = 0; i < ftsResults.length; i++) {
-      const key = ftsResults[i].docId + ":" + i;
+      const r = ftsResults[i];
+      const key = r.docId + ":" + (r.chunkIndex ?? i);
       if (combined.has(key)) {
         combined.get(key)!.score += 1 / (K + i + 1);
       } else {
         combined.set(key, {
-          result: ftsResults[i],
+          result: r,
           score: 1 / (K + i + 1),
         });
       }
