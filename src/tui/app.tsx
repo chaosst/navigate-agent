@@ -16,21 +16,25 @@ export function App({ executor, memory }: AppProps) {
   const [input, setInput] = useState("");
   const [running, setRunning] = useState(false);
   const [streamingText, setStreamingText] = useState("");
+  const [sessionName, setSessionName] = useState("Chat");
 
   // Load existing messages from memory on mount
   useEffect(() => {
-    const session = memory.getSession();
-    if (session) {
-      const msgs = memory.store.getMessages(session.id);
-      if (msgs.length > 0) {
-        const loaded: OutputMessage[] = msgs.map(m => ({
-          role: m.role as "user" | "assistant" | "system" | "tool",
-          content: m.content,
-          timestamp: m.createdAt,
-        }));
-        setMessages(loaded);
+    (async () => {
+      const session = await memory.getSession();
+      if (session) {
+        setSessionName(session.name);
+        const msgs = await memory.store.getMessages(session.id);
+        if (msgs.length > 0) {
+          const loaded: OutputMessage[] = msgs.map(m => ({
+            role: m.role as "user" | "assistant" | "system" | "tool",
+            content: m.content,
+            timestamp: m.createdAt,
+          }));
+          setMessages(loaded);
+        }
       }
-    }
+    })();
   }, [memory]);
 
   const onSubmit = useCallback(async (value: string) => {
@@ -38,15 +42,17 @@ export function App({ executor, memory }: AppProps) {
     if (value.startsWith("/session")) {
       const parts = value.split(/\s+/);
       if (parts[1] === "new") {
-        const s = memory.store.createSession();
-        memory.switchSession(s.id);
+        const s = await memory.store.createSession();
+        await memory.switchSession(s.id);
+        setSessionName(s.name);
         setMessages([]);
         historyRef.current = [];
       } else if (parts[1] === "switch" && parts[2]) {
-        const s = memory.switchSession(parts[2]);
+        const s = await memory.switchSession(parts[2]);
         if (s) {
+          setSessionName(s.name);
           historyRef.current = [];
-          const msgs = memory.store.getMessages(s.id);
+          const msgs = await memory.store.getMessages(s.id);
           setMessages(msgs.map(m => ({
             role: m.role as "user" | "assistant" | "system" | "tool",
             content: m.content,
@@ -54,7 +60,8 @@ export function App({ executor, memory }: AppProps) {
           })));
         }
       } else if (!parts[1] || parts[1] === "list") {
-        const list = memory.listSessions().map(s => `${s.id.slice(0,8)}: ${s.name}`).join("\n");
+        const sessions = await memory.listSessions();
+        const list = sessions.map(s => `${s.id.slice(0,8)}: ${s.name}`).join("\n");
         setMessages(prev => [...prev, { role: "system", content: `Sessions:\n${list}`, timestamp: new Date() }]);
       }
       return;
@@ -129,13 +136,11 @@ export function App({ executor, memory }: AppProps) {
     }
   }, [executor, memory]);
 
-  const session = memory.getSession();
-
   return (
     <Box flexDirection="column" height="100%">
       <Box borderStyle="single" borderColor="green" paddingX={1}>
         <Text bold>Navigate Agent</Text>
-        <Text dimColor> | {session?.name || "Chat"}</Text>
+        <Text dimColor> | {sessionName}</Text>
         <Text dimColor>  (/help)</Text>
       </Box>
       <Box flexGrow={1} flexDirection="column" minHeight={10}>

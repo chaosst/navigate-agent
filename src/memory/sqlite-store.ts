@@ -1,6 +1,6 @@
 import initSqlJs, { Database } from "sql.js";
 import { readFileSync, writeFileSync, existsSync } from "fs";
-import type { Session, MemoryMessage } from "./types.js";
+import type { Session, MemoryMessage, Summary } from "./types.js";
 
 export class SqliteStore {
   private db: Database;
@@ -40,6 +40,16 @@ export class SqliteStore {
       created_at INTEGER NOT NULL
     )`);
     this.db.run("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, created_at)");
+    this.db.run(`CREATE TABLE IF NOT EXISTS summaries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+      content TEXT NOT NULL,
+      msg_start_id INTEGER,
+      msg_end_id INTEGER,
+      original_tokens INTEGER DEFAULT 0,
+      created_at INTEGER NOT NULL
+    )`);
+    this.db.run("CREATE INDEX IF NOT EXISTS idx_summaries_session ON summaries(session_id, created_at)");
     this.save();
   }
 
@@ -102,6 +112,43 @@ export class SqliteStore {
   getRecentContext(sessionId: string, limit: number = 10): string {
     return this.getMessages(sessionId, limit)
       .map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n");
+  }
+
+  // ════════════════════════════════════════
+  //  摘要 (Summary) CRUD
+  // ════════════════════════════════════════
+
+  saveSummary(sessionId: string, content: string, msgStartId: number | null, msgEndId: number | null, originalTokens: number): Summary {
+    const now = Date.now();
+    this.db.run(
+      "INSERT INTO summaries (session_id, content, msg_start_id, msg_end_id, original_tokens, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      [sessionId, content, msgStartId, msgEndId, originalTokens, now],
+    );
+    this.save();
+    const id = (this.db.exec("SELECT last_insert_rowid()")[0]?.values[0]?.[0] as number) ?? 0;
+    return { id, sessionId, content, msgStartId, msgEndId, originalTokens, createdAt: new Date(now) };
+  }
+
+  getSummaries(sessionId: string, limit?: number): Summary[] {
+    let sql = "SELECT * FROM summaries WHERE session_id = ? ORDER BY created_at ASC";
+    const params: any[] = [sessionId];
+    if (limit !== undefined) { sql += " LIMIT ?"; params.push(limit); }
+    const r = this.db.exec(sql, params);
+    if (!r.length) return [];
+    return r[0].values.map(row => ({
+      id: row[0] as number,
+      sessionId: row[1] as string,
+      content: row[2] as string,
+      msgStartId: row[3] as number | null,
+      msgEndId: row[4] as number | null,
+      originalTokens: row[5] as number,
+      createdAt: new Date(row[6] as number),
+    }));
+  }
+
+  deleteSummaries(sessionId: string): void {
+    this.db.run("DELETE FROM summaries WHERE session_id = ?", [sessionId]);
+    this.save();
   }
 
   close(): void {
