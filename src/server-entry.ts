@@ -13,7 +13,8 @@ import { createAgentExecutor } from "./agent/loop.js";
 import { createTools } from "./tools/registry.js";
 import type { StructuredTool } from "@langchain/core/tools";
 import { OpenAIEmbeddings } from "@langchain/openai";
-import { RagVectorStore } from "./rag/vectorstore.js";
+import { PgVectorStore } from "./storage/pg-vector-store.js";
+import { getPool } from "./storage/pool.js";
 import { RagSearchTool } from "./rag/retriever.js";
 import { createRagServer } from "./server/index.js";
 import { ResumeStore } from "./resume/store.js";
@@ -33,7 +34,8 @@ async function main() {
   });
 
   // RAG setup
-  const ragStore = new RagVectorStore(embeddings, "rag_data");
+  const pool = await getPool(config);
+  const ragStore = new PgVectorStore(pool, embeddings);
   const ragTool = new RagSearchTool(ragStore);
 
   // Resume setup

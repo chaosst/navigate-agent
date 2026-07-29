@@ -2,21 +2,21 @@ import initSqlJs, { Database } from "sql.js";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import type { WikiArticle, WikiCategory, WikiRevision, WikiArticleListItem, WikiArticleListResponse } from "./types.js";
-import { RagVectorStore } from "../rag/vectorstore.js";
+import { PgVectorStore } from "../storage/pg-vector-store.js";
 
 export class WikiStore {
   private db: Database;
   private dbPath: string;
-  private ragStore: RagVectorStore;
+  private ragStore: PgVectorStore;
 
-  private constructor(db: Database, dbPath: string, ragStore: RagVectorStore) {
+  private constructor(db: Database, dbPath: string, ragStore: PgVectorStore) {
     this.db = db;
     this.dbPath = dbPath;
     this.ragStore = ragStore;
     this.initTables();
   }
 
-  static async create(dbPath: string, ragStore: RagVectorStore): Promise<WikiStore> {
+  static async create(dbPath: string, ragStore: PgVectorStore): Promise<WikiStore> {
     const SQL = await initSqlJs();
     let db: Database;
     if (existsSync(dbPath)) {

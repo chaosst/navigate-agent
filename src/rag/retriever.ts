@@ -1,6 +1,6 @@
 import { StructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
-import { RagVectorStore } from "./vectorstore.js";
+import { PgVectorStore } from "../storage/pg-vector-store.js";
 
 export class RagSearchTool extends StructuredTool {
   name = "search_documents";
@@ -10,9 +10,9 @@ export class RagSearchTool extends StructuredTool {
     k: z.number().optional().describe("Number of results to return (default 5)"),
   });
 
-  private store: RagVectorStore;
+  private store: PgVectorStore;
 
-  constructor(store: RagVectorStore) {
+  constructor(store: PgVectorStore) {
     super();
     this.store = store;
   }

@@ -2,7 +2,7 @@ import express from "express";
 import multer from "multer";
 import path from "path";
 import { randomUUID } from "crypto";
-import { RagVectorStore } from "../rag/vectorstore.js";
+import { PgVectorStore } from "../storage/pg-vector-store.js";
 import { loadDocument } from "../rag/loader.js";
 import { dirname } from "path";
 import { fileURLToPath } from "url";
@@ -60,7 +60,7 @@ function requireToken(req: express.Request, res: express.Response, next: express
 }
 
 export function createRagServer(
-  store: RagVectorStore,
+  store: PgVectorStore,
   port: number = 3001,
   executor?: AgentExecutor,
   resumeStore?: ResumeStore,

@@ -1,6 +1,6 @@
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
 import { Document } from "@langchain/core/documents";
-import type { RagVectorStore } from "../rag/vectorstore.js";
+import type { PgVectorStore } from "../storage/pg-vector-store.js";
 
 /**
  * Wiki.js 页面列表项（来自 pages.list GraphQL 查询）
@@ -16,13 +16,13 @@ export interface WikiPageItem {
 }
 
 /**
- * WikiSyncService: 通过 Wiki.js GraphQL API 获取页面内容并同步到 RagVectorStore。
+ * WikiSyncService: 通过 Wiki.js GraphQL API 获取页面内容并同步到 PgVectorStore。
  */
 export class WikiSyncService {
   constructor(
     private wikiUrl: string,
     private apiToken: string,
-    private ragStore: RagVectorStore,
+    private ragStore: PgVectorStore,
   ) {}
 
   /**
