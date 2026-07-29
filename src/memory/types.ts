@@ -3,6 +3,11 @@ export interface Session {
   name: string;
   createdAt: Date;
   updatedAt: Date;
+  owner: string;
+  project: string;
+  tags: string[];
+  visibility: "private" | "team" | "public";
+  permissions: { user: string; role: "reader" | "editor" | "admin" }[];
 }
 
 export interface MemoryMessage {

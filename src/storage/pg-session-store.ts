@@ -20,14 +20,38 @@ export class PgSessionStore {
     this.embeddings = emb;
   }
 
-  async createSession(name?: string): Promise<Session> {
+  async createSession(
+    name?: string,
+    options?: {
+      owner?: string;
+      project?: string;
+      tags?: string[];
+      visibility?: "private" | "team" | "public";
+      permissions?: { user: string; role: "reader" | "editor" | "admin" }[];
+    },
+  ): Promise<Session> {
     const id = randomUUID();
     const now = new Date();
     await this.pool.query(
-      `INSERT INTO sessions (id, name, created_at, updated_at) VALUES ($1, $2, $3, $3)`,
-      [id, name || "New Chat", now.toISOString()],
+      `INSERT INTO sessions (id, name, owner, project, tags, visibility, permissions, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,
+      [
+        id,
+        name || "New Chat",
+        options?.owner ?? "admin",
+        options?.project ?? "",
+        options?.tags ?? [],
+        options?.visibility ?? "private",
+        JSON.stringify(options?.permissions ?? []),
+        now.toISOString(),
+      ],
     );
-    return { id, name: name || "New Chat", createdAt: now, updatedAt: now };
+    return {
+      id, name: name || "New Chat", createdAt: now, updatedAt: now,
+      owner: options?.owner ?? "admin", project: options?.project ?? "",
+      tags: options?.tags ?? [], visibility: options?.visibility ?? "private",
+      permissions: options?.permissions ?? [],
+    };
   }
 
   async getSession(id: string): Promise<Session | null> {
@@ -37,12 +61,17 @@ export class PgSessionStore {
 
     // L2: 数据库查询
     const { rows } = await this.pool.query(
-      `SELECT id, name, created_at, updated_at FROM sessions WHERE id = $1`,
+      `SELECT id, name, owner, project, tags, visibility, permissions, created_at, updated_at
+       FROM sessions WHERE id = $1`,
       [id],
     );
     if (rows.length === 0) return null;
     const r = rows[0];
-    const session: Session = { id: r.id, name: r.name, createdAt: r.created_at, updatedAt: r.updated_at };
+    const session: Session = {
+      id: r.id, name: r.name, createdAt: r.created_at, updatedAt: r.updated_at,
+      owner: r.owner, project: r.project, tags: r.tags ?? [], visibility: r.visibility ?? "private",
+      permissions: r.permissions ?? [],
+    };
     // 回填 L1 缓存
     this.cache.setSession(id, session);
     return session;
@@ -50,14 +79,18 @@ export class PgSessionStore {
 
   async listSessions(): Promise<Session[]> {
     const { rows } = await this.pool.query(
-      `SELECT id, name, created_at, updated_at FROM sessions ORDER BY updated_at DESC`,
+      `SELECT id, name, owner, project, tags, visibility, permissions, created_at, updated_at
+       FROM sessions ORDER BY updated_at DESC`,
     );
     return rows.map((r) => ({
       id: r.id, name: r.name, createdAt: r.created_at, updatedAt: r.updated_at,
+      owner: r.owner, project: r.project, tags: r.tags ?? [], visibility: r.visibility ?? "private",
+      permissions: r.permissions ?? [],
     }));
   }
 
   async deleteSession(id: string): Promise<void> {
+    this.cache.invalidateSession(id);
     await this.pool.query("DELETE FROM sessions WHERE id = $1", [id]);
   }
 
@@ -95,6 +128,18 @@ export class PgSessionStore {
     return msgs
       .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
       .join("\n");
+  }
+
+  /** 执行摘要向量检索（供 SummaryManager 使用） */
+  async searchSummaries(sessionId: string, embedding: number[], limit: number): Promise<any[]> {
+    const vec = `[${embedding.join(",")}]`;
+    const { rows } = await this.pool.query(
+      `SELECT id, session_id, content, msg_start_id, msg_end_id, original_chars, created_at
+       FROM summaries WHERE session_id = $1 AND embedding IS NOT NULL
+       ORDER BY embedding <=> $2::vector LIMIT $3`,
+      [sessionId, vec, limit],
+    );
+    return rows;
   }
 
   async saveSummary(

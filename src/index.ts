@@ -12,7 +12,7 @@ import type { StructuredTool } from "@langchain/core/tools";
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { AgentMemory } from "./memory/index.js";
 import { PgVectorStore } from "./storage/pg-vector-store.js";
-import { getPool } from "./storage/pool.js";
+import { getPool, closePool } from "./storage/pool.js";
 import { RagSearchTool } from "./rag/retriever.js";
 import { createRagServer } from "./server/index.js";
 import { ResumeStore } from "./resume/store.js";
@@ -89,6 +89,15 @@ async function main() {
   createRagServer(ragStore, 3001, executor, resumeStore, resumeData);
 
   render(React.createElement(App, { executor, memory }));
+
+  process.on("SIGINT", async () => {
+    await closePool();
+    process.exit(0);
+  });
+  process.on("SIGTERM", async () => {
+    await closePool();
+    process.exit(0);
+  });
 }
 
 function md5(s: string): string {

@@ -69,14 +69,7 @@ export class SummaryManager {
     if (this.embeddings) {
       try {
         const vec = await this.embeddings.embedQuery(query);
-        const { rows } = await (this.store as any).pool.query(
-          `SELECT id, session_id, content, msg_start_id, msg_end_id, original_chars, created_at
-           FROM summaries
-           WHERE session_id = $1 AND embedding IS NOT NULL
-           ORDER BY embedding <=> $2::vector
-           LIMIT $3`,
-          [sessionId, `[${vec.join(",")}]`, maxResults],
-        );
+        const rows = await this.store.searchSummaries(sessionId, vec, maxResults);
         if (rows.length > 0) {
           return rows.map((r: any) => ({
             id: r.id,
@@ -132,13 +125,11 @@ export class SummaryManager {
 
   /** 限制每个 session 的摘要数量，超出的删最旧的 */
   private async enforceLimit(sessionId: string): Promise<void> {
-    const all = await this.store.getSummaries(sessionId);
-    if (all.length <= this.maxSummariesPerSession) return;
-
-    const keep = all.slice(-this.maxSummariesPerSession);
-    await this.store.deleteSummaries(sessionId);
-    for (const s of keep) {
-      await this.store.saveSummary(sessionId, s.content, s.msgStartId, s.msgEndId, s.originalTokens);
-    }
+    await (this.store as any).pool.query(
+      `DELETE FROM summaries WHERE session_id = $1 AND id NOT IN (
+         SELECT id FROM summaries WHERE session_id = $1 ORDER BY created_at DESC LIMIT $2
+       )`,
+      [sessionId, this.maxSummariesPerSession],
+    );
   }
 }

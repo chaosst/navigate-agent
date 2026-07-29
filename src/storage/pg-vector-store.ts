@@ -7,6 +7,8 @@ import { HotCache } from "./cache.js";
 
 export class PgVectorStore {
   private cache: HotCache;
+  private listDocsCache: { data: RagDocument[]; timestamp: number } | null = null;
+  private readonly LIST_DOCS_CACHE_TTL = 5000; // 5 seconds
 
   constructor(
     private pool: Pool,
@@ -110,17 +112,22 @@ export class PgVectorStore {
   }
 
   async listDocs(): Promise<RagDocument[]> {
+    if (this.listDocsCache && Date.now() - this.listDocsCache.timestamp < this.LIST_DOCS_CACHE_TTL) {
+      return this.listDocsCache.data;
+    }
     const { rows } = await this.pool.query(
       `SELECT id, filename, chunk_count, indexed_at
        FROM documents ORDER BY indexed_at DESC`,
     );
-    return rows.map((r) => ({
+    const result = rows.map((r) => ({
       id: r.id,
       filename: r.filename,
       pages: 0,
       chunkCount: r.chunk_count,
       indexedAt: r.indexed_at,
     }));
+    this.listDocsCache = { data: result, timestamp: Date.now() };
+    return result;
   }
 
   async saveDocMeta(docId: string, meta: DocMeta): Promise<void> {
@@ -156,7 +163,7 @@ export class PgVectorStore {
   }
 
   async deleteDocMeta(docId: string): Promise<void> {
-    await this.pool.query("DELETE FROM documents WHERE id = $1", [docId]);
+    return this.deleteDoc(docId);
   }
 
   async getChunkCount(): Promise<number> {
@@ -180,22 +187,26 @@ export class PgVectorStore {
     // 1. 向量检索
     try {
       const embedding = await this.embeddings.embedQuery(query);
-      const { rows } = await this.pool.query(
-        `SELECT id, content, doc_id, chunk_index,
-                1 - (embedding <=> $1::vector) AS score
-         FROM doc_chunks
-         WHERE embedding IS NOT NULL
-         ORDER BY embedding <=> $1::vector
-         LIMIT $2`,
-        [`[${embedding.join(",")}]`, k * 2],
-      );
-      for (const r of rows) {
-        vectorResults.push({
-          content: r.content,
-          score: r.score,
-          source: "",
-          docId: r.doc_id,
-        });
+      if (!embedding || embedding.length === 0) {
+        console.warn("[pgvector] Empty embedding from query, skipping vector search");
+      } else {
+        const { rows } = await this.pool.query(
+          `SELECT id, content, doc_id, chunk_index,
+                  1 - (embedding <=> $1::vector) AS score
+           FROM doc_chunks
+           WHERE embedding IS NOT NULL
+           ORDER BY embedding <=> $1::vector
+           LIMIT $2`,
+          [`[${embedding.join(",")}]`, k * 2],
+        );
+        for (const r of rows) {
+          vectorResults.push({
+            content: r.content,
+            score: r.score,
+            source: "",
+            docId: r.doc_id,
+          });
+        }
       }
     } catch (e) {
       console.warn("[pgvector] Vector search failed:", (e as Error).message);
@@ -224,7 +235,12 @@ export class PgVectorStore {
       console.warn("[pgvector] FTS search failed:", (e as Error).message);
     }
 
-    // 3. RRF 融合
+    // 3. 诊断
+    if (vectorResults.length === 0 && ftsResults.length === 0) {
+      console.warn("[pgvector] Both vector and FTS searches returned zero results — check DB connection and data");
+    }
+
+    // 4. RRF 融合
     return this.rrfMerge(vectorResults, ftsResults, k);
   }
 
@@ -241,14 +257,14 @@ export class PgVectorStore {
     const combined = new Map<string, { result: RagResult; score: number }>();
 
     for (let i = 0; i < vectorResults.length; i++) {
-      combined.set(vectorResults[i].content, {
+      combined.set(vectorResults[i].docId + ":" + i, {
         result: vectorResults[i],
         score: 1 / (K + i + 1),
       });
     }
 
     for (let i = 0; i < ftsResults.length; i++) {
-      const key = ftsResults[i].content;
+      const key = ftsResults[i].docId + ":" + i;
       if (combined.has(key)) {
         combined.get(key)!.score += 1 / (K + i + 1);
       } else {
