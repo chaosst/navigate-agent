@@ -1,7 +1,7 @@
 import { Pool } from "pg";
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { randomUUID } from "node:crypto";
-import type { RagDocument } from "../rag/types.js";
+import type { RagDocument, RagResult } from "../rag/types.js";
 import type { DocMeta } from "./types.js";
 
 export class PgVectorStore {
@@ -152,5 +152,101 @@ export class PgVectorStore {
   async listDocIds(): Promise<string[]> {
     const { rows } = await this.pool.query("SELECT id FROM documents");
     return rows.map((r) => r.id);
+  }
+
+  // ═══════════════════════════════════════════════
+  //  混合检索（向量 + FTS，RRF 融合）
+  // ═══════════════════════════════════════════════
+
+  async search(query: string, k: number = 5): Promise<RagResult[]> {
+    const vectorResults: RagResult[] = [];
+    const ftsResults: RagResult[] = [];
+
+    // 1. 向量检索
+    try {
+      const embedding = await this.embeddings.embedQuery(query);
+      const { rows } = await this.pool.query(
+        `SELECT id, content, doc_id, chunk_index,
+                1 - (embedding <=> $1::vector) AS score
+         FROM doc_chunks
+         WHERE embedding IS NOT NULL
+         ORDER BY embedding <=> $1::vector
+         LIMIT $2`,
+        [`[${embedding.join(",")}]`, k * 2],
+      );
+      for (const r of rows) {
+        vectorResults.push({
+          content: r.content,
+          score: r.score,
+          source: "",
+          docId: r.doc_id,
+        });
+      }
+    } catch (e) {
+      console.warn("[pgvector] Vector search failed:", (e as Error).message);
+    }
+
+    // 2. 中文 FTS 检索（替代 BM25）
+    try {
+      const { rows } = await this.pool.query(
+        `SELECT id, content, doc_id, chunk_index,
+                ts_rank(fts_vector, plainto_tsquery('chinese_zh', $1)) AS score
+         FROM doc_chunks
+         WHERE fts_vector @@ plainto_tsquery('chinese_zh', $1)
+         ORDER BY score DESC
+         LIMIT $2`,
+        [query, k * 2],
+      );
+      for (const r of rows) {
+        ftsResults.push({
+          content: r.content,
+          score: r.score,
+          source: "",
+          docId: r.doc_id,
+        });
+      }
+    } catch (e) {
+      console.warn("[pgvector] FTS search failed:", (e as Error).message);
+    }
+
+    // 3. RRF 融合
+    return this.rrfMerge(vectorResults, ftsResults, k);
+  }
+
+  /**
+   * Reciprocal Rank Fusion
+   * 与旧版 RagVectorStore.rrfMerge 完全兼容
+   */
+  private rrfMerge(
+    vectorResults: RagResult[],
+    ftsResults: RagResult[],
+    k: number,
+  ): RagResult[] {
+    const K = 60;
+    const combined = new Map<string, { result: RagResult; score: number }>();
+
+    for (let i = 0; i < vectorResults.length; i++) {
+      combined.set(vectorResults[i].content, {
+        result: vectorResults[i],
+        score: 1 / (K + i + 1),
+      });
+    }
+
+    for (let i = 0; i < ftsResults.length; i++) {
+      const key = ftsResults[i].content;
+      if (combined.has(key)) {
+        combined.get(key)!.score += 1 / (K + i + 1);
+      } else {
+        combined.set(key, {
+          result: ftsResults[i],
+          score: 1 / (K + i + 1),
+        });
+      }
+    }
+
+    return Array.from(combined.values())
+      .sort((a, b) => b.score - a.score)
+      .slice(0, k)
+      .map((e) => e.result);
   }
 }
