@@ -2,14 +2,17 @@ import { Pool } from "pg";
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { randomUUID } from "node:crypto";
 import type { Session, MemoryMessage, Summary } from "../memory/types.js";
+import { HotCache } from "./cache.js";
 
 export class PgSessionStore {
   private pool: Pool;
   private embeddings?: OpenAIEmbeddings;
+  private cache: HotCache;
 
-  constructor(pool: Pool, embeddings?: OpenAIEmbeddings) {
+  constructor(pool: Pool, embeddings?: OpenAIEmbeddings, cache?: HotCache) {
     this.pool = pool;
     this.embeddings = embeddings;
+    this.cache = cache ?? new HotCache({ maxSessions: 50 });
   }
 
   /** 注入 embedding 模型（也可以在构造时传入） */
@@ -28,13 +31,21 @@ export class PgSessionStore {
   }
 
   async getSession(id: string): Promise<Session | null> {
+    // L1: 尝试缓存命中
+    const cached = this.cache.getSession(id);
+    if (cached) return cached as Session;
+
+    // L2: 数据库查询
     const { rows } = await this.pool.query(
       `SELECT id, name, created_at, updated_at FROM sessions WHERE id = $1`,
       [id],
     );
     if (rows.length === 0) return null;
     const r = rows[0];
-    return { id: r.id, name: r.name, createdAt: r.created_at, updatedAt: r.updated_at };
+    const session: Session = { id: r.id, name: r.name, createdAt: r.created_at, updatedAt: r.updated_at };
+    // 回填 L1 缓存
+    this.cache.setSession(id, session);
+    return session;
   }
 
   async listSessions(): Promise<Session[]> {
@@ -51,6 +62,7 @@ export class PgSessionStore {
   }
 
   async addMessage(sessionId: string, role: string, content: string): Promise<MemoryMessage> {
+    this.cache.invalidateSession(sessionId);
     const now = new Date();
     await this.pool.query(
       `INSERT INTO messages (session_id, role, content, created_at) VALUES ($1, $2, $3, $4)`,
