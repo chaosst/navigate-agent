@@ -8,7 +8,11 @@
         "build": "tsc",
         "start": "node dist/index.js",
         "gen-token": "tsx scripts/gen-token.ts",
-        "dev:wiki": "cd wiki-js && node server start"
+        "dev:wiki": "cd wiki-js && node server start",
+        "db:up": "docker-compose up -d",
+        "db:down": "docker-compose down",
+        "db:import": "tsx scripts/import-from-sqlite.ts",
+        "db:reset": "docker-compose down -v && docker-compose up -d"
     },
     "dependencies": {
         "@langchain/community": "^0.3.0",
@@ -25,7 +29,6 @@
         "pdf-parse": "^2.4.5",
         "pg": "^8.22.0",
         "react": "^18.0.0",
-        "sql.js": "^1.11.0",
         "zod": "^3.23.0"
     },
     "devDependencies": {
@@ -34,7 +37,6 @@
         "@types/multer": "^2.2.0",
         "@types/pg": "^8.20.0",
         "@types/react": "^18.0.0",
-        "@types/sql.js": "^1.4.11",
         "tsx": "^4.0.0",
         "typescript": "^5.4.0"
     },
