@@ -8,14 +8,15 @@ import { runAgent } from "../agent/loop.js";
 import type { AgentMessage } from "../agent/types.js";
 import type { AgentMemory } from "../memory/index.js";
 
-interface AppProps { executor: AgentExecutor; memory: AgentMemory; }
+interface AppProps { executor: AgentExecutor; memory: AgentMemory; agentName?: string; }
 
-export function App({ executor, memory }: AppProps) {
+export function App({ executor, memory, agentName = "Agent" }: AppProps) {
   const [messages, setMessages] = useState<OutputMessage[]>([]);
   const historyRef = useRef<AgentMessage[]>([]);
   const [input, setInput] = useState("");
   const [running, setRunning] = useState(false);
   const [streamingText, setStreamingText] = useState("");
+  const [streamingTools, setStreamingTools] = useState<string[]>([]);
   const [sessionName, setSessionName] = useState("Chat");
 
   // Load existing messages from memory on mount
@@ -46,6 +47,7 @@ export function App({ executor, memory }: AppProps) {
         await memory.switchSession(s.id);
         setSessionName(s.name);
         setMessages([]);
+        setStreamingTools([]);
         historyRef.current = [];
       } else if (parts[1] === "switch" && parts[2]) {
         const s = await memory.switchSession(parts[2]);
@@ -69,7 +71,7 @@ export function App({ executor, memory }: AppProps) {
 
     if (value.startsWith("/")) {
       const result = handleCommand(value);
-      if (result === "CLEAR") { setMessages([]); historyRef.current = []; return; }
+      if (result === "CLEAR") { setMessages([]); setStreamingTools([]); historyRef.current = []; return; }
       if (value.startsWith("/show")) {
         const parts = value.split(/\s+/);
         setMessages(prev => {
@@ -99,10 +101,12 @@ export function App({ executor, memory }: AppProps) {
     memory.addUserMessage(value);
     setRunning(true);
     setStreamingText("");
+    setStreamingTools([]);
     try {
       const output = await runAgent(executor, value, historyRef.current, {
         onToolStart(tool, input) {
           setMessages(prev => [...prev, { role: "tool", content: `Calling: ${tool}\n${JSON.stringify(input, null, 2)}`, name: tool, timestamp: new Date(), running: true }]);
+          setStreamingTools(prev => [...prev, `⚡ ${tool}`]);
         },
         onToolEnd(result) {
           setMessages(prev => {
@@ -115,6 +119,7 @@ export function App({ executor, memory }: AppProps) {
             }
             return copy;
           });
+          setStreamingTools(prev => [...prev, `  → ${result.output?.slice(0, 200)}`]);
         },
         onToken(token) {
           setStreamingText(prev => prev + token);
@@ -129,6 +134,7 @@ export function App({ executor, memory }: AppProps) {
       memory.addAssistantMessage(output);
       try { await memory.summarizeAndStore(`User: ${value}\nAssistant: ${output}`) } catch {};
       setStreamingText("");
+      setStreamingTools([]);
     } catch (error) {
       setMessages(prev => [...prev, { role: "system", content: `Error: ${(error as Error).message}`, timestamp: new Date() }]);
     } finally {
@@ -144,7 +150,7 @@ export function App({ executor, memory }: AppProps) {
         <Text dimColor>  (/help)</Text>
       </Box>
       <Box flexGrow={1} flexDirection="column" minHeight={10}>
-        <Output messages={messages} streamingText={running ? streamingText : undefined} />
+        <Output messages={messages} streamingText={running ? streamingText : undefined} streamingTools={running ? streamingTools : undefined} agentName={agentName} />
       </Box>
       <Input value={input} onChange={setInput} onSubmit={onSubmit} disabled={running} />
       {running ? (<Box paddingX={1}><Text color="yellow">Agent is thinking...</Text></Box>) : null}

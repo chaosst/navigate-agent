@@ -88,7 +88,7 @@ async function main() {
 
   createRagServer(ragStore, 3001, executor, resumeStore, resumeData);
 
-  render(React.createElement(App, { executor, memory }));
+  render(React.createElement(App, { executor, memory, agentName: "Navigate" }));
 
   process.on("SIGINT", async () => {
     await closePool();
