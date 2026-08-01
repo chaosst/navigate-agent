@@ -6,12 +6,12 @@ import { PgVectorStore } from "../storage/pg-vector-store.js";
 import { loadDocument } from "../rag/loader.js";
 import { dirname } from "path";
 import { fileURLToPath } from "url";
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import type { ResumeStore } from "../resume/store.js";
 import type { ResumeData } from "../resume/types.js";
 import { tokenManager } from "./token.js";
-import { WikiSyncService } from "../wiki-sync/service.js";
-import { WikiPoller } from "../wiki-sync/poller.js";
+import { ZyplayerDocAdapter } from "../wiki-sync/zyplayer-doc-adapter.js";
+import { ContentPoller } from "../wiki-sync/poller.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -32,6 +32,8 @@ interface DocMeta {
   filename: string;
   chunks: number;
   indexedAt: Date;
+  /** rag_uploads/ 下的文件名（随机 hex），用于 reindex */
+  storedFilename?: string;
 }
 
 /** API error helper */
@@ -86,9 +88,14 @@ export function createRagServer(
     try {
       if (!existsSync(metaPath)) return;
       const raw = readFileSync(metaPath, "utf-8");
-      const items = JSON.parse(raw) as { id: string; filename: string; chunks: number; indexedAt: string }[];
+      const items = JSON.parse(raw) as { id: string; filename: string; chunks: number; indexedAt: string; storedFilename?: string }[];
       for (const item of items) {
-        docMeta.set(item.id, { filename: item.filename, chunks: item.chunks, indexedAt: new Date(item.indexedAt) });
+        docMeta.set(item.id, {
+          filename: item.filename,
+          chunks: item.chunks,
+          indexedAt: new Date(item.indexedAt),
+          storedFilename: item.storedFilename,
+        });
       }
       if (items.length > 0) console.log(`[server] Restored ${items.length} document metadata entries`);
     } catch (err) {
@@ -99,28 +106,31 @@ export function createRagServer(
 
   app.use(express.json());
 
-  const wikiSyncService = new WikiSyncService(
-    process.env.WIKIJS_URL || "http://localhost:3003",
-    process.env.WIKIJS_API_TOKEN || "",
-    store,
-  );
+  // zyplayer-doc 适配器与轮询器（替代旧的 Wiki.js GraphQL 集成）
+  let zyplayerAdapter: ZyplayerDocAdapter | undefined;
+  const mysqlHost = process.env.ZYPLAYER_MYSQL_HOST;
+  if (mysqlHost && process.env.ZYPLAYER_MYSQL_USER && process.env.ZYPLAYER_MYSQL_PASSWORD) {
+    zyplayerAdapter = new ZyplayerDocAdapter(
+      {
+        host: mysqlHost,
+        port: parseInt(process.env.ZYPLAYER_MYSQL_PORT || "3307", 10),
+        user: process.env.ZYPLAYER_MYSQL_USER,
+        password: process.env.ZYPLAYER_MYSQL_PASSWORD,
+        database: process.env.ZYPLAYER_MYSQL_DB || "zyplayer_doc",
+      },
+      store,
+    );
 
-  // Start Wiki.js poller for automatic RAG sync
-  const wikiPoller = new WikiPoller(wikiSyncService);
-  if (process.env.WIKIJS_API_TOKEN) {
-    wikiPoller.start();
+    const contentPoller = new ContentPoller(zyplayerAdapter);
+    contentPoller.start();
   } else {
-    console.log("[wiki-poller] Skipped (WIKIJS_API_TOKEN not set)");
+    console.log("[zyplayer-sync] Skipped (ZYPLAYER_MYSQL_* not fully configured)");
   }
 
   // === Token management ===
 
-  // Generate the initial access token on startup
-  const initialToken = tokenManager.generate();
-  console.log(`\n🔑 Access token: ${initialToken} (valid 30 min)`);
-  console.log(`   RAG Document Manager: http://localhost:${port}/?token=${initialToken}`);
-  console.log(`   Resume Chat:          http://localhost:${port}/resume/chat?token=${initialToken}`);
-  console.log(`   Wiki Knowledge Base:   http://localhost:3003\n`);
+  // 注意:初始 token 在 app.listen 成功回调里才生成并打印,
+  // 端口绑定失败(EADDRINUSE)时不会打印一个永远无效的 token。
 
   // Get token info / check validity
   app.get("/api/token", (req, res) => {
@@ -166,18 +176,13 @@ export function createRagServer(
       const filePath = req.file.path;
       const chunks = await loadDocument(filePath, filename);
       await store.addChunks(chunks, docId);
-      docMeta.set(docId, { filename, chunks: chunks.length, indexedAt: new Date() });
+      docMeta.set(docId, {
+        filename,
+        chunks: chunks.length,
+        indexedAt: new Date(),
+        storedFilename: req.file.filename,
+      });
       saveDocMeta();
-
-      // Also create a Wiki.js page from the uploaded content
-      try {
-        const fullContent = chunks.map(c => c.content).join("\n\n");
-        const title = filename.replace(/\.(md|txt|pdf|docx)$/i, "");
-        await wikiSyncService.createPage(title, fullContent, `Uploaded: ${filename}`);
-        console.log(`[upload] Created Wiki.js page: ${title}`);
-      } catch (wikiErr) {
-        console.warn(`[upload] Could not create Wiki.js page:`, (wikiErr as Error).message);
-      }
 
       res.json({ docId, filename, chunks: chunks.length });
     } catch (err) {
@@ -186,14 +191,26 @@ export function createRagServer(
     }
   });
 
-  app.get("/api/documents", requireToken, (_req, res) => {
-    const ids = Array.from(docMeta.entries()).map(([id, meta]) => ({
-      id,
-      filename: meta.filename,
-      chunks: meta.chunks,
-      indexedAt: meta.indexedAt,
-    }));
-    res.json(ids);
+  app.get("/api/documents", requireToken, async (_req, res) => {
+    try {
+      // 从 PostgreSQL 读取（同时预热 L1 缓存），返回格式兼容旧版
+      const docs = await store.listDocs();
+      res.json(docs.map((d) => ({
+        id: d.id,
+        filename: d.filename,
+        chunks: d.chunkCount,
+        indexedAt: d.indexedAt,
+      })));
+    } catch (err) {
+      // 降级：回退到 docMeta Map
+      const ids = Array.from(docMeta.entries()).map(([id, meta]) => ({
+        id,
+        filename: meta.filename,
+        chunks: meta.chunks,
+        indexedAt: meta.indexedAt,
+      }));
+      res.json(ids);
+    }
   });
 
   app.delete("/api/documents/:id", requireToken, (req, res) => {
@@ -203,11 +220,101 @@ export function createRagServer(
     res.json({ deleted: id });
   });
 
+  /**
+   * 根据时间戳和文件类型，在 rag_uploads/ 中找到匹配的源文件。
+   * 返回 rag_uploads/ 下的文件名；找不到返回 null。
+   */
+  function findStoredFile(meta: DocMeta): string | null {
+    const uploadDir = path.join(process.cwd(), "rag_uploads");
+    if (!existsSync(uploadDir)) return null;
+    if (meta.storedFilename && existsSync(path.join(uploadDir, meta.storedFilename))) {
+      return meta.storedFilename;
+    }
+
+    // 时间戳匹配：找 mtime 最接近 indexedAt 且扩展名类型一致的文件
+    const ext = path.extname(meta.filename).toLowerCase();
+    const indexedAtMs = meta.indexedAt.getTime();
+    let best: { name: string; dist: number } | null = null;
+
+    for (const f of readdirSync(uploadDir)) {
+      const fullPath = path.join(uploadDir, f);
+      if (!existsSync(fullPath) || statSync(fullPath).isDirectory()) continue;
+      const fExt = path.extname(f).toLowerCase();
+      // 源文件的真实类型一般和 docMeta 的 filename 一致（.pdf/.docx/.md/.txt）
+      if (fExt && ext && fExt !== ext) continue;
+      const dist = Math.abs(statSync(fullPath).mtimeMs - indexedAtMs);
+      if (!best || dist < best.dist) best = { name: f, dist };
+    }
+
+    return best && best.dist < 10 * 60 * 1000 ? best.name : null; // 10 分钟窗口
+  }
+
+  /**
+   * 重新索引：删除旧 chunk → 重新分块 → 重新写入 PostgreSQL。
+   * 用于把旧系统（JSON/MemoryVectorStore）的文档迁移到新存储。
+   */
+  app.post("/api/reindex/:id", requireToken, async (req, res) => {
+    const id = req.params.id as string;
+    const meta = docMeta.get(id);
+    if (!meta) return res.status(404).json({ error: "Document not found" });
+
+    try {
+      const storedFile = findStoredFile(meta);
+      if (!storedFile) {
+        return res.status(404).json({ error: `Could not find source file for "${meta.filename}" in rag_uploads/` });
+      }
+
+      const filePath = path.join(process.cwd(), "rag_uploads", storedFile);
+
+      // 1. 删除旧 chunk
+      await store.deleteDoc(id);
+
+      // 2. 重新分块
+      const chunks = await loadDocument(filePath, meta.filename);
+
+      // 3. 重新写入
+      await store.addChunks(chunks, id);
+
+      // 4. 更新元数据
+      meta.chunks = chunks.length;
+      meta.storedFilename = storedFile;
+      docMeta.set(id, meta);
+      saveDocMeta();
+
+      console.log(`[reindex] "${meta.filename}": ${meta.chunks} → ${chunks.length} chunks`);
+      res.json({ docId: id, filename: meta.filename, chunks: chunks.length });
+    } catch (err) {
+      console.error(`[reindex] Error reindexing "${meta.filename}":`, (err as Error).message);
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get("/api/stats", requireToken, (_req, res) => {
+    const cache = store.getCacheStats();
+    res.json({ cacheEntries: cache.total, cacheDetail: cache });
+  });
+
   app.post("/api/query", requireToken, async (req, res) => {
     try {
-      const { query, k } = req.body;
+      const { query, topK, k, threshold } = req.body;
       if (!query) return res.status(400).json({ error: "Missing query" });
-      const results = await store.search(query, k || 5);
+      // topK 为前端实际发送的参数;k 兼容旧客户端
+      let results = await store.search(query, topK ?? k ?? 5);
+      if (typeof threshold === "number" && threshold > 0) {
+        results = results.filter((r) => r.score >= threshold);
+      }
+      res.json({ results });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // 纯关键词子串检索（H5 keyword 标签）
+  app.post("/api/query/fts", requireToken, async (req, res) => {
+    try {
+      const { query, topK } = req.body;
+      if (!query) return res.status(400).json({ error: "Missing query" });
+      const results = await store.searchKeyword(query, topK ?? 5);
       res.json({ results });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
@@ -320,21 +427,6 @@ export function createRagServer(
   // Serve public directory for wiki static assets
   app.use(express.static(path.join(__dirname, "public")));
 
-  // === Wiki-Sync webhook ===
-  app.post("/api/wiki-sync", async (req, res) => {
-    try {
-      const { event, pageId, slug } = req.body;
-      if (!event || !pageId) {
-        return res.status(400).json({ error: "Missing event or pageId" });
-      }
-      await wikiSyncService.handleEvent(event, pageId, slug || "");
-      res.json({ ok: true });
-    } catch (err) {
-      console.error("[wiki-sync] Error:", (err as Error).message);
-      res.status(500).json({ error: (err as Error).message });
-    }
-  });
-
   // Favicon — silent 204
   app.get("/favicon.ico", (_req, res) => res.status(204).end());
 
@@ -343,6 +435,30 @@ export function createRagServer(
     res.status(404).json({ error: "Not found" });
   });
 
-  app.listen(port, () => console.log(`RAG server on http://localhost:${port}`));
+  const server = app.listen(port, () => {
+    console.log(`RAG server on http://localhost:${port}`);
+
+    // 端口绑定成功后才生成并打印初始 token
+    const initialToken = tokenManager.generate();
+    console.log(`\n🔑 Access token: ${initialToken} (valid 30 min)`);
+    console.log(`   RAG Document Manager: http://localhost:${port}/?token=${initialToken}`);
+    console.log(`   Resume Chat:          http://localhost:${port}/resume/chat?token=${initialToken}`);
+    if (zyplayerAdapter) {
+      console.log(`   zyplayer-doc Knowledge Base:   http://localhost:8083\n`);
+    }
+  });
+
+  server.on("error", (err: Error) => {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "EADDRINUSE") {
+      console.error(`\n❌ 端口 ${port} 已被占用,可能已有另一个服务实例在运行。`);
+      console.error(`   本次启动未绑定成功,不会打印有效 token。请先结束占用端口的进程再重启:`);
+      console.error(`   netstat -ano | findstr :${port}   ← 找到 PID`);
+      console.error(`   taskkill //PID <上面的PID> //F\n`);
+      process.exit(1);
+    }
+    throw err;
+  });
+
   return app;
 }
