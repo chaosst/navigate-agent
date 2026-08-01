@@ -328,8 +328,9 @@ export class PgVectorStore {
         chunkIndex: r.chunk_index,
       }));
     } catch (e) {
+      // 单路检索,无其他腿兜底:让错误上抛,由端点返回 500 而非静默空结果
       console.warn("[pgvector] Keyword search failed:", (e as Error).message);
-      return [];
+      throw e;
     }
   }
 
