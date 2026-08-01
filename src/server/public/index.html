@@ -55,6 +55,8 @@
   button:hover { background: #f0f0f0; }
   button.danger { color: #dc2626; border-color: #fca5a5; }
   button.danger:hover { background: #fef2f2; }
+  button.reindex-btn { color: #2563eb; border-color: #bfdbfe; }
+  button.reindex-btn:hover { background: #eff6ff; }
   button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
   button.primary:hover { background: #1d4ed8; }
 
@@ -63,9 +65,18 @@
   /* Query */
   .query-section { background: #fff; border-radius: 8px; padding: 20px 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
   .query-section h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 12px; }
-  .query-row { display: flex; gap: 8px; }
-  .query-row input { flex: 1; padding: 8px 12px; border: 1px solid #d0d0d0; border-radius: 4px; font-size: 0.875rem; outline: none; }
-  .query-row input:focus { border-color: #2563eb; }
+  .query-tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+  .query-tab {
+    padding: 6px 16px; border: 1px solid #d0d0d0; border-radius: 4px; background: #fafafa;
+    color: #666; cursor: pointer; font-size: 0.8rem; transition: all 0.15s;
+  }
+  .query-tab:hover { background: #f0f0f0; }
+  .query-tab.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+  .query-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .query-row input[type="text"] { flex: 1; min-width: 160px; padding: 8px 12px; border: 1px solid #d0d0d0; border-radius: 4px; font-size: 0.875rem; outline: none; }
+  .query-row input[type="text"]:focus { border-color: #2563eb; }
+  .query-row input[type="number"] { width: 76px; padding: 8px 6px; border: 1px solid #d0d0d0; border-radius: 4px; font-size: 0.8rem; outline: none; text-align: center; }
+  .query-row input[type="number"]:focus { border-color: #2563eb; }
 
   .results { margin-top: 16px; }
   .result-item { padding: 10px 12px; border: 1px solid #e5e5e5; border-radius: 4px; margin-bottom: 8px; font-size: 0.85rem; }
@@ -76,12 +87,44 @@
 <body>
 <div class="nav-bar" style="text-align:center;margin-bottom:24px;font-size:0.9rem;">
   <a href="/" style="color:#2563eb;text-decoration:none;padding:6px 16px;border-radius:8px;font-weight:600;">📄 文档管理</a>
-  <a href="http://localhost:3003" target="_blank" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">📚 Wiki ↗</a>
+  <a href="http://localhost:8083" target="_blank" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">📚 Wiki ↗</a>
   <a href="/resume" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">👤 简历</a>
   <a href="/resume/chat" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">💬 简历问答</a>
 </div>
 <div class="container">
+  <style>
+    .stats-row {
+      display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap;
+    }
+    .stat-card {
+      flex: 1; min-width: 120px; background: #fff; border-radius: 8px;
+      padding: 16px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+      display: flex; flex-direction: column; align-items: center;
+    }
+    .stat-number {
+      font-size: 1.8rem; font-weight: 700; color: #2563eb; line-height: 1.2;
+    }
+    .stat-label {
+      font-size: 0.8rem; color: #666; margin-top: 4px;
+    }
+  </style>
+
   <h1>RAG Document Manager</h1>
+
+  <div class="stats-row" id="statsRow">
+    <div class="stat-card" id="statFiles">
+      <span class="stat-number">-</span>
+      <span class="stat-label">📄 上传文件</span>
+    </div>
+    <div class="stat-card" id="statChunks">
+      <span class="stat-number">-</span>
+      <span class="stat-label">🧩 分块</span>
+    </div>
+    <div class="stat-card" id="statCache">
+      <span class="stat-number">-</span>
+      <span class="stat-label">⚡ 缓存</span>
+    </div>
+  </div>
 
   <div class="upload-zone" id="uploadZone">
     <p>Drop files here or click to upload</p>
@@ -99,8 +142,14 @@
 
   <div class="query-section">
     <h2>Query Documents</h2>
+    <div class="query-tabs">
+      <button class="query-tab active" data-mode="hybrid">🔍 Hybrid</button>
+      <button class="query-tab" data-mode="keyword">📝 Keyword</button>
+    </div>
     <div class="query-row">
       <input type="text" id="queryInput" placeholder="Enter your query...">
+      <input type="number" id="topKInput" value="5" min="1" max="100" title="Top K">
+      <input type="number" id="thresholdInput" value="0" min="0" max="1" step="0.05" title="Threshold (hybrid only)">
       <button class="primary" id="queryBtn">Search</button>
     </div>
     <div class="results" id="results"></div>
@@ -158,21 +207,52 @@
     loadDocs();
   }
 
+  async function updateStatsFromDocs(docs) {
+    const totalChunks = docs.reduce((sum, d) => sum + (d.chunks || 0), 0);
+    document.getElementById("statFiles").querySelector(".stat-number").textContent = docs.length;
+    document.getElementById("statChunks").querySelector(".stat-number").textContent = totalChunks;
+    // 缓存数尝试从 /api/stats 获取，不可用时显示 "?"
+    try {
+      const res = await fetch(`/api/stats?token=${TOKEN}`);
+      if (res.ok) {
+        const s = await res.json();
+        document.getElementById("statCache").querySelector(".stat-number").textContent = s.cacheEntries ?? 0;
+        const detail = s.cacheDetail;
+        if (detail) {
+          document.getElementById("statCache").title = `文档元数据: ${detail.docMeta || 0} | 会话: ${detail.sessions || 0}`;
+        }
+      }
+    } catch { /* server 未重启时 endpoint 不存在，静默忽略 */ }
+  }
+
   async function loadDocs() {
     try {
       const res = await fetch(`/api/documents?token=${TOKEN}`);
       const docs = await res.json();
+      if (!Array.isArray(docs)) {
+        // token 无效/过期或服务端错误 → 明确提示,避免静默空表
+        tbody.innerHTML = `<tr><td colspan="4" class="empty" style="color:#dc2626">${esc(docs.error || "加载失败")} — 请通过启动日志中带 token 的链接访问</td></tr>`;
+        return;
+      }
       tbody.innerHTML = docs.length === 0
         ? `<tr><td colspan="4" class="empty">No documents indexed</td></tr>`
         : docs.map(d => `<tr>
             <td>${esc(d.filename)}</td>
             <td>${d.chunks}</td>
             <td>${new Date(d.indexedAt).toLocaleString()}</td>
-            <td><button class="danger" data-id="${esc(d.id)}">Delete</button></td>
+            <td>
+              <button class="reindex-btn" data-id="${esc(d.id)}">↻ 重新索引</button>
+              <button class="danger" data-id="${esc(d.id)}">Delete</button>
+            </td>
           </tr>`).join("");
       tbody.querySelectorAll("button.danger").forEach(btn => {
         btn.addEventListener("click", () => deleteDoc(btn.dataset.id));
       });
+      tbody.querySelectorAll("button.reindex-btn").forEach(btn => {
+        btn.addEventListener("click", () => reindexDoc(btn.dataset.id));
+      });
+      // 从已有文档数据计算统计
+      updateStatsFromDocs(docs);
     } catch { /* ignore */ }
   }
 
@@ -186,18 +266,67 @@
     }
   }
 
+  async function reindexDoc(id) {
+    setStatus(`重新索引中...`);
+    try {
+      const res = await fetch(`/api/reindex/${id}?token=${TOKEN}`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "reindex failed");
+      setStatus(`重新索引完成: ${data.filename} (${data.chunks} chunks)`);
+      loadDocs();
+    } catch (err) {
+      setStatus(`重新索引失败: ${err.message}`, true);
+    }
+  }
+
+  let queryMode = "hybrid";
+
+  // Query mode tabs
+  document.querySelectorAll(".query-tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".query-tab").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      queryMode = btn.dataset.mode;
+      // 关键词模式隐藏阈值输入
+      const thr = document.getElementById("thresholdInput");
+      thr.style.display = queryMode === "keyword" ? "none" : "";
+    });
+  });
+
+  const thresholdInput = document.getElementById("thresholdInput");
+
   queryBtn.addEventListener("click", async () => {
     const q = queryInput.value.trim();
     if (!q) return;
+    const topK = parseInt(document.getElementById("topKInput").value) || 5;
+    const threshold = parseFloat(thresholdInput.value) || 0;
     results.innerHTML = "<p style='color:#888;font-size:0.85rem;'>Searching...</p>";
-    try {
-      const res = await fetch(`/api/query?token=${TOKEN}`, {
+    // 关键词模式优先使用专用端点，不可用时回退到混合检索
+    const endpoints = queryMode === "hybrid"
+      ? ["/api/query"]
+      : ["/api/query/fts"];
+
+    async function trySearch(endpointIdx) {
+      if (endpointIdx >= endpoints.length) throw new Error("All endpoints failed");
+      const body = queryMode === "hybrid"
+        ? { query: q, topK, threshold: threshold > 0 ? threshold : undefined }
+        : { query: q, topK };
+      const res = await fetch(`${endpoints[endpointIdx]}?token=${TOKEN}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: q, k: 5 }),
+        body: JSON.stringify(body),
       });
+      if (res.status === 404 && endpoints.length > 1) {
+        // endpoint 不存在（server 未重启），尝试下一个
+        return trySearch(endpointIdx + 1);
+      }
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
+      return data;
+    }
+
+    try {
+      const data = await trySearch(0);
       results.innerHTML = data.results.length === 0
         ? "<p style='color:#888;font-size:0.85rem;'>No results found</p>"
         : data.results.map(r => `<div class="result-item">
