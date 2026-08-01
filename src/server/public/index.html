@@ -301,7 +301,7 @@
     const topK = parseInt(document.getElementById("topKInput").value) || 5;
     const threshold = parseFloat(thresholdInput.value) || 0;
     results.innerHTML = "<p style='color:#888;font-size:0.85rem;'>Searching...</p>";
-    // 关键词模式优先使用专用端点，不可用时回退到混合检索
+    // 关键词模式直连专用端点
     const endpoints = queryMode === "hybrid"
       ? ["/api/query"]
       : ["/api/query/fts"];
