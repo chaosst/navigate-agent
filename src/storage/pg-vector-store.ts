@@ -38,6 +38,18 @@ export class PgVectorStore {
     try {
       await client.query("BEGIN");
 
+      // 先确保 documents 行存在（FK 约束要求）
+      // 从 chunk 元数据提取文件名
+      const filename = (chunks[0]?.metadata?.filename as string)
+        || (chunks[0]?.metadata?.source as string)
+        || "untitled";
+      await client.query(
+        `INSERT INTO documents (id, filename, chunk_count, indexed_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (id) DO UPDATE SET chunk_count = documents.chunk_count + $3`,
+        [docId, filename, chunks.length],
+      );
+
       for (let i = 0; i < chunks.length; i++) {
         const chunkId = randomUUID();
         const embedding = vectors[i]
@@ -57,12 +69,6 @@ export class PgVectorStore {
           ],
         );
       }
-
-      // 更新文档的 chunk_count
-      await client.query(
-        `UPDATE documents SET chunk_count = chunk_count + $1 WHERE id = $2`,
-        [chunks.length, docId],
-      );
 
       await client.query("COMMIT");
     } catch (e) {
@@ -127,6 +133,16 @@ export class PgVectorStore {
       indexedAt: r.indexed_at,
     }));
     this.listDocsCache = { data: result, timestamp: Date.now() };
+    // 预热 L1 缓存：列表查询后把每个文档的元数据写入 HotCache
+    for (const r of rows) {
+      if (!this.cache.getDocMeta(r.id)) {
+        this.cache.setDocMeta(r.id, {
+          filename: r.filename,
+          chunkCount: r.chunk_count,
+          indexedAt: r.indexed_at,
+        });
+      }
+    }
     return result;
   }
 
@@ -176,6 +192,11 @@ export class PgVectorStore {
     return rows.map((r) => r.id);
   }
 
+  /** 获取 L1 缓存统计 */
+  getCacheStats() {
+    return this.cache.stats;
+  }
+
   // ═══════════════════════════════════════════════
   //  混合检索（向量 + FTS，RRF 融合）
   // ═══════════════════════════════════════════════
@@ -191,11 +212,12 @@ export class PgVectorStore {
         console.warn("[pgvector] Empty embedding from query, skipping vector search");
       } else {
         const { rows } = await this.pool.query(
-          `SELECT id, content, doc_id, chunk_index,
-                  1 - (embedding <=> $1::vector) AS score
-           FROM doc_chunks
-           WHERE embedding IS NOT NULL
-           ORDER BY embedding <=> $1::vector
+          `SELECT c.id, c.content, c.doc_id, c.chunk_index, d.filename,
+                  1 - (c.embedding <=> $1::vector) AS score
+           FROM doc_chunks c
+           JOIN documents d ON d.id = c.doc_id
+           WHERE c.embedding IS NOT NULL
+           ORDER BY c.embedding <=> $1::vector
            LIMIT $2`,
           [`[${embedding.join(",")}]`, k * 2],
         );
@@ -203,7 +225,7 @@ export class PgVectorStore {
           vectorResults.push({
             content: r.content,
             score: r.score,
-            source: "",
+            source: r.filename || "",
             docId: r.doc_id,
             chunkIndex: r.chunk_index,
           });
@@ -216,10 +238,11 @@ export class PgVectorStore {
     // 2. 中文 FTS 检索（替代 BM25）
     try {
       const { rows } = await this.pool.query(
-        `SELECT id, content, doc_id, chunk_index,
-                ts_rank(fts_vector, plainto_tsquery('chinese_zh', $1)) AS score
-         FROM doc_chunks
-         WHERE fts_vector @@ plainto_tsquery('chinese_zh', $1)
+        `SELECT c.id, c.content, c.doc_id, c.chunk_index, d.filename,
+                ts_rank(c.fts_vector, plainto_tsquery('chinese_zh', $1), 16) AS score
+         FROM doc_chunks c
+         JOIN documents d ON d.id = c.doc_id
+         WHERE c.fts_vector @@ plainto_tsquery('chinese_zh', $1)
          ORDER BY score DESC
          LIMIT $2`,
         [query, k * 2],
@@ -228,7 +251,7 @@ export class PgVectorStore {
         ftsResults.push({
           content: r.content,
           score: r.score,
-          source: "",
+          source: r.filename || "",
           docId: r.doc_id,
           chunkIndex: r.chunk_index,
         });
@@ -237,13 +260,77 @@ export class PgVectorStore {
       console.warn("[pgvector] FTS search failed:", (e as Error).message);
     }
 
-    // 3. 诊断
+    // 3. 中文兜底：pg_trgm 模糊匹配（FTS 不识别中文时的备选）
+    if (ftsResults.length === 0) {
+      try {
+        const { rows } = await this.pool.query(
+          `SELECT c.id, c.content, c.doc_id, c.chunk_index, d.filename,
+                  similarity(c.content, $1) AS score
+           FROM doc_chunks c
+           JOIN documents d ON d.id = c.doc_id
+           WHERE c.content % $1
+              OR c.content ILIKE $2
+           ORDER BY score DESC
+           LIMIT $3`,
+          [query, `%${query}%`, k * 2],
+        );
+        for (const r of rows) {
+          ftsResults.push({
+            content: r.content,
+            score: r.score ?? 0.01,
+            source: r.filename || "",
+            docId: r.doc_id,
+            chunkIndex: r.chunk_index,
+          });
+        }
+      } catch (e) {
+        console.warn("[pgvector] pg_trgm fallback failed:", (e as Error).message);
+      }
+    }
+
+    // 4. 诊断
     if (vectorResults.length === 0 && ftsResults.length === 0) {
-      console.warn("[pgvector] Both vector and FTS searches returned zero results — check DB connection and data");
+      console.warn("[pgvector] Both vector and FTS searches returned zero results");
     }
 
     // 4. RRF 融合
     return this.rrfMerge(vectorResults, ftsResults, k);
+  }
+
+  /**
+   * 纯关键词子串检索（ILIKE '%q%'）。
+   * 与 search() 的混合检索相互独立：无 embedding、无 FTS、无 RRF。
+   * 排序：位置优先 → 出现次数次之。
+   */
+  async searchKeyword(query: string, k: number = 5): Promise<RagResult[]> {
+    const q = query.trim();
+    if (q.length < 2) return [];
+
+    try {
+      const { rows } = await this.pool.query(
+        `SELECT c.id, c.content, c.doc_id, c.chunk_index, d.filename,
+                strpos(LOWER(c.content), LOWER($1)) AS pos,
+                1.0 / strpos(LOWER(c.content), LOWER($1)) AS score,
+                (length(c.content) - length(replace(lower(c.content), lower($1), '')))
+                   / NULLIF(length($1), 0) AS cnt
+         FROM doc_chunks c
+         JOIN documents d ON d.id = c.doc_id
+         WHERE c.content ILIKE '%' || $1 || '%'
+         ORDER BY pos ASC, cnt DESC
+         LIMIT $2`,
+        [q, k],
+      );
+      return rows.map((r) => ({
+        content: r.content,
+        score: Number(r.score),
+        source: r.filename || "",
+        docId: r.doc_id,
+        chunkIndex: r.chunk_index,
+      }));
+    } catch (e) {
+      console.warn("[pgvector] Keyword search failed:", (e as Error).message);
+      return [];
+    }
   }
 
   /**
@@ -282,6 +369,6 @@ export class PgVectorStore {
     return Array.from(combined.values())
       .sort((a, b) => b.score - a.score)
       .slice(0, k)
-      .map((e) => e.result);
+      .map((e) => ({ ...e.result, score: e.score }));
   }
 }
