@@ -3,16 +3,19 @@
     "version": "0.1.0",
     "type": "module",
     "scripts": {
-        "dev": "tsx src/index.ts",
-        "server": "tsx src/server-entry.ts",
+        "db:ensure": "docker-compose ps -q postgres | findstr . >nul 2>&1 || docker-compose up -d postgres",
+        "dev": "npm run db:ensure && tsx src/index.ts",
+        "server": "npm run db:ensure && tsx src/server-entry.ts",
         "build": "tsc",
         "start": "node dist/index.js",
         "gen-token": "tsx scripts/gen-token.ts",
-        "dev:wiki": "cd wiki-js && node server start",
         "db:up": "docker-compose up -d",
         "db:down": "docker-compose down",
         "db:import": "tsx scripts/import-from-sqlite.ts",
-        "db:reset": "docker-compose down -v && docker-compose up -d"
+        "db:reset": "docker-compose down -v && docker-compose up -d",
+        "dev:zyplayer": "docker-compose -f docker-compose.zyplayer.yml up -d",
+        "test": "vitest run --dir src",
+        "test:watch": "vitest --dir src"
     },
     "dependencies": {
         "@langchain/community": "^0.3.0",
@@ -26,6 +29,7 @@
         "langchain": "^0.3.0",
         "mammoth": "^1.12.0",
         "multer": "^2.2.0",
+        "mysql2": "^3.23.2",
         "pdf-parse": "^2.4.5",
         "pg": "^8.22.0",
         "react": "^18.0.0",
@@ -37,9 +41,11 @@
         "@types/multer": "^2.2.0",
         "@types/pg": "^8.20.0",
         "@types/react": "^18.0.0",
+        "@types/sql.js": "^1.4.11",
         "sql.js": "^1.11.0",
         "tsx": "^4.0.0",
-        "typescript": "^5.4.0"
+        "typescript": "^5.4.0",
+        "vitest": "^4.1.10"
     },
     "engines": {
         "node": ">=18"
