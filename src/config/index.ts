@@ -10,6 +10,11 @@ export interface AppConfig {
   databaseUrl: string;
   databasePoolMin: number;
   databasePoolMax: number;
+  apiKeys: string;
+  apiKeyLegacy: string;
+  apiIpWhitelist: string;
+  apiSignatureWindowMs: number;
+  apiTrustProxy: boolean;
 }
 
 export function loadConfig(): AppConfig {
@@ -27,6 +32,8 @@ export function loadConfig(): AppConfig {
 
   const maxIterationsRaw = parseInt(process.env.MAX_ITERATIONS ?? "25", 10);
   const maxIterations = Number.isNaN(maxIterationsRaw) ? 25 : maxIterationsRaw;
+
+  const apiSignatureWindowRaw = parseInt(process.env.API_SIGNATURE_WINDOW_MS ?? "300000", 10);
 
   let mcpServers: McpServerConfig[] = [];
   const mcpServersRaw = process.env.MCP_SERVERS;
@@ -52,5 +59,10 @@ export function loadConfig(): AppConfig {
     databaseUrl,
     databasePoolMin: parseInt(process.env.DATABASE_POOL_MIN ?? "2", 10),
     databasePoolMax: parseInt(process.env.DATABASE_POOL_MAX ?? "10", 10),
+    apiKeys: process.env.API_KEYS ?? "",
+    apiKeyLegacy: process.env.API_KEY ?? "",
+    apiIpWhitelist: process.env.API_IP_WHITELIST ?? "",
+    apiSignatureWindowMs: Number.isNaN(apiSignatureWindowRaw) ? 300000 : apiSignatureWindowRaw,
+    apiTrustProxy: (process.env.API_TRUST_PROXY ?? "").toLowerCase() === "true",
   };
 }
