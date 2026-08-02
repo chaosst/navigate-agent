@@ -48,6 +48,11 @@ export function ipMatchesWhitelist(ip: string, whitelist: string[]): boolean {
     if (rule.includes("/")) {
       const [base, bitsRaw] = rule.split("/");
       const bits = parseInt(bitsRaw, 10);
+      // Skip malformed/out-of-range CIDR rules instead of matching or throwing.
+      // Note: parseInt("24x") is 24, so validate the raw string too, not just the parsed value.
+      if (!/^\d+$/.test(bitsRaw.trim()) || !Number.isInteger(bits) || bits < 0 || (isV4 ? bits > 32 : bits > 128)) {
+        continue;
+      }
       if (isV4 && base.includes(".") && ip4InCidr(addr, base, bits)) return true;
       if (!isV4 && !base.includes(".") && ip6InCidr(addr, base, bits)) return true;
     } else if (addr === normalizeIp(rule)) {
