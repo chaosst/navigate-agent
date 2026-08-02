@@ -58,7 +58,8 @@
 
 ### 签名细节
 
-- **签名输入串**:`METHOD\nPATH\nTIMESTAMP_MS\nNONCE\nSHA256_HEX(rawBody)`,HMAC-SHA256 用该 key 作密钥,hex 输出。
+- **签名输入串**:`METHOD\nPATH\nTIMESTAMP_MS\nNONCE\nSHA256_HEX(rawBody)`,HMAC-SHA256 用该 key 作密钥,hex 输出。其中 `PATH` 为**不含 query string 的请求路径**(如 `/mcp`)。
+- **HMAC 失败归因**:逐把 key 均未验中时,统一返回 `signature mismatch`,**不泄露** key 是否存在(与 `invalid key` 区分仅在 Bearer 模式)。
 - **rawBody**:在 `express.json()` 之前注册轻量中间件,仅当请求带 `X-Signature` 时才缓冲原始字节;普通请求零开销。JSON 解析照常。
 - **nonce 缓存**(`src/server/nonce-store.ts`):按 key 隔离,窗口期去重,到点清理,容量上限封顶。
 
@@ -97,7 +98,7 @@ app.use('/mcp', requireApiKey, mcpTransportHandler)
 | 场景 | 响应 |
 |------|------|
 | 无凭证 | `401 {error:"missing credentials"}` |
-| key 不存在 | `401 {error:"invalid key"}` |
+| key 不存在(Bearer 模式查表) | `401 {error:"invalid key"}` |
 | key 过期 | `401 {error:"key expired", key:"sk-aaa"}` |
 | 时间戳超窗 | `401 {error:"timestamp expired"}` |
 | nonce 重放 | `401 {error:"replay detected"}` |
