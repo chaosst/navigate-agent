@@ -23,9 +23,22 @@ import { parseResume } from "./resume/parser.js";
 import { existsSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { SkillRegistry } from "./skills/registry.js";
+import { ApiKeyStore } from "./server/key-store.js";
+import type { ApiKeyAuthConfig } from "./server/api-key-auth.js";
 
 async function main() {
   const config = loadConfig();
+  const apiAuth: ApiKeyAuthConfig | undefined =
+    config.apiKeys || config.apiKeyLegacy
+      ? {
+          keyStore: ApiKeyStore.fromEnv(config.apiKeys, config.apiKeyLegacy),
+          ipWhitelist: config.apiIpWhitelist
+            ? config.apiIpWhitelist.split(",").map((s) => s.trim()).filter(Boolean)
+            : undefined,
+          signatureWindowMs: config.apiSignatureWindowMs,
+          trustProxy: config.apiTrustProxy,
+        }
+      : undefined;
   const llm = createChatModel(config);
 
   const embeddings = new OpenAIEmbeddings({
@@ -84,12 +97,12 @@ async function main() {
   const systemPrompt = buildSystemPrompt(resumeSummary);
   const executor = await createAgentExecutor(llm, allTools, systemPrompt, config.maxIterations);
 
-  createRagServer(ragStore, 3001, executor, resumeStore, resumeData);
+  createRagServer(ragStore, 3001, executor, resumeStore, resumeData, apiAuth);
 
   console.log("");
   console.log("──────────────────────────────────────────");
   console.log("  Web server running on http://localhost:3001");
-  console.log("  Wiki.js on http://localhost:3003");
+  console.log("  zyplayer-doc on http://localhost:8083");
   console.log("  Agent CLI: npm run dev");
   console.log("──────────────────────────────────────────");
 

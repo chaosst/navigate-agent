@@ -12,6 +12,8 @@ import type { ResumeData } from "../resume/types.js";
 import { tokenManager } from "./token.js";
 import { ZyplayerDocAdapter } from "../wiki-sync/zyplayer-doc-adapter.js";
 import { ContentPoller } from "../wiki-sync/poller.js";
+import { mountMcpRoutes } from "./mcp-http.js";
+import type { ApiKeyAuthConfig } from "./api-key-auth.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -67,6 +69,7 @@ export function createRagServer(
   executor?: AgentExecutor,
   resumeStore?: ResumeStore,
   resumeData?: ResumeData,
+  apiAuth?: ApiKeyAuthConfig,
 ) {
   const app = express();
   const upload = multer({ dest: "rag_uploads/" });
@@ -104,7 +107,11 @@ export function createRagServer(
   }
   loadDocMeta();
 
-  app.use(express.json());
+  app.use(express.json({
+    verify: (req: express.Request, _res: express.Response, buf: Buffer) => {
+      (req as unknown as { rawBody: Buffer }).rawBody = buf;
+    },
+  }));
 
   // zyplayer-doc 适配器与轮询器（替代旧的 Wiki.js GraphQL 集成）
   let zyplayerAdapter: ZyplayerDocAdapter | undefined;
@@ -125,6 +132,11 @@ export function createRagServer(
     contentPoller.start();
   } else {
     console.log("[zyplayer-sync] Skipped (ZYPLAYER_MYSQL_* not fully configured)");
+  }
+
+  // === 固定 API key + MCP 端点(可选,未配置则 /mcp 不启用) ===
+  if (apiAuth) {
+    mountMcpRoutes(app, store, apiAuth);
   }
 
   // === Token management ===
