@@ -48,3 +48,118 @@ describe("IP whitelist", () => {
     expect(ipMatchesWhitelist("2001:db8::1", ["2001:db8::/-1"])).toBe(false);
   });
 });
+
+import { vi } from "vitest";
+import { createApiKeyAuth } from "../api-key-auth.js";
+import { ApiKeyStore } from "../key-store.js";
+
+function makeReq(overrides: Record<string, unknown> = {}) {
+  return {
+    method: "POST",
+    originalUrl: "/mcp",
+    headers: {} as Record<string, string>,
+    socket: { remoteAddress: "127.0.0.1" },
+    rawBody: Buffer.alloc(0),
+    ...overrides,
+  } as any;
+}
+
+function makeRes() {
+  const res: any = { statusCode: 0, body: null };
+  res.status = (c: number) => { res.statusCode = c; return res; };
+  res.json = (b: unknown) => { res.body = b; return res; };
+  res.setHeader = () => res;
+  return res;
+}
+
+function cfg(overrides: Record<string, unknown> = {}) {
+  return {
+    keyStore: ApiKeyStore.fromEnv("sk-secret:2099-01-01T00:00:00Z", undefined),
+    signatureWindowMs: 300_000,
+    ...overrides,
+  } as any;
+}
+
+describe("createApiKeyAuth", () => {
+  it("accepts a valid bearer token", () => {
+    const next = vi.fn();
+    const mw = createApiKeyAuth(cfg());
+    mw(makeReq({ headers: { authorization: "Bearer sk-secret" } }), makeRes(), next);
+    expect(next).toHaveBeenCalled();
+  });
+
+  it("rejects missing credentials", () => {
+    const res = makeRes();
+    createApiKeyAuth(cfg())(makeReq(), res, vi.fn());
+    expect(res.statusCode).toBe(401);
+    expect(res.body.error).toBe("missing credentials");
+  });
+
+  it("rejects an unknown key", () => {
+    const res = makeRes();
+    createApiKeyAuth(cfg())(makeReq({ headers: { authorization: "Bearer sk-wrong" } }), res, vi.fn());
+    expect(res.body.error).toBe("invalid key");
+  });
+
+  it("rejects an expired key", () => {
+    const res = makeRes();
+    createApiKeyAuth(cfg({ keyStore: ApiKeyStore.fromEnv("sk-old:2000-01-01T00:00:00Z", undefined) }))(
+      makeReq({ headers: { authorization: "Bearer sk-old" } }),
+      res,
+      vi.fn(),
+    );
+    expect(res.body.error).toBe("key expired");
+  });
+
+  it("accepts a valid HMAC signature", () => {
+    const ts = String(Date.now());
+    const nonce = "n-ok";
+    const body = Buffer.from(JSON.stringify({ query: "x" }));
+    const sig = computeSignature("sk-secret", "POST", "/mcp", ts, nonce, body);
+    const next = vi.fn();
+    createApiKeyAuth(cfg())(
+      makeReq({ headers: { "x-signature": sig, "x-timestamp": ts, "x-nonce": nonce }, rawBody: body }),
+      makeRes(),
+      next,
+    );
+    expect(next).toHaveBeenCalled();
+  });
+
+  it("rejects a stale timestamp", () => {
+    const ts = String(Date.now() - 3_600_000); // 1h ago
+    const nonce = "n-stale";
+    const body = Buffer.from(JSON.stringify({ query: "x" }));
+    const sig = computeSignature("sk-secret", "POST", "/mcp", ts, nonce, body);
+    const res = makeRes();
+    createApiKeyAuth(cfg())(
+      makeReq({ headers: { "x-signature": sig, "x-timestamp": ts, "x-nonce": nonce }, rawBody: body }),
+      res,
+      vi.fn(),
+    );
+    expect(res.body.error).toBe("timestamp expired");
+  });
+
+  it("rejects a replayed nonce (same middleware instance)", () => {
+    const ts = String(Date.now());
+    const nonce = "n-replay";
+    const body = Buffer.from(JSON.stringify({ query: "x" }));
+    const sig = computeSignature("sk-secret", "POST", "/mcp", ts, nonce, body);
+    const mw = createApiKeyAuth(cfg());
+    const req = () => makeReq({ headers: { "x-signature": sig, "x-timestamp": ts, "x-nonce": nonce }, rawBody: body });
+    const res1 = makeRes();
+    mw(req(), res1, vi.fn()); // first → ok
+    const res2 = makeRes();
+    mw(req(), res2, vi.fn()); // replay
+    expect(res2.body.error).toBe("replay detected");
+  });
+
+  it("rejects IP not in whitelist", () => {
+    const res = makeRes();
+    createApiKeyAuth(cfg({ ipWhitelist: ["10.0.0.0/8"] }))(
+      makeReq({ socket: { remoteAddress: "192.168.1.1" }, headers: { authorization: "Bearer sk-secret" } }),
+      res,
+      vi.fn(),
+    );
+    expect(res.body.error).toBe("ip not allowed");
+  });
+});

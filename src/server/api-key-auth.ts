@@ -1,4 +1,7 @@
 import { createHmac, createHash, timingSafeEqual } from "node:crypto";
+import type { NextFunction, Request, RequestHandler, Response } from "express";
+import { ApiKeyStore } from "./key-store.js";
+import { NonceStore } from "./nonce-store.js";
 
 export function sha256Hex(data: Buffer | string): string {
   return createHash("sha256").update(data).digest("hex");
@@ -98,4 +101,81 @@ function ip6InCidr(ip: string, base: string, bits: number): boolean {
   if (a === null || b === null) return false;
   const mask = bits >= 128 ? (1n << 128n) - 1n : ((1n << BigInt(bits)) - 1n) << BigInt(128 - bits);
   return (a & mask) === (b & mask);
+}
+
+export interface ApiKeyAuthConfig {
+  keyStore: ApiKeyStore;
+  ipWhitelist?: string[];
+  signatureWindowMs?: number;
+  trustProxy?: boolean;
+}
+
+function deny(res: Response, reason: string, ip: string, extra?: Record<string, unknown>): void {
+  console.log(`[mcp-auth] 401 reason=${reason} ip=${ip}${extra?.key ? ` key=${extra.key}` : ""}`);
+  res.setHeader("WWW-Authenticate", "Bearer");
+  res.status(401).json({ error: reason, ...extra });
+}
+
+export function createApiKeyAuth(config: ApiKeyAuthConfig): RequestHandler {
+  const windowMs = config.signatureWindowMs ?? 300_000;
+  const nonces = new NonceStore(windowMs);
+
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const ip = req.ip ?? req.socket?.remoteAddress ?? "";
+
+    if (config.ipWhitelist && config.ipWhitelist.length > 0 && !ipMatchesWhitelist(ip, config.ipWhitelist)) {
+      return deny(res, "ip not allowed", ip);
+    }
+
+    const signature = req.headers["x-signature"];
+    if (typeof signature === "string" && signature.length > 0) {
+      return verifyHmacRequest(req, res, next, config, nonces, windowMs, ip, signature);
+    }
+
+    const authHeader = req.headers.authorization;
+    if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
+      const key = authHeader.slice("Bearer ".length).trim();
+      const entry = config.keyStore.lookup(key);
+      if (!entry) return deny(res, "invalid key", ip);
+      if (config.keyStore.isExpired(entry)) {
+        console.warn(`[mcp-auth] WARNING: key ${key} expired`);
+        return deny(res, "key expired", ip, { key });
+      }
+      return next();
+    }
+
+    return deny(res, "missing credentials", ip);
+  };
+}
+
+function verifyHmacRequest(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+  config: ApiKeyAuthConfig,
+  nonces: NonceStore,
+  windowMs: number,
+  ip: string,
+  signature: string,
+): void {
+  const ts = req.headers["x-timestamp"];
+  const nonce = req.headers["x-nonce"];
+  if (typeof ts !== "string" || typeof nonce !== "string") {
+    return deny(res, "invalid signature headers", ip);
+  }
+  const tsNum = Number(ts);
+  if (!Number.isFinite(tsNum)) return deny(res, "timestamp expired", ip);
+  if (Math.abs(Date.now() - tsNum) > windowMs) return deny(res, "timestamp expired", ip);
+
+  const path = (req.originalUrl ?? "/").split("?")[0];
+  const rawBody = (req as { rawBody?: Buffer }).rawBody ?? Buffer.alloc(0);
+  const method = req.method ?? "GET";
+
+  for (const entry of config.keyStore.activeKeys()) {
+    if (verifySignature(entry.key, method, path, ts, nonce, rawBody, signature)) {
+      if (!nonces.checkAndSet(entry.key, nonce)) return deny(res, "replay detected", ip);
+      return next();
+    }
+  }
+  return deny(res, "signature mismatch", ip);
 }
