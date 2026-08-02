@@ -41,4 +41,10 @@ describe("IP whitelist", () => {
     expect(ipMatchesWhitelist("2001:db8::1", ["2001:db8::/32"])).toBe(true);
     expect(ipMatchesWhitelist("2001:db9::1", ["2001:db8::/32"])).toBe(false);
   });
+
+  it("ignores malformed CIDR rules instead of throwing", () => {
+    expect(() => ipMatchesWhitelist("2001:db8::1", ["2001:db8::/24x"])).not.toThrow();
+    expect(ipMatchesWhitelist("2001:db8::1", ["2001:db8::/24x"])).toBe(false);
+    expect(ipMatchesWhitelist("2001:db8::1", ["2001:db8::/-1"])).toBe(false);
+  });
 });
