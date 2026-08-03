@@ -37,6 +37,8 @@ async function main() {
             : undefined,
           signatureWindowMs: config.apiSignatureWindowMs,
           trustProxy: config.apiTrustProxy,
+          failureLimit: config.apiFailureLimit,
+          failureWindowMs: config.apiFailureWindowMs,
         }
       : undefined;
   const llm = createChatModel(config);

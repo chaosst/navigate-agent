@@ -14,6 +14,7 @@ import { ZyplayerDocAdapter } from "../wiki-sync/zyplayer-doc-adapter.js";
 import { ContentPoller } from "../wiki-sync/poller.js";
 import { mountMcpRoutes } from "./mcp-http.js";
 import type { ApiKeyAuthConfig } from "./api-key-auth.js";
+import { createRequireTokenOrApiKey } from "./rest-auth.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -306,7 +307,7 @@ export function createRagServer(
     res.json({ cacheEntries: cache.total, cacheDetail: cache });
   });
 
-  app.post("/api/query", requireToken, async (req, res) => {
+  app.post("/api/query", createRequireTokenOrApiKey(apiAuth), async (req, res) => {
     try {
       const { query, topK, k, threshold } = req.body;
       if (!query) return res.status(400).json({ error: "Missing query" });
@@ -322,7 +323,7 @@ export function createRagServer(
   });
 
   // 纯关键词子串检索（H5 keyword 标签）
-  app.post("/api/query/fts", requireToken, async (req, res) => {
+  app.post("/api/query/fts", createRequireTokenOrApiKey(apiAuth), async (req, res) => {
     try {
       const { query, topK } = req.body;
       if (!query) return res.status(400).json({ error: "Missing query" });
