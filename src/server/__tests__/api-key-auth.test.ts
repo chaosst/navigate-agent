@@ -162,4 +162,40 @@ describe("createApiKeyAuth", () => {
     );
     expect(res.body.error).toBe("ip not allowed");
   });
+
+  it("returns 429 after too many failed attempts from the same IP", () => {
+    const mw = createApiKeyAuth(cfg({ failureLimit: 5, failureWindowMs: 60_000 }));
+    for (let i = 0; i < 5; i++) {
+      const res = makeRes();
+      mw(makeReq({ headers: { authorization: "Bearer sk-wrong" } }), res, vi.fn());
+      expect(res.statusCode).toBe(401);
+    }
+    // 第 6 次:已达阈值,即使 key 正确也返回 429
+    const res = makeRes();
+    mw(makeReq({ headers: { authorization: "Bearer sk-secret" } }), res, vi.fn());
+    expect(res.statusCode).toBe(429);
+    expect(res.body.error).toBe("too many requests");
+  });
+
+  it("clears the failure count on a successful auth", () => {
+    const mw = createApiKeyAuth(cfg({ failureLimit: 3, failureWindowMs: 60_000 }));
+    mw(makeReq({ headers: { authorization: "Bearer sk-wrong" } }), makeRes(), vi.fn());
+    mw(makeReq({ headers: { authorization: "Bearer sk-wrong" } }), makeRes(), vi.fn());
+    const ok = vi.fn();
+    mw(makeReq({ headers: { authorization: "Bearer sk-secret" } }), makeRes(), ok); // 未达阈值,成功并清零
+    expect(ok).toHaveBeenCalled();
+    const res = makeRes();
+    mw(makeReq({ headers: { authorization: "Bearer sk-wrong" } }), res, vi.fn()); // 已清零,不触发 429
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("rate-limits per IP independently", () => {
+    const mw = createApiKeyAuth(cfg({ failureLimit: 2, failureWindowMs: 60_000 }));
+    const ipA = { socket: { remoteAddress: "192.168.1.1" }, headers: { authorization: "Bearer sk-wrong" } };
+    const ipB = { socket: { remoteAddress: "10.0.0.1" }, headers: { authorization: "Bearer sk-wrong" } };
+    const r1 = makeRes(); mw(makeReq(ipA), r1, vi.fn()); expect(r1.statusCode).toBe(401);
+    const r2 = makeRes(); mw(makeReq(ipA), r2, vi.fn()); expect(r2.statusCode).toBe(401);
+    const r3 = makeRes(); mw(makeReq(ipB), r3, vi.fn()); expect(r3.statusCode).toBe(401); // 不同 IP 独立计数
+    const r4 = makeRes(); mw(makeReq(ipA), r4, vi.fn()); expect(r4.statusCode).toBe(429); // A 已达阈值
+  });
 });

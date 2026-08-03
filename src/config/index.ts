@@ -15,6 +15,8 @@ export interface AppConfig {
   apiIpWhitelist: string;
   apiSignatureWindowMs: number;
   apiTrustProxy: boolean;
+  apiFailureLimit: number;
+  apiFailureWindowMs: number;
 }
 
 export function loadConfig(): AppConfig {
@@ -34,6 +36,8 @@ export function loadConfig(): AppConfig {
   const maxIterations = Number.isNaN(maxIterationsRaw) ? 25 : maxIterationsRaw;
 
   const apiSignatureWindowRaw = parseInt(process.env.API_SIGNATURE_WINDOW_MS ?? "300000", 10);
+  const apiFailureLimitRaw = parseInt(process.env.API_FAILURE_LIMIT ?? "5", 10);
+  const apiFailureWindowRaw = parseInt(process.env.API_FAILURE_WINDOW_MS ?? "60000", 10);
 
   let mcpServers: McpServerConfig[] = [];
   const mcpServersRaw = process.env.MCP_SERVERS;
@@ -64,5 +68,7 @@ export function loadConfig(): AppConfig {
     apiIpWhitelist: process.env.API_IP_WHITELIST ?? "",
     apiSignatureWindowMs: Number.isNaN(apiSignatureWindowRaw) ? 300000 : apiSignatureWindowRaw,
     apiTrustProxy: (process.env.API_TRUST_PROXY ?? "").toLowerCase() === "true",
+    apiFailureLimit: Number.isNaN(apiFailureLimitRaw) ? 5 : apiFailureLimitRaw,
+    apiFailureWindowMs: Number.isNaN(apiFailureWindowRaw) ? 60000 : apiFailureWindowRaw,
   };
 }

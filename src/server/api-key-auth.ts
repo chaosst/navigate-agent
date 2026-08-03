@@ -108,6 +108,40 @@ export interface ApiKeyAuthConfig {
   ipWhitelist?: string[];
   signatureWindowMs?: number;
   trustProxy?: boolean;
+  /** 失败鉴权限流:窗口内同 IP 失败达到该次数后返回 429(默认 5) */
+  failureLimit?: number;
+  /** 失败鉴权限流窗口 ms(默认 60000) */
+  failureWindowMs?: number;
+}
+
+/** 同 IP 失败鉴权限流(滑动窗口计数) */
+export class FailureRateLimiter {
+  private failures = new Map<string, number[]>(); // ip -> 失败时间戳列表
+
+  constructor(
+    private windowMs: number = 60_000,
+    private limit: number = 5,
+  ) {}
+
+  /** 该 IP 在窗口内失败次数是否已达到上限 */
+  isLimited(ip: string, now: number = Date.now()): boolean {
+    const list = this.failures.get(ip);
+    if (!list) return false;
+    const fresh = list.filter((t) => now - t <= this.windowMs);
+    if (fresh.length !== list.length) this.failures.set(ip, fresh);
+    return fresh.length >= this.limit;
+  }
+
+  recordFailure(ip: string, now: number = Date.now()): void {
+    const list = this.failures.get(ip) ?? [];
+    list.push(now);
+    this.failures.set(ip, list);
+  }
+
+  /** 成功鉴权后清零,避免合法用户被误锁 */
+  clear(ip: string): void {
+    this.failures.delete(ip);
+  }
 }
 
 function deny(res: Response, reason: string, ip: string, extra?: Record<string, unknown>): void {
@@ -119,32 +153,47 @@ function deny(res: Response, reason: string, ip: string, extra?: Record<string, 
 export function createApiKeyAuth(config: ApiKeyAuthConfig): RequestHandler {
   const windowMs = config.signatureWindowMs ?? 300_000;
   const nonces = new NonceStore(windowMs);
+  const limiter = new FailureRateLimiter(config.failureWindowMs ?? 60_000, config.failureLimit ?? 5);
+
+  // 记录失败并返回 401
+  const fail = (res: Response, reason: string, ip: string, extra?: Record<string, unknown>): void => {
+    limiter.recordFailure(ip);
+    deny(res, reason, ip, extra);
+  };
 
   return (req: Request, res: Response, next: NextFunction): void => {
     const ip = req.ip ?? req.socket?.remoteAddress ?? "";
 
+    // 失败限流:窗口内同 IP 失败达到阈值 → 429,直接拒绝
+    if (limiter.isLimited(ip)) {
+      console.log(`[mcp-auth] 429 rate limited ip=${ip}`);
+      res.status(429).json({ error: "too many requests" });
+      return;
+    }
+
     if (config.ipWhitelist && config.ipWhitelist.length > 0 && !ipMatchesWhitelist(ip, config.ipWhitelist)) {
-      return deny(res, "ip not allowed", ip);
+      return fail(res, "ip not allowed", ip);
     }
 
     const signature = req.headers["x-signature"];
     if (typeof signature === "string" && signature.length > 0) {
-      return verifyHmacRequest(req, res, next, config, nonces, windowMs, ip, signature);
+      return verifyHmacRequest(req, res, next, config, nonces, windowMs, ip, signature, limiter);
     }
 
     const authHeader = req.headers.authorization;
     if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
       const key = authHeader.slice("Bearer ".length).trim();
       const entry = config.keyStore.lookup(key);
-      if (!entry) return deny(res, "invalid key", ip);
+      if (!entry) return fail(res, "invalid key", ip);
       if (config.keyStore.isExpired(entry)) {
         console.warn(`[mcp-auth] WARNING: key ${key} expired`);
-        return deny(res, "key expired", ip, { key });
+        return fail(res, "key expired", ip, { key });
       }
+      limiter.clear(ip);
       return next();
     }
 
-    return deny(res, "missing credentials", ip);
+    return fail(res, "missing credentials", ip);
   };
 }
 
@@ -157,15 +206,21 @@ function verifyHmacRequest(
   windowMs: number,
   ip: string,
   signature: string,
+  limiter: FailureRateLimiter,
 ): void {
+  const fail = (reason: string, extra?: Record<string, unknown>): void => {
+    limiter.recordFailure(ip);
+    deny(res, reason, ip, extra);
+  };
+
   const ts = req.headers["x-timestamp"];
   const nonce = req.headers["x-nonce"];
   if (typeof ts !== "string" || typeof nonce !== "string") {
-    return deny(res, "invalid signature headers", ip);
+    return fail("invalid signature headers");
   }
   const tsNum = Number(ts);
-  if (!Number.isFinite(tsNum)) return deny(res, "timestamp expired", ip);
-  if (Math.abs(Date.now() - tsNum) > windowMs) return deny(res, "timestamp expired", ip);
+  if (!Number.isFinite(tsNum)) return fail("timestamp expired");
+  if (Math.abs(Date.now() - tsNum) > windowMs) return fail("timestamp expired");
 
   const path = (req.originalUrl ?? "/").split("?")[0];
   const rawBody = (req as { rawBody?: Buffer }).rawBody ?? Buffer.alloc(0);
@@ -173,9 +228,10 @@ function verifyHmacRequest(
 
   for (const entry of config.keyStore.activeKeys()) {
     if (verifySignature(entry.key, method, path, ts, nonce, rawBody, signature)) {
-      if (!nonces.checkAndSet(entry.key, nonce)) return deny(res, "replay detected", ip);
+      if (!nonces.checkAndSet(entry.key, nonce)) return fail("replay detected");
+      limiter.clear(ip);
       return next();
     }
   }
-  return deny(res, "signature mismatch", ip);
+  return fail("signature mismatch");
 }
