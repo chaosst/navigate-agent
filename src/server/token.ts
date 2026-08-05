@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-const TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes
+export const TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 interface TokenEntry {
   token: string;
@@ -28,6 +28,12 @@ class TokenManager {
       return false;
     }
     return true;
+  }
+
+  /** 主动吊销一个 token（退出登录用） */
+  revoke(token: string | undefined | null): void {
+    if (!token) return;
+    this.tokens.delete(token);
   }
 
   /** Get token creation time (for display / refresh hint) */
