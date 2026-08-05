@@ -163,7 +163,9 @@
   if (urlToken) sessionStorage.setItem("navigate_token", urlToken);
   const TOKEN = sessionStorage.getItem("navigate_token");
   if (!TOKEN) {
-    document.body.innerHTML = '<div style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;font-size:1.2rem;color:#dc2626;background:#0f172a;color:#f1f5f9;">❌ No access token. Please access via a token URL.</div>';
+    // 无 token：跳登录页（若已有登录 cookie，登录页会自动从 /api/token 恢复会话）
+    location.href = "/login?next=" + encodeURIComponent(location.pathname + location.search);
+    throw new Error("no token");
   }
   // Rewrite nav links to include token
   document.querySelectorAll(".nav-bar a").forEach(a => {

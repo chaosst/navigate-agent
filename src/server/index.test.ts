@@ -85,6 +85,12 @@ describe("createRagServer login gating (e2e)", () => {
 
     const page = await fetch(base + "/", { headers: { cookie } });
     expect(page.status).toBe(200);
+
+    // 登录页预检查：/api/token 用 cookie 回显 token（新标签页恢复会话）
+    const tokRes = await fetch(base + "/api/token", { headers: { cookie } });
+    const tokData = await tokRes.json();
+    expect(tokData.valid).toBe(true);
+    expect(tokData.token).toBe(data.token);
   });
 
   it("serves the /login page", async () => {
