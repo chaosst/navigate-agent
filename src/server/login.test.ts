@@ -42,7 +42,7 @@ describe("POST /api/login (ephemeral express server)", () => {
     process.env.H5_LOGIN_USERS = "";
     app = express();
     app.use(express.json());
-    mountLoginRoutes(app, { proxyOrigin: "http://localhost:3002" });
+    mountLoginRoutes(app, { proxyOrigin: "http://localhost:3003" });
     server = app.listen(0);
     await new Promise<void>((r) => server.once("listening", () => r()));
     base = `http://localhost:${(server.address() as AddressInfo).port}`;
