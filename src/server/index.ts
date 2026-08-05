@@ -15,6 +15,9 @@ import { ContentPoller } from "../wiki-sync/poller.js";
 import { mountMcpRoutes } from "./mcp-http.js";
 import type { ApiKeyAuthConfig } from "./api-key-auth.js";
 import { createRequireTokenOrApiKey } from "./rest-auth.js";
+import { getToken } from "./auth-helpers.js";
+import { mountLoginRoutes } from "./login.js";
+import { startWikiProxy } from "./wiki-proxy.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -44,13 +47,6 @@ function deny(res: express.Response, msg = "Invalid or expired token"): void {
   res.status(401).json({ error: msg });
 }
 
-/** Helper to extract token from query or body */
-function getToken(req: express.Request): string | undefined {
-  if (req.query?.token) return req.query.token as string;
-  if (req.body?.token) return req.body.token;
-  return undefined;
-}
-
 /** Middleware: validates token or returns 401 */
 function requireToken(req: express.Request, res: express.Response, next: express.NextFunction): void {
   const token = getToken(req);
@@ -62,6 +58,17 @@ function requireToken(req: express.Request, res: express.Response, next: express
   }
   // API calls → JSON; browser page loads → HTML denied page
   deny(res);
+}
+
+/** 页面门槛：无有效 token/cookie 则 302 到登录页 */
+function requireLoginPage(req: express.Request, res: express.Response, next: express.NextFunction): void {
+  const token = getToken(req);
+  if (tokenManager.validate(token)) {
+    (req as any).validToken = token;
+    next();
+    return;
+  }
+  res.redirect(`/login?next=${encodeURIComponent(req.originalUrl || "/")}`);
 }
 
 export function createRagServer(
@@ -114,6 +121,12 @@ export function createRagServer(
     },
   }));
 
+  // === H5 登录 + wiki 鉴权代理配置 ===
+  const wikiProxyPort = parseInt(process.env.H5_WIKI_PROXY_PORT || "3002", 10);
+  const wikiProxyTarget = process.env.H5_WIKI_TARGET || "http://localhost:8083";
+  const proxyOrigin = `http://localhost:${wikiProxyPort}`;
+  mountLoginRoutes(app, { proxyOrigin });
+
   // zyplayer-doc 适配器与轮询器（替代旧的 Wiki.js GraphQL 集成）
   let zyplayerAdapter: ZyplayerDocAdapter | undefined;
   const mysqlHost = process.env.ZYPLAYER_MYSQL_HOST;
@@ -157,8 +170,8 @@ export function createRagServer(
     }
   });
 
-  // Generate a new token (no auth needed — restrict at network level in production)
-  app.post("/api/token/new", (_req, res) => {
+  // Generate a new token（需已登录，防止匿名铸造 token 绕过登录门槛）
+  app.post("/api/token/new", requireToken, (_req, res) => {
     const newToken = tokenManager.generate();
     res.json({ token: newToken, expiresIn: 30 * 60 });
   });
@@ -171,12 +184,12 @@ export function createRagServer(
 
   // === Protected routes (require ?token=xxx) ===
 
-  // Page routes (no server-side auth — client JS handles token check)
-  app.get("/", (_req, res) => {
+  // 页面路由：需要登录（服务端校验 cookie/token，未登录 302 到 /login）
+  app.get("/", requireLoginPage, (_req, res) => {
     res.sendFile(path.join(__dirname, "public", "index.html"));
   });
 
-  app.get("/resume/chat", (_req, res) => {
+  app.get("/resume/chat", requireLoginPage, (_req, res) => {
     res.sendFile(path.join(__dirname, "public", "resume-chat.html"));
   });
 
@@ -437,6 +450,12 @@ export function createRagServer(
     });
   });
 
+  // 防止经 /index.html 等静态路径绕过登录门槛 → 重定向到带门槛的规范路由
+  app.get(["/index.html", "/resume.html", "/resume/chat.html"], (req, res) => {
+    const map: Record<string, string> = { "/index.html": "/", "/resume.html": "/resume", "/resume/chat.html": "/resume/chat" };
+    res.redirect(302, map[req.path] || "/");
+  });
+
   // Serve public directory for wiki static assets
   app.use(express.static(path.join(__dirname, "public")));
 
@@ -450,15 +469,15 @@ export function createRagServer(
 
   const server = app.listen(port, () => {
     console.log(`RAG server on http://localhost:${port}`);
-
-    // 端口绑定成功后才生成并打印初始 token
-    const initialToken = tokenManager.generate();
-    console.log(`\n🔑 Access token: ${initialToken} (valid 30 min)`);
-    console.log(`   RAG Document Manager: http://localhost:${port}/?token=${initialToken}`);
-    console.log(`   Resume Chat:          http://localhost:${port}/resume/chat?token=${initialToken}`);
-    if (zyplayerAdapter) {
-      console.log(`   zyplayer-doc Knowledge Base:   http://localhost:8083\n`);
+    console.log(`\n🔑 登录入口: http://localhost:${port}/login （H5 页面均需登录）`);
+    try {
+      startWikiProxy({ port: wikiProxyPort, target: wikiProxyTarget, loginUrl: `http://localhost:${port}/login`, proxyOrigin });
+    } catch (err) {
+      console.error(`❌ Wiki 代理启动失败: ${(err as Error).message}`);
     }
+    // 运维后门：仍打印一次性 token（日志只对运维可见）
+    const initialToken = tokenManager.generate();
+    console.log(`   (运维) Access token: ${initialToken} — 可经 /?token=${initialToken} 直接进入`);
   });
 
   server.on("error", (err: Error) => {

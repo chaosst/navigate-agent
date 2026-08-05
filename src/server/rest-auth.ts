@@ -1,13 +1,7 @@
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { ipMatchesWhitelist, type ApiKeyAuthConfig } from "./api-key-auth.js";
 import { tokenManager } from "./token.js";
-
-/** Helper to extract token from query or body */
-function getToken(req: Request): string | undefined {
-  if (req.query?.token) return req.query.token as string;
-  if (req.body?.token) return req.body.token;
-  return undefined;
-}
+import { getToken } from "./auth-helpers.js";
 
 function deny401(res: Response): void {
   res.status(401).json({ error: "Invalid or expired token" });
