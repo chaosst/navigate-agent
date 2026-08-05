@@ -123,7 +123,7 @@ export function createRagServer(
   }));
 
   // === H5 登录 + wiki 鉴权代理配置 ===
-  const wikiProxyPort = parseInt(process.env.H5_WIKI_PROXY_PORT || "3002", 10);
+  const wikiProxyPort = parseInt(process.env.H5_WIKI_PROXY_PORT || "3003", 10);
   const wikiProxyTarget = process.env.H5_WIKI_TARGET || "http://localhost:8083";
   const proxyOrigin = `http://localhost:${wikiProxyPort}`;
   mountLoginRoutes(app, { proxyOrigin });

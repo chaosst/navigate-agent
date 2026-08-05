@@ -26,7 +26,7 @@ describe("wiki proxy auth", () => {
       port: 0,
       target: `http://localhost:${upstreamPort}`,
       loginUrl: "http://localhost:3001/login",
-      proxyOrigin: "http://localhost:3002",
+      proxyOrigin: "http://localhost:3003",
     });
     await new Promise<void>((r) => proxy.once("listening", () => r()));
     proxyUrl = `http://localhost:${(proxy.address() as AddressInfo).port}`;
