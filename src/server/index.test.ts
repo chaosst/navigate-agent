@@ -1,0 +1,95 @@
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { AddressInfo } from "node:net";
+import { createRagServer } from "./index.js";
+import type { PgVectorStore } from "../storage/pg-vector-store.js";
+
+// mock store 避开 Postgres/OpenAI 依赖，专注验证登录门槛与路由装配
+const mockStore = {
+  listDocs: async () => [],
+  getCacheStats: () => ({ total: 0 }),
+  search: async () => [],
+  searchKeyword: async () => [],
+} as unknown as PgVectorStore;
+
+describe("createRagServer login gating (e2e)", () => {
+  let server: import("node:http").Server;
+  let base: string;
+
+  beforeAll(async () => {
+    process.env.H5_LOGIN_USERNAME = "admin";
+    process.env.H5_LOGIN_PASSWORD = "secret";
+    process.env.H5_LOGIN_USERS = "";
+    process.env.H5_WIKI_PROXY_PORT = "0"; // 避免占用真实 3002
+    const app = createRagServer(mockStore, 0);
+    server = (app as unknown as { httpServer: import("node:http").Server }).httpServer;
+    await new Promise<void>((r) => server.once("listening", () => r()));
+    base = `http://localhost:${(server.address() as AddressInfo).port}`;
+  });
+  afterAll(() => {
+    server?.closeAllConnections?.();
+    server?.close();
+    delete process.env.H5_WIKI_PROXY_PORT;
+    delete process.env.H5_LOGIN_USERNAME;
+    delete process.env.H5_LOGIN_PASSWORD;
+    delete process.env.H5_LOGIN_USERS;
+  });
+
+  it("redirects unauthenticated / to /login?next=", async () => {
+    const res = await fetch(base + "/", { redirect: "manual" });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toContain("/login?next=");
+  });
+
+  it("redirects unauthenticated /resume/chat to login", async () => {
+    const res = await fetch(base + "/resume/chat", { redirect: "manual" });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toContain("/login?next=");
+  });
+
+  it("serves /resume publicly (no login)", async () => {
+    const res = await fetch(base + "/resume");
+    expect(res.status).toBe(200);
+  });
+
+  it("redirects /index.html static bypass to /", async () => {
+    const res = await fetch(base + "/index.html", { redirect: "manual" });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/");
+  });
+
+  it("rejects unauthenticated /api/documents with 401", async () => {
+    const res = await fetch(base + "/api/documents");
+    expect(res.status).toBe(401);
+  });
+
+  it("blocks anonymous /api/token/new with 401", async () => {
+    const res = await fetch(base + "/api/token/new", { method: "POST" });
+    expect(res.status).toBe(401);
+  });
+
+  it("logs in with good credentials, then cookie grants access", async () => {
+    const bad = await fetch(base + "/api/login", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "admin", password: "wrong" }),
+    });
+    expect(bad.status).toBe(401);
+
+    const good = await fetch(base + "/api/login", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "admin", password: "secret", next: "/" }),
+    });
+    expect(good.status).toBe(200);
+    const data = await good.json();
+    expect(typeof data.token).toBe("string");
+    const cookie = (good.headers.get("set-cookie") || "").split(";")[0];
+
+    const page = await fetch(base + "/", { headers: { cookie } });
+    expect(page.status).toBe(200);
+  });
+
+  it("serves the /login page", async () => {
+    const res = await fetch(base + "/login");
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("Navigate 登录");
+  });
+});

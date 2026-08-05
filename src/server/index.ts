@@ -1,4 +1,5 @@
 import express from "express";
+import http from "node:http";
 import multer from "multer";
 import path from "path";
 import { randomUUID } from "crypto";
@@ -467,11 +468,12 @@ export function createRagServer(
     res.status(404).json({ error: "Not found" });
   });
 
+  let wikiProxyServer: http.Server | undefined;
   const server = app.listen(port, () => {
     console.log(`RAG server on http://localhost:${port}`);
     console.log(`\n🔑 登录入口: http://localhost:${port}/login （H5 页面均需登录）`);
     try {
-      startWikiProxy({ port: wikiProxyPort, target: wikiProxyTarget, loginUrl: `http://localhost:${port}/login`, proxyOrigin });
+      wikiProxyServer = startWikiProxy({ port: wikiProxyPort, target: wikiProxyTarget, loginUrl: `http://localhost:${port}/login`, proxyOrigin });
     } catch (err) {
       console.error(`❌ Wiki 代理启动失败: ${(err as Error).message}`);
     }
@@ -479,6 +481,11 @@ export function createRagServer(
     const initialToken = tokenManager.generate();
     console.log(`   (运维) Access token: ${initialToken} — 可经 /?token=${initialToken} 直接进入`);
   });
+
+  // 主服务关闭时一并关闭 wiki 代理（测试与优雅停机都需要）
+  server.on("close", () => { wikiProxyServer?.close(); });
+  // 暴露底层 http server，便于测试读取监听端口/优雅关闭
+  (app as unknown as { httpServer: http.Server }).httpServer = server;
 
   server.on("error", (err: Error) => {
     const code = (err as NodeJS.ErrnoException).code;
