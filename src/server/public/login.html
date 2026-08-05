@@ -53,12 +53,15 @@
   const errorEl = document.getElementById("error");
   const submitBtn = document.getElementById("submit-btn");
 
-  // 若已有有效登录 cookie，直接跳转
+  // 若已有有效登录 cookie，直接用服务端回显的 token 恢复会话并跳转
   (async () => {
     try {
       const res = await fetch("/api/token");
       const data = await res.json();
-      if (data.valid) location.href = next;
+      if (data.valid) {
+        if (data.token) sessionStorage.setItem("navigate_token", data.token);
+        location.href = next;
+      }
     } catch { /* 网络错误则留在登录页 */ }
   })();
 

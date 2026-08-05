@@ -216,7 +216,7 @@ const SUGGESTIONS = [
 const urlToken = new URLSearchParams(location.search).get("token");
 if (urlToken) sessionStorage.setItem("navigate_token", urlToken);
 const TOKEN = sessionStorage.getItem("navigate_token");
-if (!TOKEN) { document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-size:1.2rem;color:#dc2626;">❌ No access token.</div>'; throw new Error("no token"); }
+if (!TOKEN) { location.href = "/login?next=" + encodeURIComponent(location.pathname + location.search); throw new Error("no token"); }
 document.querySelectorAll(".nav-bar a").forEach(function(a) {
   var href = a.getAttribute("href");
   if (href && href.indexOf("token=") === -1 && href.indexOf("http") !== 0) a.setAttribute("href", href + "?token=" + TOKEN);
