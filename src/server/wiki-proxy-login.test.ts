@@ -103,3 +103,38 @@ describe("wiki proxy auto-login (form + csrf)", () => {
     expect(res.headers.get("location")).toContain("/login?next=");
   });
 });
+
+describe("wiki proxy pass-through (auto-login disabled)", () => {
+  let wiki: ReturnType<typeof createMockWiki>;
+  let proxy: http.Server;
+  let proxyUrl: string;
+  let token: string;
+
+  beforeAll(async () => {
+    token = tokenManager.generate();
+    wiki = createMockWiki();
+    wiki.server.listen(0);
+    await new Promise<void>((r) => wiki.server.once("listening", () => r()));
+    const wikiPort = (wiki.server.address() as AddressInfo).port;
+
+    // 不配置 wikiUsername → 自动登录关闭，纯透传
+    proxy = startWikiProxy({
+      port: 0,
+      target: `http://localhost:${wikiPort}`,
+      loginUrl: "http://localhost:3001/login",
+      proxyOrigin: "http://localhost:3003",
+    });
+    await new Promise<void>((r) => proxy.once("listening", () => r()));
+    proxyUrl = `http://localhost:${(proxy.address() as AddressInfo).port}`;
+  });
+  afterAll(() => { proxy?.close(); wiki.server.close(); });
+
+  it("forwards the wiki's own login redirect (302) instead of 502", async () => {
+    const res = await fetch(proxyUrl + "/", {
+      headers: { cookie: serializeCookie(AUTH_COOKIE, token) },
+      redirect: "manual",
+    });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toContain("/login");
+  });
+});
