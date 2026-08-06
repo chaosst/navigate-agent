@@ -473,7 +473,18 @@ export function createRagServer(
     console.log(`RAG server on http://localhost:${port}`);
     console.log(`\n🔑 登录入口: http://localhost:${port}/login （H5 页面均需登录）`);
     try {
-      wikiProxyServer = startWikiProxy({ port: wikiProxyPort, target: wikiProxyTarget, loginUrl: `http://localhost:${port}/login`, proxyOrigin });
+      wikiProxyServer = startWikiProxy({
+        port: wikiProxyPort,
+        target: wikiProxyTarget,
+        loginUrl: `http://localhost:${port}/login`,
+        proxyOrigin,
+        wikiUsername: process.env.H5_WIKI_USERNAME,
+        wikiPassword: process.env.H5_WIKI_PASSWORD,
+        wikiLoginMode: process.env.H5_WIKI_LOGIN_MODE === "json" ? "json" : "form",
+        wikiLoginPath: process.env.H5_WIKI_LOGIN_PATH,
+        wikiLoginCsrf: process.env.H5_WIKI_LOGIN_CSRF !== "false",
+        wikiSessionTtlSec: parseInt(process.env.H5_WIKI_SESSION_TTL_SEC || "600", 10),
+      });
     } catch (err) {
       console.error(`❌ Wiki 代理启动失败: ${(err as Error).message}`);
     }
