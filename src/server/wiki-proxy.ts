@@ -204,14 +204,23 @@ class WikiSessionManager {
   }
 }
 
-/** 构造上游请求头：剥掉 navigate_token，可选注入 wiki 会话 cookie */
+/**
+ * 构造上游请求头：剥掉 navigate_token；注入代理的 wiki 会话时，
+ * 同时剥掉浏览器带来的 wiki 旧会话 cookie（accessToken/jwt），
+ * 避免出现两个 accessToken 导致 wiki 读到旧的、判定未登录。
+ */
 function buildUpstreamHeaders(
   req: http.IncomingMessage,
   sessionCookie: string | undefined,
   target: URL,
 ): http.OutgoingHttpHeaders {
   const headers: http.OutgoingHttpHeaders = { ...req.headers, host: target.host };
-  const browserCookie = (req.headers.cookie || "").replace(/(?:^|;\s*)navigate_token=[^;]*(;|$)/gi, "$1");
+  let browserCookie = (req.headers.cookie || "").replace(/(?:^|;\s*)navigate_token=[^;]*(;|$)/gi, "$1");
+  if (sessionCookie) {
+    browserCookie = browserCookie
+      .replace(/(?:^|;\s*)accessToken=[^;]*(;|$)/gi, "$1")
+      .replace(/(?:^|;\s*)jwt=[^;]*(;|$)/gi, "$1");
+  }
   const combined = [sessionCookie, browserCookie].filter(Boolean).join("; ");
   if (combined) headers.cookie = combined;
   else delete headers.cookie;
