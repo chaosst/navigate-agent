@@ -46,7 +46,10 @@ function createRsaWiki(): { server: http.Server; revoke: () => void } {
       });
       return;
     }
-    if (at && sessions.has(at)) {
+    // 鉴权检查：所有 accessToken 必须都是有效的 AT_OK（有旧/重复 cookie 即拒绝，模拟真实行为）
+    const atList = [...cookie.matchAll(/(?:^|;\s*)accessToken=([^;]+)/g)].map((m) => m[1]);
+    const authed = atList.length > 0 && atList.every((v) => v === "AT_OK") && sessions.has("AT_OK");
+    if (authed) {
       res.writeHead(200, { "Content-Type": "text/html" });
       res.end("<h1>wiki</h1>");
     } else {
@@ -99,5 +102,15 @@ describe("wiki proxy auto-login (rsa + loginConfig)", () => {
     const second = await fetch(proxyUrl + "/", { headers: authHeaders(), redirect: "manual" });
     expect(second.status).toBe(200);
     expect(await second.text()).toContain("<h1>wiki</h1>");
+  });
+
+  it("strips the browser's stale wiki cookies before injecting its session", async () => {
+    // 浏览器带着旧 accessToken/jwt cookie → 代理应剥掉，只注入自己的会话
+    const res = await fetch(proxyUrl + "/", {
+      headers: { cookie: serializeCookie(AUTH_COOKIE, token) + "; accessToken=STALE_OLD; jwt=OLD_JWT" },
+      redirect: "manual",
+    });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("<h1>wiki</h1>");
   });
 });
