@@ -1,4 +1,5 @@
 import http from "node:http";
+import crypto from "node:crypto";
 import { tokenManager } from "./token.js";
 import { AUTH_COOKIE, getCookie } from "./auth-helpers.js";
 
@@ -12,8 +13,8 @@ export interface WikiProxyOptions {
   // 默认请直接在 3003 手动登录一次 wiki，浏览器会记住。
   wikiUsername?: string;       // 配置后启用自动登录
   wikiPassword?: string;       // 默认 123456
-  wikiLoginMode?: "form" | "json"; // 默认 form（Spring Security 风格）
-  wikiLoginPath?: string;      // 默认 /login
+  wikiLoginMode?: "form" | "json" | "rsa"; // 默认 form；rsa = 前端 RSA-PKCS1 加密密码（zyplayer-doc）
+  wikiLoginPath?: string;      // 默认 /login（json/rsa 模式也用；rsa 模式还需 /loginConfig）
   wikiLoginCsrf?: boolean;     // form 模式是否提取 _csrf，默认 true
   wikiSessionTtlSec?: number;  // 会话缓存 TTL，默认 600
 }
@@ -72,6 +73,56 @@ async function wikiLogin(opts: WikiProxyOptions): Promise<string | undefined> {
   const username = opts.wikiUsername!;
   const password = opts.wikiPassword || DEFAULT_PASSWORD;
   const jar = new Map<string, string>();
+
+  if (opts.wikiLoginMode === "rsa") {
+    // zyplayer-doc 前端登录：POST /loginConfig 拿公钥+sessionId → RSA-PKCS1 加密密码 → POST /login
+    try {
+      const cfg = await fetch(base + "/loginConfig", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", cookie: jarToCookieHeader(jar) },
+        body: "{}",
+        redirect: "manual",
+      }).then((r) => r.json());
+      const publicKey = cfg?.data?.publicKey as string | undefined;
+      const sessionId = cfg?.data?.sessionId as string | undefined;
+      if (!publicKey || !sessionId) return undefined;
+
+      const pem = `-----BEGIN PUBLIC KEY-----\n${publicKey}\n-----END PUBLIC KEY-----`;
+      const enc = crypto.publicEncrypt(
+        { key: pem, padding: crypto.constants.RSA_PKCS1_PADDING },
+        Buffer.from(password),
+      ).toString("base64");
+
+      const form = new URLSearchParams();
+      form.set("username", username);
+      form.set("password", enc);
+      form.set("verificationCode", "");
+      form.set("termsChecked", "false");
+      form.set("sessionId", sessionId);
+      form.set("loginClient", "pc");
+      form.set("_", `${base}/`);
+      form.set("_lang", "zh-CN");
+
+      const res = await fetch(base + path, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", cookie: jarToCookieHeader(jar) },
+        body: form.toString(),
+        redirect: "manual",
+      });
+      mergeSetCookie(jar, res.headers.get("set-cookie") ?? undefined);
+      // 登录失败（errCode != 200）时不要留下假会话
+      if (res.headers.get("content-type")?.includes("json")) {
+        const text = await res.text();
+        try {
+          const j = JSON.parse(text) as { errCode?: number };
+          if (j.errCode !== undefined && j.errCode !== 200) return undefined;
+        } catch { /* 非 JSON 忽略 */ }
+      }
+    } catch (err) {
+      console.error("[wiki-proxy] auto-login (rsa) error:", (err as Error).message);
+    }
+    return jar.size ? jarToCookieHeader(jar) : undefined;
+  }
 
   if (opts.wikiLoginMode === "json") {
     try {

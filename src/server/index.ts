@@ -480,7 +480,9 @@ export function createRagServer(
         proxyOrigin,
         wikiUsername: process.env.H5_WIKI_USERNAME,
         wikiPassword: process.env.H5_WIKI_PASSWORD,
-        wikiLoginMode: process.env.H5_WIKI_LOGIN_MODE === "json" ? "json" : "form",
+        wikiLoginMode: process.env.H5_WIKI_LOGIN_MODE === "rsa" || process.env.H5_WIKI_LOGIN_MODE === "json"
+          ? process.env.H5_WIKI_LOGIN_MODE
+          : "form",
         wikiLoginPath: process.env.H5_WIKI_LOGIN_PATH,
         wikiLoginCsrf: process.env.H5_WIKI_LOGIN_CSRF !== "false",
         wikiSessionTtlSec: parseInt(process.env.H5_WIKI_SESSION_TTL_SEC || "600", 10),
