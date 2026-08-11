@@ -14,7 +14,6 @@ import { AgentMemory } from "./memory/index.js";
 import { PgVectorStore } from "./storage/pg-vector-store.js";
 import { getPool, closePool } from "./storage/pool.js";
 import { RagSearchTool } from "./rag/retriever.js";
-import { createRagServer } from "./server/index.js";
 import { ResumeStore } from "./resume/store.js";
 import { ResumeSearchTool } from "./resume/search-tool.js";
 import { parseResume } from "./resume/parser.js";
@@ -85,8 +84,6 @@ async function main() {
 
   const systemPrompt = buildSystemPrompt(resumeSummary);
   const executor = await createAgentExecutor(llm, allTools, systemPrompt, config.maxIterations);
-
-  createRagServer(ragStore, 3001, executor, resumeStore, resumeData);
 
   render(React.createElement(App, { executor, memory, agentName: "Navigate" }));
 
