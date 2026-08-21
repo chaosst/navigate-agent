@@ -9,7 +9,7 @@ import "dotenv/config";
 import { loadConfig } from "./config/index.js";
 import { createChatModel } from "./agent/langchain.js";
 import { buildSystemPrompt } from "./agent/prompt.js";
-import { createAgentExecutor } from "./agent/loop.js";
+import { createAgentExecutor, createPtcAgent } from "./agent/loop.js";
 import { createTools } from "./tools/registry.js";
 import type { StructuredTool } from "@langchain/core/tools";
 import { OpenAIEmbeddings } from "@langchain/openai";
@@ -25,6 +25,8 @@ import { createHash } from "node:crypto";
 import { SkillRegistry } from "./skills/registry.js";
 import { ApiKeyStore } from "./server/key-store.js";
 import type { ApiKeyAuthConfig } from "./server/api-key-auth.js";
+import { ToolStatsRegistry } from "./tools/stats-registry.js";
+import { PermissionWrapper } from "./tools/permission.js";
 
 async function main() {
   const config = loadConfig();
@@ -89,15 +91,34 @@ async function main() {
     console.warn("Skill loading skipped:", (err as Error).message);
   }
 
+  // 统计注册表：核心工具经 PermissionWrapper 包装后注册（统计/限流/熔断生效）
+  const toolStatsRegistry = new ToolStatsRegistry()
+  const wrapRead = (tool: StructuredTool): StructuredTool =>
+    new PermissionWrapper(tool, "read", undefined, toolStatsRegistry)
+
   const allTools = [
-    ...createTools(),
-    ragTool,
-    ...(resumeTool ? [resumeTool] : []),
-    ...skillTools,
+    ...createTools(toolStatsRegistry),
+    wrapRead(ragTool),
+    ...(resumeTool ? [wrapRead(resumeTool)] : []),
+    ...skillTools.map(wrapRead),
   ];
 
   const systemPrompt = buildSystemPrompt(resumeSummary);
-  const executor = await createAgentExecutor(llm, allTools, systemPrompt, config.maxIterations);
+  const executor =
+    config.agentMode === "ptc"
+      ? createPtcAgent(llm, allTools, {
+          maxIterations: config.maxIterations,
+          ptc: {
+            maxProgramLength: config.ptcMaxProgramLength,
+            maxWallMs: config.ptcMaxWallMs,
+            maxOutputBytes: config.ptcMaxOutputBytes,
+            maxParallelSubCalls: config.ptcMaxParallelSubCalls,
+            mode: config.ptcMode,
+          },
+          toolStatsRegistry,
+          llmTimeoutMs: config.llmTimeoutMs,
+        })
+      : createAgentExecutor(llm, allTools, systemPrompt, config.maxIterations, toolStatsRegistry, undefined, undefined, config.llmTimeoutMs);
 
   createRagServer(ragStore, 3001, executor, resumeStore, resumeData, apiAuth);
 

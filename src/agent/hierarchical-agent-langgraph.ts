@@ -6,6 +6,8 @@ import { Tracer } from "./tracer.js";
 import { DualLoopState, type DualLoopStateType, type ExecutionPlan, type PlanStep, type PlannerOutput } from "./types.js";
 import { logAgent } from "./logger.js";
 import { AgentStep } from "@langchain/core/agents";
+import { buildStatsFooter } from "./graph-utils.js";
+import type { ToolStatsRegistry } from "../tools/stats-registry.js";
 
 const PLANNER_PROMPT = `你是一个任务规划器，采用双层循环架构：
 
@@ -42,18 +44,25 @@ export class HierarchicalAgentLangGraph {
     private tools: StructuredToolInterface[];
     private toolMap: Map<string, StructuredToolInterface>;
     private tracer?: Tracer;
+    private toolStatsRegistry?: ToolStatsRegistry;
+    /** 单次 LLM 调用超时（ms），与 normal/ptc 模式统一（默认 120s） */
+    private llmTimeoutMs: number;
     private graph: any;
 
     constructor(
         llm: ChatOpenAI,
         tools: StructuredToolInterface[],
         tracer?: Tracer,
+        toolStatsRegistry?: ToolStatsRegistry,
+        llmTimeoutMs = 120_000,
     ) {
         this.plannerLLM = llm;
         this.executorLLM = llm;
         this.tools = tools;
         this.toolMap = new Map(tools.map((t) => [t.name, t]));
         this.tracer = tracer;
+        this.toolStatsRegistry = toolStatsRegistry;
+        this.llmTimeoutMs = llmTimeoutMs;
         this.graph = this.createGraph();
         logAgent({
             type: "info",
@@ -330,8 +339,18 @@ export class HierarchicalAgentLangGraph {
         let response
         try {
             response = await this.plannerLLM.invoke(plannerMessages, {
-                signal: AbortSignal.timeout(30000)
+                signal: AbortSignal.timeout(this.llmTimeoutMs)
             })
+            const usage = (response as any).usage_metadata;
+            this.tracer?.addLLMCall(
+                0,
+                `planner messages[${plannerMessages.length}]`,
+                this.extractText(response.content),
+                null,
+                0,
+                usage?.input_tokens,
+                usage?.output_tokens,
+            );
             logAgent({
                 type: "info",
                 message: `[LangGraph] 规划器: LLM 调用成功`,
@@ -422,6 +441,8 @@ export class HierarchicalAgentLangGraph {
 
         let finalResult = ""
         const intermediateSteps: AgentStep[] = []
+        // 本步骤累计 token 消耗（从 usage_metadata 读取，供 totalTokens 与统计展示）
+        let tokensUsed = 0
 
         logAgent({
             type: "info",
@@ -439,8 +460,19 @@ export class HierarchicalAgentLangGraph {
             let response
             try {
                 response = await llmWithTools.invoke(executorMessages, {
-                    signal: AbortSignal.timeout(30000)
+                    signal: AbortSignal.timeout(this.llmTimeoutMs)
                 })
+                const usage = (response as any).usage_metadata;
+                tokensUsed += (usage?.input_tokens ?? 0) + (usage?.output_tokens ?? 0);
+                this.tracer?.addLLMCall(
+                    iter,
+                    `step ${step.id} messages[${executorMessages.length}]`,
+                    null,
+                    response.tool_calls?.map((tc: any) => tc.name as string) ?? null,
+                    0,
+                    usage?.input_tokens,
+                    usage?.output_tokens,
+                );
                 logAgent({
                     type: "info",
                     message: `[LangGraph] 步骤 ${step.id} 迭代 ${iter + 1}: LLM 调用成功`,
@@ -459,8 +491,19 @@ export class HierarchicalAgentLangGraph {
                     });
                     try {
                         response = await this.executorLLM.invoke(executorMessages, {
-                            signal: AbortSignal.timeout(30000),
+                            signal: AbortSignal.timeout(this.llmTimeoutMs),
                         });
+                        const usage = (response as any).usage_metadata;
+                        tokensUsed += (usage?.input_tokens ?? 0) + (usage?.output_tokens ?? 0);
+                        this.tracer?.addLLMCall(
+                            iter,
+                            `step ${step.id} (retry) messages[${executorMessages.length}]`,
+                            this.extractText(response.content),
+                            null,
+                            0,
+                            usage?.input_tokens,
+                            usage?.output_tokens,
+                        );
                     } catch (retryErr) {
                         logAgent({
                             type: "error",
@@ -570,7 +613,7 @@ export class HierarchicalAgentLangGraph {
         return {
             result: finalResult || "Step completed",
             intermediateSteps,
-            tokensUsed: 0
+            tokensUsed,
         }
     }
 
@@ -647,9 +690,11 @@ export class HierarchicalAgentLangGraph {
             details: { answerLength: finalAnswer.length }
         });
 
+        // 统计脚注：工具统计 + token 消耗（须在 finishSession 前取当前 session）
+        const footer = buildStatsFooter(this.toolStatsRegistry, this.tracer);
         this.tracer?.finishSession();
         return {
-            messages: [new AIMessage(finalAnswer)],
+            messages: [new AIMessage(finalAnswer + footer)],
         };
     }
 
@@ -672,9 +717,11 @@ export class HierarchicalAgentLangGraph {
             details: { answerLength: fallback.length }
         });
 
+        // 统计脚注：即使失败，已发生的 LLM/工具调用也应计入
+        const footer = buildStatsFooter(this.toolStatsRegistry, this.tracer);
         this.tracer?.finishSession();
         return {
-            messages: [new AIMessage(fallback)],
+            messages: [new AIMessage(fallback + footer)],
         };
     }
 
@@ -690,7 +737,9 @@ export class HierarchicalAgentLangGraph {
             new SystemMessage("Synthesize results into a final answer."),
             ...messages,
             new HumanMessage(prompt),
-        ]);
+        ], {
+            signal: AbortSignal.timeout(this.llmTimeoutMs),
+        });
         return this.extractText(response.content);
     }
 

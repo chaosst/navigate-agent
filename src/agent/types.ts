@@ -1,6 +1,6 @@
 import { AgentStep } from "@langchain/core/agents";
 import { Annotation, MessagesAnnotation } from "@langchain/langgraph";
-import { PtcStats } from "../ptc/type.js";
+import { PtcStats } from "../ptc/types.js";
 
 export interface AgentConfig {
   modelName: string;

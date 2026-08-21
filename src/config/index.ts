@@ -6,6 +6,10 @@ export interface AppConfig {
   modelName: string;
   maxIterations: number;
   baseURL: string;
+  /** 单次 LLM 调用超时（ms）。PTC 场景模型常生成大段程序/文档，默认 120s */
+  llmTimeoutMs: number;
+  /** embedding 模型（摘要/向量检索用）。若 baseURL 无该模型，摘要检索自动降级关键词 */
+  embeddingModel: string;
   mcpServers: McpServerConfig[];
   databaseUrl: string;
   databasePoolMin: number;
@@ -84,6 +88,8 @@ export function loadConfig(): AppConfig {
     modelName: process.env.OPENAI_MODEL ?? "gpt-4o",
     maxIterations,
     baseURL: process.env.OPENAI_BASE_URL ?? "",
+    llmTimeoutMs: num(process.env.LLM_TIMEOUT_MS, 120_000),
+    embeddingModel: process.env.EMBEDDING_MODEL ?? "text-embedding-3-small",
     mcpServers,
     databaseUrl,
     databasePoolMin: parseInt(process.env.DATABASE_POOL_MIN ?? "2", 10),

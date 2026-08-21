@@ -20,7 +20,15 @@ export interface TraceEntry {
   /** 唯一标识 */
   id: string;
   /** 轨迹类型 */
-  type: "llm_call" | "tool_call" | "tool_result" | "final_answer" | "error";
+  type:
+    | "llm_call"
+    | "tool_call"
+    | "tool_result"
+    | "final_answer"
+    | "error"
+    | "ptc_program"    // PTC：模型发起一次 run_code
+    | "ptc_dispatch"   // PTC：程序内一次工具子调用
+    | "ptc_result";    // PTC：一次 run_code 的结算结果
   /** 时间戳 */
   timestamp: number;
   /** 耗时（毫秒） */
@@ -43,9 +51,27 @@ export interface TraceEntry {
   toolResult?: string;
   toolSuccess?: boolean;
 
+  // PTC（程序化工具调用）
+  ptcCode?: string;           // run_code 程序源码（截断存储）
+  ptcDescription?: string;    // run_code 意图说明
+  ptcParentId?: string;       // 子调用所属 run_code 调用 id
+  ptcKind?: PtcResultKind;    // ptc_result：结算结果（ok 或失败类别）
+  ptcLogCount?: number;       // 程序日志条数
+  ptcValueBytes?: number;     // 完成值序列化字节数
+
   // 错误
   error?: string;
 }
+
+/** PTC 运行结算类别：ok 或六类失败（对齐 CodeRunFailure.kind） */
+export type PtcResultKind =
+  | "ok"
+  | "exception"
+  | "timeout"
+  | "abort"
+  | "worker-exit"
+  | "invalid-output"
+  | "output-limit";
 
 export interface TraceSession {
   /** 用户输入 */
@@ -196,6 +222,76 @@ export class Tracer {
     });
   }
 
+  /** 添加一条 PTC run_code 程序记录（模型发起的程序，源码截断存储） */
+  addPtcProgram(
+    code: string,
+    description: string,
+    iteration: number,
+    source?: "main" | "worker",
+  ): void {
+    if (!this.currentSession) return;
+    this.currentSession.steps.push({
+      id: `ptc_prog_${++entryCounter}`,
+      type: "ptc_program",
+      timestamp: Date.now(),
+      durationMs: 0,
+      iteration,
+      source: source ?? "main",
+      ptcCode: code.slice(0, 500),
+      ptcDescription: description.slice(0, 200),
+    });
+  }
+
+  /** 添加一条 PTC 程序内子调用事件（程序内 tools.x() 的一次执行） */
+  addPtcDispatch(
+    parentId: string,
+    tool: string,
+    input: unknown,
+    output: unknown,
+    isError: boolean,
+    iteration: number,
+    source?: "main" | "worker",
+  ): void {
+    if (!this.currentSession) return;
+    this.currentSession.steps.push({
+      id: `ptc_disp_${++entryCounter}`,
+      type: "ptc_dispatch",
+      timestamp: Date.now(),
+      durationMs: 0,
+      iteration,
+      source: source ?? "main",
+      ptcParentId: parentId,
+      toolName: tool,
+      toolInput: isPlainObject(input)
+        ? (input as Record<string, unknown>)
+        : { args: input },
+      toolResult: stringifyPreview(output, 500),
+      toolSuccess: !isError,
+    });
+  }
+
+  /** 添加一条 PTC 运行结算记录（ok 或失败类别，供成本/失败分析） */
+  addPtcResult(
+    kind: PtcResultKind,
+    logCount: number,
+    valueBytes: number,
+    iteration: number,
+    source?: "main" | "worker",
+  ): void {
+    if (!this.currentSession) return;
+    this.currentSession.steps.push({
+      id: `ptc_res_${++entryCounter}`,
+      type: "ptc_result",
+      timestamp: Date.now(),
+      durationMs: 0,
+      iteration,
+      source: source ?? "main",
+      ptcKind: kind,
+      ptcLogCount: logCount,
+      ptcValueBytes: valueBytes,
+    });
+  }
+
   /** 获取当前 session 的格式化报告 */
   getReport(): string {
     const session = this.currentSession ?? this.sessions[this.sessions.length - 1];
@@ -276,10 +372,46 @@ export class Tracer {
         case "error":
           lines.push(`${indent}${tag}❌ Error: ${step.error}`);
           break;
+        case "ptc_program":
+          lines.push(`${indent}${tag}📦 run_code${step.ptcDescription ? `: ${step.ptcDescription}` : ""}`);
+          if (step.ptcCode && step.ptcCode.length > 0) {
+            lines.push(`${indent}  ${step.ptcCode.length > 200 ? step.ptcCode.slice(0, 200) + "..." : step.ptcCode}`);
+          }
+          break;
+        case "ptc_dispatch":
+          lines.push(
+            `${indent}${tag}${step.toolSuccess ? "⚡" : "❌"} tools["${step.toolName ?? "?"}"](${JSON.stringify(step.toolInput)})`,
+          );
+          if (step.toolResult) {
+            lines.push(`${indent}  → ${step.toolResult.length > 200 ? step.toolResult.slice(0, 200) + "..." : step.toolResult}`);
+          }
+          break;
+        case "ptc_result":
+          lines.push(
+            `${indent}${tag}📊 PTC ${step.ptcKind} (logs: ${step.ptcLogCount ?? 0}, value: ${step.ptcValueBytes ?? 0} B)`,
+          );
+          break;
       }
     }
 
     lines.push("═══════════════════════════════");
     return lines.join("\n");
+  }
+}
+
+/** 判断是否为普通对象（非 null、非数组） */
+function isPlainObject(v: unknown): boolean {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** 将任意值转为预览字符串（截断到 max 字符） */
+function stringifyPreview(v: unknown, max: number): string {
+  if (v === undefined) return "undefined";
+  if (typeof v === "string") return v.length > max ? v.slice(0, max) + "..." : v;
+  try {
+    const s = JSON.stringify(v);
+    return s === undefined ? String(v) : s.length > max ? s.slice(0, max) + "..." : s;
+  } catch {
+    return String(v);
   }
 }

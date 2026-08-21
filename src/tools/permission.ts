@@ -121,6 +121,12 @@ export class PermissionWrapper extends StructuredTool {
     this.guardConfig = { ...DEFAULT_GUARD_CONFIG, ...guardConfig };
     this.registry = registry;
     registry?.register(this);
+
+    // LangChain StructuredTool/Runnable 的构造会把 name/description 作为**实例属性**赋值
+    // （无参 super() 时置为 undefined），从而遮蔽本类原型上的 getter——
+    // 这里显式回填：name 透传 inner，description 拼权限标签（与原 getter 语义一致）。
+    this.name = inner.name;
+    this.description = `${inner.description}\n\n[权限: ${PERMISSION_LABEL[permission]}]`;
   }
 
   async _call(args: Record<string, unknown>): Promise<string> {
