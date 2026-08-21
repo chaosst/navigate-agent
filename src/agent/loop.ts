@@ -1,3 +1,4 @@
+import { ToolStatsRegistry } from './../tools/stats-registry.js';
 import {
   HumanMessage,
   AIMessage,
@@ -13,30 +14,118 @@ import { logAgent } from "./logger.js";
 import { GraphAgentExecutor } from "./graph-agent-executor.js";
 import { Tracer } from "./tracer.js";
 import { HierarchicalAgentLangGraph } from "./hierarchical-agent-langgraph.js";
+import { WorkerThreadCodeRuntime } from "../ptc/code-runtime-worker.js";
+import { DispatchBridge } from "../ptc/dispatch-bridge.js";
+import { RunCodeTool } from "../ptc/run-code-tool.js";
+import { PtcAgentLangGraph } from "../ptc/ptc-agent-langgraph.js";
+import { ToolFilter } from "../tools/tool-filter.js";
+
+/** PTC 运行时配置（由 config/index.ts 的 PTC_* 字段聚合） */
+export interface PtcAgentConfig {
+  maxProgramLength: number;
+  maxWallMs: number;
+  maxOutputBytes: number;
+  maxParallelSubCalls: number;
+  mode: "code" | "both";
+}
+
+/**
+ * 创建 PTC 模式 Agent（程序化工具调用）。
+ *
+ * 构造顺序（设计文档 §6.1）：runtime → bridge(全量 tools) → runCodeTool → visibleTools → PtcAgentLangGraph。
+ * 注意：全量 tools 只进 DispatchBridge（程序内 tools.x() 调用目标），**不进图**；
+ * 进图的只有按 mode 组装的 visibleTools（code 模式下仅 run_code）。
+ */
+export function createPtcAgent(
+  llm: ChatOpenAI,
+  tools: StructuredToolInterface[],
+  config: {
+    maxIterations: number;
+    ptc: PtcAgentConfig;
+    toolFilter?: ToolFilter;
+    tracer?: Tracer;
+    toolStatsRegistry?: ToolStatsRegistry;
+    llmTimeoutMs?: number;
+  },
+): PtcAgentLangGraph {
+  const tracer = config.tracer;
+
+  // 1. 沙箱运行时：持有预算
+  const runtime = new WorkerThreadCodeRuntime({
+    maxWallMs: config.ptc.maxWallMs,
+    maxOutputBytes: config.ptc.maxOutputBytes,
+  });
+
+  // 2. 分发桥：持有全量工具；变更类工具（shell/写/编辑）排他串行
+  const bridge = new DispatchBridge(
+    tools,
+    config.toolFilter,
+    undefined,
+    tracer,
+    config.ptc.maxParallelSubCalls,
+    ["execute_command", "write_file", "edit_file"],
+  );
+
+  // 3. run_code 工具：注入 bridge + runtime
+  const runCodeTool = new RunCodeTool({
+    dispatch: bridge,
+    runtime,
+    maxProgramLength: config.ptc.maxProgramLength,
+    tracer: tracer ?? new Tracer(),
+  });
+
+  // 4. 模型可见工具集：code → [run_code]；both → [run_code, ...tools]
+  const visibleTools: StructuredToolInterface[] =
+    config.ptc.mode === "code"
+      ? [runCodeTool]
+      : [runCodeTool, ...tools];
+
+  // 5. 状态机（runtime 仅用于 dispose）
+  return new PtcAgentLangGraph(
+    llm,
+    visibleTools,
+    config.maxIterations,
+    runtime,
+    bridge,
+    config.llmTimeoutMs,
+    config.toolStatsRegistry,
+  );
+}
 
 
-export async function createHierarchicalAgent(
+export function createHierarchicalAgent(
   llm: ChatOpenAI,
   tools: StructuredToolInterface[],
   tracer?: Tracer,
-): Promise<HierarchicalAgentLangGraph> {
-  return new HierarchicalAgentLangGraph(llm, tools, tracer);
+  toolStatsRegistry?: ToolStatsRegistry,
+  llmTimeoutMs?: number,
+): HierarchicalAgentLangGraph {
+  return new HierarchicalAgentLangGraph(llm, tools, tracer, toolStatsRegistry, llmTimeoutMs);
 }
 
 /**
  * Create an agent executor using OpenAI tools agent with streaming support.
  */
-export async function createAgentExecutor(
+export function createAgentExecutor(
   llm: ChatOpenAI,
   tools: StructuredToolInterface[],
   systemPrompt: string,
   maxIterations: number,
-): Promise<GraphAgentExecutor> {
+  toolStatsRegistry?: ToolStatsRegistry,
+  toolFilter?: ToolFilter,
+  tracer?: Tracer,
+  llmTimeoutMs?: number,
+): GraphAgentExecutor {
+  
   return new GraphAgentExecutor(
     llm,
     tools,
     systemPrompt,
-    maxIterations
+    maxIterations,
+    toolStatsRegistry,
+    toolFilter,
+    tracer,
+    llmTimeoutMs,
   );
 }
 
@@ -62,6 +151,7 @@ export async function runAgent(
   input: string,
   history?: AgentMessage[],
   events?: AgentEvents,
+  timeoutMs = 30_000,
 ): Promise<string> {
   logAgent({ type: "info", message: `User: ${input.slice(0, 200)}` });
   const messageHistory: BaseMessage[] = history
@@ -71,10 +161,10 @@ export async function runAgent(
   let output = "";
   let previousStepCount = 0;
   try {
-    // 30s 超时包装
+    // 整体流超时包装（单次 LLM 调用超时由 executor 内部 llmTimeoutMs 控制）
     const streamPromise = executor.stream({ messages: messageHistory });
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("Agent execution timeout (30s)")), 30000)
+      setTimeout(() => reject(new Error(`Agent execution timeout (${timeoutMs}ms)`)), timeoutMs)
     );
     const stream = await Promise.race([streamPromise, timeoutPromise]);
     for await (const chunk of stream) {

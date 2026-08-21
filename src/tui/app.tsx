@@ -2,26 +2,50 @@ import React, { useState, useCallback, useRef, useEffect } from "react";
 import { Box, Text, Static } from "ink";
 import { Input } from "./input.js";
 import { MessageItem, type OutputMessage } from "./output.js";
+import {
+  ptcProgramToMessage,
+  ptcDispatchToMessage,
+  extractRunCodeErrorKind,
+} from "./ptc.js";
 import { handleCommand } from "./commands.js";
-import { runAgent } from "../agent/loop.js";
+import { createAgentExecutor, createHierarchicalAgent, createPtcAgent, runAgent } from "../agent/loop.js";
 import type { AgentMessage } from "../agent/types.js";
 import type { AgentMemory } from "../memory/index.js";
 import { GraphAgentExecutor } from "../agent/graph-agent-executor.js";
 import { HierarchicalAgentLangGraph } from "../agent/hierarchical-agent-langgraph.js";
+import { PtcAgentLangGraph } from "../ptc/ptc-agent-langgraph.js";
 import type { ChatOpenAI } from "@langchain/openai";
 import type { StructuredToolInterface } from "@langchain/core/tools";
+import type { AgentStep } from "@langchain/core/agents";
+import type { ExecutionPlan } from "../agent/types.js";
+import type { PtcDispatchEvent } from "../ptc/dispatch-bridge.js";
+import { AgentMode, AppConfig } from "../config/index.js";
+import { Tracer } from "../agent/tracer.js";
+import { ToolStatsRegistry } from "../tools/stats-registry.js"
+import { ToolFilter } from "../tools/tool-filter.js"
+
+/** 统一流式块（三种模式并集；各模式只产出相关字段，见设计文档 §5.2 AgentStreamChunk） */
+interface StreamChunk {
+  plan?: ExecutionPlan;
+  intermediateSteps?: AgentStep[];
+  output?: string;
+  ptcProgram?: { code: string; description: string };
+  ptcDispatch?: PtcDispatchEvent;
+}
 
 interface AppProps {
-  executor: GraphAgentExecutor;
+  config: AppConfig;
   memory: AgentMemory;
   agentName?: string;
   llm: ChatOpenAI;
   tools: StructuredToolInterface[];
   systemPrompt: string;
-  maxIterations: number;
+  tracer?: Tracer;
+  toolStatsRegistry?: ToolStatsRegistry;
+  toolFilter?: ToolFilter
 }
 
-export function App({ executor, memory, agentName = "Agent", llm, tools, systemPrompt, maxIterations }: AppProps) {
+export function App({ config, memory, agentName = "Agent", llm, tools, systemPrompt, tracer, toolStatsRegistry, toolFilter }: AppProps) {
   // ------------------------------------------------------------------
   // Message storage — split into "static" and "dynamic" arrays.
   //
@@ -46,20 +70,54 @@ export function App({ executor, memory, agentName = "Agent", llm, tools, systemP
   const [streamingText, setStreamingText] = useState("");
   const [streamingTools, setStreamingTools] = useState<string[]>([]);
   const [sessionName, setSessionName] = useState("Chat");
-  const [planMode, setPlanMode] = useState(false);
-  const planExecutorRef = useRef<HierarchicalAgentLangGraph | null>(null);
+  const [agentMode, setAgentMode] = useState<AgentMode>(config.agentMode);
 
   // Refs to keep values accessible inside stable callbacks without
   // causing the callback identity to change (which would tear down
   // and recreate the stdin handler in ControlledTextInput, breaking input).
-  const planModeRef = useRef(false);
   const llmRef = useRef(llm);
   const toolsRef = useRef(tools);
-  const executorRef = useRef(executor);
-  useEffect(() => { planModeRef.current = planMode; }, [planMode]);
+  const executorRef = useRef<PtcAgentLangGraph | HierarchicalAgentLangGraph | GraphAgentExecutor | null>(null);
+
+  // 按当前模式动态创建 executor；切换/卸载时 cleanup 释放旧 PTC 实例（worker runtime）
+  useEffect(() => {
+    const exec =
+      agentMode === "ptc"
+        ? createPtcAgent(llm, tools, {
+            maxIterations: config.maxIterations,
+            ptc: {
+              maxProgramLength: config.ptcMaxProgramLength,
+              maxWallMs: config.ptcMaxWallMs,
+              maxOutputBytes: config.ptcMaxOutputBytes,
+              maxParallelSubCalls: config.ptcMaxParallelSubCalls,
+              mode: config.ptcMode,
+            },
+            toolFilter,
+            tracer,
+            toolStatsRegistry,
+            llmTimeoutMs: config.llmTimeoutMs,
+          })
+        : agentMode === "plan"
+          ? createHierarchicalAgent(llmRef.current, toolsRef.current, tracer, toolStatsRegistry, config.llmTimeoutMs)
+          : createAgentExecutor(
+              llm,
+              tools,
+              systemPrompt,
+              config.maxIterations,
+              toolStatsRegistry,
+              toolFilter,
+              tracer,
+              config.llmTimeoutMs,
+            );
+    executorRef.current = exec;
+    return () => {
+      if (exec instanceof PtcAgentLangGraph) {
+        void exec.dispose();
+      }
+    };
+  }, [agentMode, llm, tools, config, systemPrompt, toolStatsRegistry, toolFilter, tracer]);
   useEffect(() => { llmRef.current = llm; }, [llm]);
   useEffect(() => { toolsRef.current = tools; }, [tools]);
-  useEffect(() => { executorRef.current = executor; }, [executor]);
 
   // Streaming token buffer — tokens accumulate here and are flushed to
   // state on a 50 ms interval to prevent a re-render on every token
@@ -94,16 +152,20 @@ export function App({ executor, memory, agentName = "Agent", llm, tools, systemP
     })();
   }, [memory]);
 
-  const handleTogglePlanMode = useCallback(() => {
-    setPlanMode(prev => {
-      const next = !prev;
+  const handleToggleAgentMode = useCallback(() => {
+    setAgentMode(prev => {
+      const modes: AgentMode[] = ["normal", "plan", "ptc"]
+      const next = modes[(modes.indexOf(prev)+1)%3];
+      const label: Record<AgentMode, string> = {
+        normal: "⚡ Standard ReAct mode. (Shift+Tab to toggle)",
+        plan: "🗺️ Plan mode enabled. Agent will create a step-by-step plan before executing. (Shift+Tab to toggle)",
+        ptc: "📦 PTC mode enabled. Agent writes TypeScript programs to batch tool calls. (Shift+Tab to toggle)",
+      };
       setStaticMessages((msgs) => [
         ...msgs,
         {
           role: "system" as const,
-          content: next
-            ? "🗺️ Plan mode enabled. Agent will create a step-by-step plan before executing. (Shift+Tab to toggle)"
-            : "⚡ Plan mode disabled. Using standard ReAct mode. (Shift+Tab to toggle)",
+          content: label[next],
           timestamp: new Date(),
         },
       ]);
@@ -193,12 +255,76 @@ export function App({ executor, memory, agentName = "Agent", llm, tools, systemP
       try {
         let output: string;
 
-        if (planModeRef.current) {
-          // ---- Plan Mode: use HierarchicalAgentLangGraph ----
-          if (!planExecutorRef.current) {
-            planExecutorRef.current = new HierarchicalAgentLangGraph(llmRef.current, toolsRef.current);
+        const exec = executorRef.current;
+        if (!exec) {
+          throw new Error("Agent executor not initialized yet");
+        }
+        if (exec instanceof PtcAgentLangGraph) {
+          // ---- PTC Mode: programmatic tool calling ----
+          output = "";
+          const { parseHistory: parseHist } = await import("../agent/loop.js");
+          const messageHistory = parseHist([
+            ...historyRef.current,
+            { role: "user", content: value } as AgentMessage,
+          ]);
+
+          const stream = exec.stream({ messages: messageHistory });
+          for await (const rawChunk of stream) {
+            const chunk = rawChunk as StreamChunk;
+            // run_code 程序卡片
+            if (chunk.ptcProgram) {
+              const p = chunk.ptcProgram;
+              setStaticMessages((prev) => [
+                ...prev,
+                ptcProgramToMessage(p),
+              ]);
+            }
+            // 程序内子调用事件
+            if (chunk.ptcDispatch) {
+              const ev = chunk.ptcDispatch;
+              setStaticMessages((prev) => [
+                ...prev,
+                ptcDispatchToMessage(ev),
+              ]);
+            }
+            if (chunk.intermediateSteps) {
+              for (const step of chunk.intermediateSteps) {
+                // run_code 步骤：卡片已由 ptcProgram 块展示，这里只补失败徽章
+                if (step.action.tool === "run_code") {
+                  const kind = extractRunCodeErrorKind(step.observation);
+                  if (kind) {
+                    setStaticMessages((prev) => [
+                      ...prev,
+                      {
+                        role: "system",
+                        content: `run_code failed: [${kind}]`,
+                        timestamp: new Date(),
+                      },
+                    ]);
+                  }
+                  continue;
+                }
+                const msg: OutputMessage = {
+                  role: "tool",
+                  content: `Calling: ${step.action.tool}\n→ ${String(step.observation).slice(0, 200)}`,
+                  name: step.action.tool,
+                  timestamp: new Date(),
+                };
+                setStaticMessages((prev) => [...prev, msg]);
+                setStreamingTools((prev) => [
+                  ...prev,
+                  `⚡ ${step.action.tool}`,
+                ]);
+              }
+            }
+            if (chunk.output) {
+              output += String(chunk.output);
+              streamingBufferRef.current += String(chunk.output);
+            }
           }
-          const planExecutor = planExecutorRef.current;
+        } else if (exec instanceof HierarchicalAgentLangGraph) {
+          // ---- Plan Mode: use HierarchicalAgentLangGraph ----
+          const planExecutor = exec;
           output = "";
           const { parseHistory: parseHist } = await import("../agent/loop.js");
           const messageHistory = parseHist([
@@ -207,7 +333,8 @@ export function App({ executor, memory, agentName = "Agent", llm, tools, systemP
           ]);
 
           const stream = planExecutor.stream({ messages: messageHistory });
-          for await (const chunk of stream) {
+          for await (const rawChunk of stream) {
+            const chunk = rawChunk as StreamChunk;
             if (chunk.plan) {
               const plan = chunk.plan;
               const planText = [
@@ -222,8 +349,39 @@ export function App({ executor, memory, agentName = "Agent", llm, tools, systemP
                 { role: "system", content: planText, timestamp: new Date() },
               ]);
             }
+            // PTC 块：run_code 程序卡片 / 程序内子调用（plan/普通模式不产生，零副作用；
+            // PTC 模式接入后复用同一处理，见 5.7 stream 块契约）
+            if (chunk.ptcProgram) {
+              const p = chunk.ptcProgram;
+              setStaticMessages((prev) => [
+                ...prev,
+                ptcProgramToMessage(p),
+              ]);
+            }
+            if (chunk.ptcDispatch) {
+              const ev = chunk.ptcDispatch;
+              setStaticMessages((prev) => [
+                ...prev,
+                ptcDispatchToMessage(ev),
+              ]);
+            }
             if (chunk.intermediateSteps) {
               for (const step of chunk.intermediateSteps) {
+                // run_code 步骤：卡片已由 ptcProgram 块展示，这里只补失败徽章
+                if (step.action.tool === "run_code") {
+                  const kind = extractRunCodeErrorKind(step.observation);
+                  if (kind) {
+                    setStaticMessages((prev) => [
+                      ...prev,
+                      {
+                        role: "system",
+                        content: `run_code failed: [${kind}]`,
+                        timestamp: new Date(),
+                      },
+                    ]);
+                  }
+                  continue;
+                }
                 const msg: OutputMessage = {
                   role: "tool",
                   content: `Calling: ${step.action.tool}\n→ ${String(step.observation).slice(0, 200)}`,
@@ -244,7 +402,7 @@ export function App({ executor, memory, agentName = "Agent", llm, tools, systemP
           }
         } else {
           // ---- Normal Mode: use GraphAgentExecutor ----
-          output = await runAgent(executorRef.current, value, historyRef.current, {
+          output = await runAgent(exec as GraphAgentExecutor, value, historyRef.current, {
             onToolStart(tool, input) {
               const msg: OutputMessage = {
                 role: "tool",
@@ -282,7 +440,7 @@ export function App({ executor, memory, agentName = "Agent", llm, tools, systemP
             onFinish() {
               // handled below
             },
-          });
+          }, config.llmTimeoutMs);
         }
 
         // Add final assistant response to static
@@ -318,7 +476,7 @@ export function App({ executor, memory, agentName = "Agent", llm, tools, systemP
         setRunning(false);
       }
     },
-    [executor, memory],
+    [memory],
   );
 
   // ------------------------------------------------------------------
@@ -353,8 +511,10 @@ export function App({ executor, memory, agentName = "Agent", llm, tools, systemP
         {/* Status line */}
         <Text dimColor>
           {" "}Navigate Agent | {sessionName}
-          {planMode ? (
+          {agentMode === "plan" ? (
             <Text color="magenta"> | 🗺️ Plan Mode</Text>
+          ) : agentMode === "ptc" ? (
+            <Text color="magenta"> | 📦 PTC Mode</Text>
           ) : null}
           {" "}(/help)
         </Text>
@@ -393,8 +553,8 @@ export function App({ executor, memory, agentName = "Agent", llm, tools, systemP
         <Input
           onSubmit={onSubmit}
           disabled={running}
-          planMode={planMode}
-          onTogglePlanMode={handleTogglePlanMode}
+          agentMode={agentMode}
+          onToggleAgentMode={handleToggleAgentMode}
         />
 
         {running ? (

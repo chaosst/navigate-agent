@@ -6,7 +6,6 @@ import { App } from "./tui/app.js";
 import { loadConfig } from "./config/index.js";
 import { createChatModel } from "./agent/langchain.js";
 import { buildSystemPrompt } from "./agent/prompt.js";
-import { createAgentExecutor } from "./agent/loop.js";
 import { createTools } from "./tools/registry.js";
 import type { StructuredTool } from "@langchain/core/tools";
 import { OpenAIEmbeddings } from "@langchain/openai";
@@ -20,6 +19,10 @@ import { parseResume } from "./resume/parser.js";
 import { existsSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { SkillRegistry } from "./skills/registry.js";
+import { Tracer } from "./agent/tracer.js";
+import { ToolStatsRegistry } from "./tools/stats-registry.js";
+import { ToolFilter } from "./tools/tool-filter.js";
+import { PermissionWrapper } from "./tools/permission.js";
 
 async function main() {
   const config = loadConfig();
@@ -27,7 +30,9 @@ async function main() {
 
   const embeddings = new OpenAIEmbeddings({
     apiKey: config.openAIApiKey,
-    model: "text-embedding-3-small",
+    model: config.embeddingModel,
+    // baseURL 默认与 LLM 一致；若你的 API 无 embedding 模型，摘要检索会降级关键词（不致命）
+    ...(config.baseURL ? { configuration: { baseURL: config.baseURL } } : {}),
   });
 
   // 连接池（被 AgentMemory 和 PgVectorStore 共享）
@@ -75,24 +80,33 @@ async function main() {
     console.warn("Skill loading skipped:", (err as Error).message);
   }
 
+  // 统计与过滤（须先于工具创建：createTools 会把核心工具包装为 PermissionWrapper 并注册）
+  const tracer = new Tracer()
+  const toolStatsRegistry = new ToolStatsRegistry()
+  const toolFilter = new ToolFilter()
+  // 辅助：把非核心工具（RAG/简历/技能）也包装为只读并注册，保证统计完整
+  const wrapRead = (tool: StructuredTool): StructuredTool =>
+    new PermissionWrapper(tool, "read", undefined, toolStatsRegistry)
+
   const allTools = [
-    ...createTools(),
-    ragTool,
-    ...(resumeTool ? [resumeTool] : []),
-    ...skillTools,
+    ...createTools(toolStatsRegistry),
+    wrapRead(ragTool),
+    ...(resumeTool ? [wrapRead(resumeTool)] : []),
+    ...skillTools.map(wrapRead),
   ];
 
   const systemPrompt = buildSystemPrompt(resumeSummary);
-  const executor = await createAgentExecutor(llm, allTools, systemPrompt, config.maxIterations);
 
   render(React.createElement(App, {
-    executor,
+    config,
     memory,
     agentName: "Navigate",
     llm,
     tools: allTools,
     systemPrompt,
-    maxIterations: config.maxIterations,
+    tracer,
+    toolFilter,
+    toolStatsRegistry
   }));
 
   process.on("SIGINT", async () => {

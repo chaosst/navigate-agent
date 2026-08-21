@@ -1,15 +1,16 @@
 import { ChatOpenAI } from "@langchain/openai";
 import { StructuredToolInterface } from "@langchain/core/tools";
 import { CodeRuntime } from "./types.js";
-import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { END, START, StateGraph } from "@langchain/langgraph";
 import { PtcState, PtcStateType } from "../agent/types.js";
 import { AIMessage, BaseMessage, SystemMessage } from "langchain";
 import { GraphAgentExecutorBase } from "../agent/graph-agent-executor.js";
+import { TrackingToolNode } from "../agent/tracking-tool-node.js";
 import { buildIterationExhaustedSummary, extractFinalAnswer, extractUserText, formatPtcStatsReport } from "../agent/graph-utils.js";
 import { DispatchBridge, PtcDispatchEvent } from "./dispatch-bridge.js";
 import { buildPtcSystemPrompt } from "./prompts.js";
 import { AgentStep } from "@langchain/core/agents";
+import type { ToolStatsRegistry } from "../tools/stats-registry.js";
 
 
 export class PtcAgentLangGraph extends GraphAgentExecutorBase {
@@ -17,22 +18,67 @@ export class PtcAgentLangGraph extends GraphAgentExecutorBase {
     private runtime: CodeRuntime
     private dispatchBridge: DispatchBridge;
     private graph: any
+    /** run_code 结算回调的待合并统计（agent 节点每轮合并进 state.ptcStats） */
+    private pendingStats = { programErrors: 0, consecutiveErrors: 0, subCalls: 0 }
 
     constructor(
         llm: ChatOpenAI,
         visibleTools: StructuredToolInterface[],
         maxIterations: number,
         runtime: CodeRuntime,
-        dispatchBridge: DispatchBridge
+        dispatchBridge: DispatchBridge,
+        llmTimeoutMs?: number,
+        toolStatsRegistry?: ToolStatsRegistry,
     ){
-        super(llm, visibleTools, maxIterations)
+        super(llm, visibleTools, maxIterations, llmTimeoutMs, undefined, undefined, toolStatsRegistry)
         this.visibleTools = visibleTools
         this.runtime = runtime
         this.dispatchBridge = dispatchBridge;
+
+        // 绑定 RunCodeTool 的结算回调 → 更新待合并统计
+        const runCodeTool = visibleTools.find((t) => t.name === "run_code") as
+            | (StructuredToolInterface & { setStatsReporter?: (cb: (r: { kind: string; subCalls: number }) => void) => void })
+            | undefined
+        runCodeTool?.setStatsReporter?.((r) => {
+            this.pendingStats.subCalls += r.subCalls
+            if (r.kind === "ok") {
+                this.pendingStats.consecutiveErrors = 0
+            } else {
+                this.pendingStats.programErrors += 1
+                this.pendingStats.consecutiveErrors += 1
+            }
+        })
+    }
+
+    /** 覆写 agent 节点：合并 run_code 结算统计；发起 run_code 时递增 runCodeCalls */
+    async agentNode(state: PtcStateType) {
+        const result = await super.agentNode(state)
+        const last = result.messages?.[result.messages.length - 1] as AIMessage | undefined
+        const callsRunCode =
+            (last?.tool_calls as unknown[] | undefined)?.some(
+                (tc) => (tc as { name?: string }).name === "run_code",
+            ) ?? false
+
+        const ptcStats = { ...state.ptcStats }
+        if (callsRunCode) ptcStats.runCodeCalls += 1
+        ptcStats.subCalls += this.pendingStats.subCalls
+        ptcStats.programErrors += this.pendingStats.programErrors
+        ptcStats.consecutiveErrors = this.pendingStats.consecutiveErrors
+        this.pendingStats = { programErrors: 0, consecutiveErrors: 0, subCalls: 0 }
+
+        return { ...result, ptcStats }
+    }
+
+    /** 覆写路由：连续失败 >= 3 直接降级 fallback（设计 §5.9） */
+    conditionalRoute(state: PtcStateType): "tools" | "finalize" | "fallback" {
+        if (state.ptcStats.consecutiveErrors >= 3) {
+            return "fallback"
+        }
+        return super.conditionalRoute(state)
     }
 
     private createGraph() {
-        const toolNode = new ToolNode(this.tools)
+        const toolNode = new TrackingToolNode(this.tools)
         return new StateGraph(PtcState)
             .addNode("agent", (s) => this.agentNode(s))
             .addNode("tools", toolNode)
@@ -48,14 +94,17 @@ export class PtcAgentLangGraph extends GraphAgentExecutorBase {
 
     private finalizeNode(state: PtcStateType) {
         let output = extractFinalAnswer(state.messages) + "\n\n" + formatPtcStatsReport(state.ptcStats);
+        // 追加工具统计 + token 消耗（与普通/plan 模式统一；须在 finishSession 前）
+        output += this.buildStatsFooter();
         this.tracer?.finishSession();
         return { messages: [new AIMessage(output)], ptcStats: state.ptcStats };
     }
 
     private fallbackNode(state: PtcStateType) {
-        const fallback = buildIterationExhaustedSummary(state.iteration, state.intermediateSteps) +
+        let fallback = buildIterationExhaustedSummary(state.iteration, state.intermediateSteps) +
           "\n\nrun_code 调用 " + state.ptcStats.runCodeCalls +
           " 次，子调用 " + state.ptcStats.subCalls + " 次";
+        fallback += this.buildStatsFooter();
         this.tracer?.finishSession();
         return { messages: [new AIMessage(fallback)], ptcStats: state.ptcStats };
       }

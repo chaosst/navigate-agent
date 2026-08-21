@@ -10,8 +10,8 @@ interface TextInputProps {
   onSubmit: (value: string) => void;
   disabled?: boolean;
   placeholder?: string;
-  planMode?: boolean;
-  onTogglePlanMode?: () => void;
+  agentMode?: string;
+  onToggleAgentMode?: () => void;
 }
 
 /**
@@ -45,8 +45,8 @@ export function ControlledTextInput({
   onSubmit,
   disabled,
   placeholder,
-  planMode,
-  onTogglePlanMode,
+  agentMode,
+  onToggleAgentMode,
 }: TextInputProps) {
   const textRef = useRef("");
   const cursorRef = useRef(0);
@@ -239,8 +239,8 @@ export function ControlledTextInput({
         // Other ~ sequences silently ignored.
       } else if (final === "Z") {
         // Shift+Tab → toggle plan mode (most terminals send \x1b[Z for Shift+Tab)
-        if (onTogglePlanMode) {
-          onTogglePlanMode();
+        if (onToggleAgentMode) {
+          onToggleAgentMode();
         }
       }
       // Unknown CSI — silently consumed
@@ -367,7 +367,7 @@ export function ControlledTextInput({
       process.stdin.setRawMode?.(false);
       process.stdout.write("\x1b[?2004l");
     };
-  }, [disabled, commitLine, onTogglePlanMode]);
+  }, [disabled, commitLine, onToggleAgentMode]);
 
   // --------------------------------------------------------------------
   // Render — read directly from refs (uncontrolled)

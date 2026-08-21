@@ -1,6 +1,8 @@
 import { AgentStep } from "@langchain/core/agents";
 import { AIMessage, BaseMessage } from "langchain";
-import { PtcStats } from "../ptc/type.js";
+import { PtcStats } from "../ptc/types.js";
+import type { ToolStatsRegistry } from "../tools/stats-registry.js";
+import type { Tracer } from "./tracer.js";
 
 
 /** 从消息链提取最终回答文本（最后一条 AI 消息） */
@@ -40,8 +42,7 @@ export function buildIterationExhaustedSummary(
 }
 
 /** 格式化 PTC 统计报告（仅 PTC 使用，注入 finalize） */
-export function formatPtcStatsReport(stats: PtcStats): string {
-    const { runCodeCalls, subCalls, programErrors, consecutiveErrors } = stats;
+export function formatPtcStatsReport(stats: PtcStats): string {    const { runCodeCalls, subCalls, programErrors, consecutiveErrors } = stats;
 
     if (runCodeCalls === 0) return "";   // 无 PTC 活动：不追加无意义报告
   
@@ -80,4 +81,27 @@ function toText(content: BaseMessage["content"]): string {
         .join("");
     }
     return String(content);
+}
+
+/**
+ * 生成最终输出的统计脚注：工具调用统计（若 registry 有调用记录）+ token 消耗。
+ *
+ * 三种模式（normal / plan / ptc）的 finalize/fallback 共用；返回空串表示无统计可显示。
+ * 注意：必须在 tracer.finishSession() 之前调用（读取当前 session 的 token 累计）。
+ */
+export function buildStatsFooter(
+  toolStatsRegistry?: ToolStatsRegistry,
+  tracer?: Tracer,
+): string {
+  const parts: string[] = [];
+
+  const toolReport = toolStatsRegistry?.getReport();
+  if (toolReport) parts.push(toolReport);
+
+  const session = tracer?.getCurrentSession();
+  if (session && (session.totalInputTokens > 0 || session.totalOutputTokens > 0)) {
+    parts.push(`Tokens: ${session.totalInputTokens} in / ${session.totalOutputTokens} out`);
+  }
+
+  return parts.length > 0 ? "\n\n" + parts.join("\n\n") : "";
 }

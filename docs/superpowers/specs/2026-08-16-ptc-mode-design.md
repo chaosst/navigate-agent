@@ -1143,6 +1143,11 @@ private fallbackNode(state: PtcStateType) {
 
 ### 5.10 可观测性（G7）
 
+> ✅ 已实现：`src/agent/tracer.ts`（PTC 事件）、`src/tui/output.tsx`（卡片组件）、
+> `src/tui/ptc.ts`（chunk→消息转换）、`src/tui/app.tsx`（接线）、`src/agent/logger.ts`（日志类型）；
+> 配套测试 `src/agent/__tests__/tracer-ptc.test.ts`（4 用例）。TUI 接线位于 plan 分支的 stream 循环内
+> （plan/普通模式不产生 PTC 块，零副作用），PTC 模式（M3）接入后复用同一处理。
+
 **Tracer 扩展**（`src/agent/tracer.ts` 增加事件类型，保持向后兼容）：
 ```typescript
 type TracerEvent =

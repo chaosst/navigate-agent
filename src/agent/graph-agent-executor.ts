@@ -1,7 +1,6 @@
 import { HumanMessage } from '@langchain/core/messages';
 import { StructuredToolInterface } from "@langchain/core/tools";
 import { END, START, StateGraph } from "@langchain/langgraph";
-import { ToolNode } from "@langchain/langgraph/prebuilt";
 import { ChatOpenAI } from "@langchain/openai";
 import { AIMessage, BaseMessage, SystemMessage } from "langchain";
 import { ToolStatsRegistry } from "../tools/stats-registry.js";
@@ -10,7 +9,8 @@ import { Tracer } from "./tracer.js";
 import { PermissionWrapper } from "../tools/permission.js";
 import { logAgent } from "./logger.js";
 import { AgentState, PtcStateType } from './types.js';
-import { buildIterationExhaustedSummary, extractText, extractUserText } from './graph-utils.js';
+import { buildIterationExhaustedSummary, buildStatsFooter, extractText, extractUserText } from './graph-utils.js';
+import { TrackingToolNode } from './tracking-tool-node.js';
 
 type AgentStateType = typeof AgentState.State
 
@@ -18,22 +18,38 @@ export class GraphAgentExecutorBase {
     llm: ChatOpenAI
     tools: StructuredToolInterface[]
     maxIterations: number
+    /** 单次 LLM 调用超时（ms）。PTC 场景模型常生成大段程序/文档，默认 120s */
+    llmTimeoutMs: number
     toolFilter?: ToolFilter
     tracer?: Tracer
+    /** 工具调用统计注册表（PermissionWrapper 在创建时注册；finalize 时追加报告） */
+    protected toolStatsRegistry?: ToolStatsRegistry
     
 
     constructor(
         llm: ChatOpenAI,
         tools: StructuredToolInterface[],
         maxIterations: number,
+        llmTimeoutMs = 120_000,
         toolFilter?: ToolFilter,
         tracer?: Tracer,
+        toolStatsRegistry?: ToolStatsRegistry,
     ){
         this.llm = llm
         this.tools = tools
         this.maxIterations = maxIterations
+        this.llmTimeoutMs = llmTimeoutMs
         this.toolFilter = toolFilter
         this.tracer = tracer
+        this.toolStatsRegistry = toolStatsRegistry
+    }
+
+    /**
+     * 生成最终输出统计脚注（工具统计 + token 消耗）。
+     * 必须在 finishSession() 之前调用，否则取不到当前 session。
+     */
+    protected buildStatsFooter(): string {
+        return buildStatsFooter(this.toolStatsRegistry, this.tracer)
     }
 
     async agentNode(state: AgentStateType | PtcStateType){
@@ -57,10 +73,15 @@ export class GraphAgentExecutorBase {
         const llmStart = performance.now()
         try {
             response = await modelWithTools.invoke(state.messages, {
-                signal: AbortSignal.timeout(30000)
+                signal: AbortSignal.timeout(this.llmTimeoutMs)
             })
         } catch (err) {
-            const errMsg = err instanceof Error ? err.message : String(err);
+            // AbortSignal.timeout 触发：给出可读的超时信息（而非裸 "AbortError"）
+            const errMsg = isAbortError(err)
+                ? `LLM call timed out after ${this.llmTimeoutMs}ms`
+                : err instanceof Error
+                  ? err.message
+                  : String(err);
             logAgent({ type: "error", message: `LLM invoke failed: ${errMsg}` });
             this.tracer?.addError(errMsg);
 
@@ -71,7 +92,7 @@ export class GraphAgentExecutorBase {
                     message: "Retrying without tool binding...",
                 });
                 response = await this.llm.invoke(state.messages, {
-                    signal: AbortSignal.timeout(30000),
+                    signal: AbortSignal.timeout(this.llmTimeoutMs),
                 });
             } else {
                 throw new Error(`Agent loop failed at iteration ${state.iteration + 1}: ${errMsg}`);
@@ -113,9 +134,13 @@ export class GraphAgentExecutorBase {
     }
 }
 
+/** 判断是否为 AbortSignal 触发的 AbortError（Node/浏览器 DOMException 或 Error 形式） */
+function isAbortError(err: unknown): boolean {
+    return err instanceof Error && err.name === "AbortError"
+}
+
 export class GraphAgentExecutor extends GraphAgentExecutorBase {
     private systemPrompt: string
-    private toolStatsRegistry?: ToolStatsRegistry
 
     constructor(
         llm: ChatOpenAI,
@@ -125,25 +150,21 @@ export class GraphAgentExecutor extends GraphAgentExecutorBase {
         toolStatsRegistry?: ToolStatsRegistry,
         toolFilter?: ToolFilter,
         tracer?: Tracer,
+        llmTimeoutMs?: number,
     ){
-        super(llm, tools, maxIterations, toolFilter, tracer)
+        super(llm, tools, maxIterations, llmTimeoutMs, toolFilter, tracer, toolStatsRegistry)
         this.systemPrompt = systemPrompt
-        this.toolStatsRegistry = toolStatsRegistry
     }
 
     
 
     /**
-     * finalize, 最终答案（含stats)
+     * finalize, 最终答案（含 stats)
      */
     private finalizeNode(state: AgentStateType){
         let output = extractText((state.messages.at(-1) as AIMessage).content)
-        if ((this.toolStatsRegistry?.getTotalCalls() ?? 0) > 0){
-            const report = this.toolStatsRegistry!.getReport()
-            if (report) {
-                output += "\n\n" + report
-            }
-        }
+        // 工具统计 + token 消耗（必须在 finishSession 前取当前 session）
+        output += this.buildStatsFooter()
         this.tracer?.finishSession()
         return {
             finalOutput: output
@@ -155,7 +176,9 @@ export class GraphAgentExecutor extends GraphAgentExecutorBase {
      * @param state 
      */
     private fallbackNode(state: AgentStateType){
-        const fallback = buildIterationExhaustedSummary(this.maxIterations, state.intermediateSteps)
+        let fallback = buildIterationExhaustedSummary(this.maxIterations, state.intermediateSteps)
+        // 即使失败，已发生的 LLM 调用也应计入统计
+        fallback += this.buildStatsFooter()
         this.tracer?.finishSession()
         return {
             finalOutput: fallback
@@ -163,7 +186,7 @@ export class GraphAgentExecutor extends GraphAgentExecutorBase {
     }
 
     private createGraph(){
-        const toolNode = new ToolNode(this.tools)
+        const toolNode = new TrackingToolNode(this.tools)
 
         const workflow = new StateGraph(AgentState)
         // 注意：不能直接传 this.agentNode —— LangGraph 会把裸方法包装成 RunnableCallable

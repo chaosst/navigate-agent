@@ -9,7 +9,16 @@ const LOG_FILE = join(LOG_DIR, "agent.log");
  */
 export function logAgent(entry: {
   timestamp?: string;
-  type: "tool_call" | "tool_result" | "llm_request" | "llm_response" | "error" | "info";
+  type:
+    | "tool_call"
+    | "tool_result"
+    | "llm_request"
+    | "llm_response"
+    | "error"
+    | "info"
+    | "ptc_program"    // PTC：模型发起 run_code
+    | "ptc_dispatch"   // PTC：程序内子调用
+    | "ptc_result";    // PTC：run_code 结算
   message: string;
   details?: unknown;
 }): void {

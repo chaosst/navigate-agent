@@ -1,68 +1,3 @@
-/** 一次程序运行请求 —— 请求携带运行时作用的一切，无隐藏默认值 */
-export interface CodeRunRequest {
-    /** 程序源码（async 函数体，顶层 await/return 可用，return 值成为 value） */
-    program: string
-    /** 暴露给程序的宿主函数命名空间（PTC 传一个：tools） */
-    bindings: CodeBindingNamespace[]
-    /** 中止信号：中止后以 failure.kind='abort' 结算 */
-    signal?: AbortSignal
-}
-
-/** 程序运行结果 —— 错误是结果上的字段，不是 run() 的异常路径 */
-export interface CodeRunResult {
-    /** 程序顶层 return 值（跨过无损 JSON 边界）；失败或无返回时缺省 */
-    value?: CodeJsonValue
-    /** 程序按序输出的文本 */
-    logs: string[]
-    /** 存在即失败，见 CodeRunFailure 分类 */
-    error?: CodeRunFailure
-}
-
-/** 失败分类（正交：超时≠异常≠中止≠基质死亡） */
-export interface CodeRunFailure {
-    kind: | "exception"      // 程序抛错 / 类型剥离失败 / 语法不可擦除
-    | "timeout"         // 预算到期（computeMs / maxWallMs）
-    | "abort"           // signal 触发
-    | "worker-exit"     // worker 线程死亡（如 OOM）
-    | "invalid-output"  // 返回值非无损 JSON
-    | "output-limit";   // 序列化外层日志/值/诊断超上限
-
-    message: string     // 人类可读，适合回喂模型自纠
-}
-
-/** 暴露为程序全局对象的命名空间（如 tools） */
-export interface CodeBindingNamespace {
-    /** 程序可见的全局标识，必须满足 [A-Za-z_][A-Za-z0-9_]* 且非保留字 */
-    global: string
-    /** 可调用成员，键为程序实际调用的名字 */
-    functions: Record<string, CodeBindingFunction>
-    /** 可选：程序可见的带类型拒绝错误类 */
-    errorClass?: CodeBindingErrorClass
-}
-
-
-/** 程序可见的带类型拒绝错误（如 ToolCallError，成员属性 toolName） */
-export interface CodeBindingErrorClass {
-    name: string                // 构造器全局名 & Error.name
-    memberNameProperty: string  // 承载成员名的自有属性名（如 "toolName"）
-}
-
-/** 运行时抽象接口（能力接缝）：run() 只对调用方误用拒绝，失败一律是结果字段 */
-export interface CodeRuntime {
-    readonly language: "typescript" | "python"  // 暂时只支持ts
-    readonly isolation: "worker-thread" | "process" | "container"
-    run(request: CodeRunRequest): Promise<CodeRunResult>
-    dispose(): Promise<void>
-}
-
-/** PTC 模式运行统计：驱动状态机路由与可观测性 */
-export interface PtcStats {
-    runCodeCalls: number;        // run_code 外层调用次数
-    subCalls: number;            // 程序内工具子调用总数（跨所有 run_code 累积）
-    programErrors: number;       // 程序执行失败次数（六类 CodeRunFailure 任一）
-    consecutiveErrors: number;   // 连续失败次数；>= 3 时路由至 fallback
-}
-
 /**
  * PTC 模式运行时类型定义
  *
@@ -121,6 +56,9 @@ export interface CodeRunFailure {
   message: string;
 }
 
+/** 一个宿主侧异步函数；args 与 resolution 必须是无损 JSON */
+export type CodeBindingFunction = (args: unknown) => Promise<CodeJsonValue>;
+
 /** 暴露为程序全局对象的命名空间（如 tools） */
 export interface CodeBindingNamespace {
   /** 程序可见的全局标识，必须满足 [A-Za-z_][A-Za-z0-9_]* 且非保留字 */
@@ -131,9 +69,6 @@ export interface CodeBindingNamespace {
   errorClass?: CodeBindingErrorClass;
 }
 
-/** 一个宿主侧异步函数；args 与 resolution 必须是无损 JSON */
-export type CodeBindingFunction = (args: unknown) => Promise<CodeJsonValue>;
-
 /**
  * 程序可见的带类型拒绝错误（如 ToolCallError，成员属性 toolName）。
  * 运行时注入真实构造器，不向接缝传授消费者特定名称。
@@ -143,4 +78,39 @@ export interface CodeBindingErrorClass {
   name: string;
   /** 承载成员名的自有属性名（如 "toolName"） */
   memberNameProperty: string;
+}
+
+/**
+ * 代码运行时抽象接口（能力接缝）。
+ * run() 只对调用方/接缝误用拒绝；程序失败一律作为 CodeRunResult.error 字段返回。
+ */
+export interface CodeRuntime {
+  /** 程序必须用什么语言写（本实现为 typescript） */
+  readonly language: "typescript" | "python";
+  /**
+   * 执行基质。诊断标签，**不是安全声明**：
+   * worker-thread 提供遏制（containment）而非安全边界，信任态势与 bash 同级。
+   */
+  readonly isolation: "worker-thread" | "process" | "container";
+
+  /** 执行一次程序并捕获它打印与返回的内容 */
+  run(request: CodeRunRequest): Promise<CodeRunResult>;
+
+  /** 终止所有在飞运行并等待退出；实现必须处置至静默（quiescence） */
+  dispose(): Promise<void>;
+}
+
+/**
+ * PTC 模式运行统计：驱动状态机路由（consecutiveErrors >= 3 → fallback）与
+ * 可观测性（formatPtcStatsReport 注入 finalize，见设计文档 §5.2 / §5.7）。
+ */
+export interface PtcStats {
+  /** run_code 外层调用次数 */
+  runCodeCalls: number;
+  /** 程序内工具子调用总数（跨所有 run_code 累积） */
+  subCalls: number;
+  /** 程序执行失败次数（六类 CodeRunFailure 任一） */
+  programErrors: number;
+  /** 连续失败次数；>= 3 时状态机路由至 fallback */
+  consecutiveErrors: number;
 }
