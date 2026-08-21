@@ -85,7 +85,15 @@ async function main() {
   const systemPrompt = buildSystemPrompt(resumeSummary);
   const executor = await createAgentExecutor(llm, allTools, systemPrompt, config.maxIterations);
 
-  render(React.createElement(App, { executor, memory, agentName: "Navigate" }));
+  render(React.createElement(App, {
+    executor,
+    memory,
+    agentName: "Navigate",
+    llm,
+    tools: allTools,
+    systemPrompt,
+    maxIterations: config.maxIterations,
+  }));
 
   process.on("SIGINT", async () => {
     await closePool();

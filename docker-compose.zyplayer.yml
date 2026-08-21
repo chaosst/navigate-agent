@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  # === zyplayer-doc 依赖的 MySQL 数据库 ===
+  zyplayer-mysql:
+    image: mysql:8.0
+    container_name: zyplayer-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: zyplayer_root
+      MYSQL_DATABASE: zyplayer_doc
+      MYSQL_USER: zyplayer
+      MYSQL_PASSWORD: zyplayer_pass
+    ports:
+      # 映射到 3307 避免与本地已有 MySQL 冲突
+      - "3307:3306"
+    volumes:
+      - zyplayer-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # === zyplayer-doc 知识库系统 ===
+  zyplayer-doc:
+    image: zyplayer/zyplayer-doc:latest
+    container_name: zyplayer-doc
+    ports:
+      - "8083:8083"
+    environment:
+      DATASOURCE_HOST_PORT: zyplayer-mysql:3306
+      DATASOURCE_USER: zyplayer
+      DATASOURCE_PASSWORD: zyplayer_pass
+      TZ: Asia/Shanghai
+    volumes:
+      - zyplayer-files:/zyplayer/files
+    depends_on:
+      zyplayer-mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  zyplayer-mysql-data:
+  zyplayer-files:

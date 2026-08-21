@@ -204,7 +204,7 @@ export class WikiStore {
       const filename = `${article.slug}.md`;
       const content = `# ${article.title}\n\n${article.contentMd}`;
       // Use the same loader pattern but inline to avoid temp files
-      const { RecursiveCharacterTextSplitter } = await import("langchain/text_splitter");
+      const { RecursiveCharacterTextSplitter } = await import("@langchain/textsplitters");
       const { Document } = await import("@langchain/core/documents");
       const splitter = new RecursiveCharacterTextSplitter({ chunkSize: 1000, chunkOverlap: 200 });
       const docs = await splitter.splitDocuments([

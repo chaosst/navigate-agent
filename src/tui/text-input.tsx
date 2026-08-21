@@ -1,132 +1,396 @@
-import React, { useEffect, useRef, useCallback } from "react";
+import React, {
+  useEffect,
+  useRef,
+  useCallback,
+  useReducer,
+} from "react";
 import { Text } from "ink";
 
 interface TextInputProps {
-  value: string;
-  onChange: (value: string) => void;
   onSubmit: (value: string) => void;
   disabled?: boolean;
   placeholder?: string;
+  planMode?: boolean;
+  onTogglePlanMode?: () => void;
 }
 
 /**
- * Raw stdin input handler with history and bracketed paste support.
+ * Uncontrolled terminal text input with full bracketed paste support,
+ * cursor-based line editing, and robust CSI sequence parsing.
  *
- * All input (including bracketed paste) flows through a single path:
- * buf -> while loop. Paste markers \x1b[200~ and \x1b[201~ are skipped
- * by the ESC/CSI handler before generic CSI stripping can corrupt them.
- * Multi-byte characters are single decoded code points
- * (data.toString("utf-8") handles byte-to-char decoding).
+ * The component manages its own state internally via refs and does NOT
+ * lift the current value to the parent on every keystroke. This is
+ * critical for performance: lifting the value would cause the entire
+ * App tree (including the Output / message list) to re-render on every
+ * character typed, producing visible flicker in the terminal.
+ *
+ * The only outward callback is `onSubmit`, fired when the user presses
+ * Enter.
+ *
+ * Features:
+ * - Bracketed paste: terminal is put into paste mode (\x1b[?2004h).
+ *   Content between \x1b[200~ and \x1b[201~ is buffered atomically.
+ *   All characters within paste (including \r, \n, \t) are preserved
+ *   and never trigger submit/clear. Line endings are normalised to \n.
+ * - Cursor navigation: Left/Right arrows, Home/End, Ctrl+A/E/B/F
+ * - Line editing: Backspace, Delete, Ctrl+W (delete word), Ctrl+K (kill to end)
+ * - History: Up/Down arrows through session command history
+ * - Ctrl+U: clear entire line  Ctrl+C: exit
+ *
+ * CSI sequence parsing scans for the final byte (0x40-0x7E) instead of
+ * assuming fixed-length sequences, so it correctly handles argument
+ * bytes in sequences like \x1b[1;5D.
  */
-export function ControlledTextInput({ value, onChange, onSubmit, disabled, placeholder }: TextInputProps) {
-  const bufferRef = useRef(value);
+export function ControlledTextInput({
+  onSubmit,
+  disabled,
+  placeholder,
+  planMode,
+  onTogglePlanMode,
+}: TextInputProps) {
+  const textRef = useRef("");
+  const cursorRef = useRef(0);
   const historyRef = useRef<string[]>([]);
   const historyIdxRef = useRef(-1);
+  const pasteModeRef = useRef(false);
+  const pasteAccRef = useRef("");
 
-  useEffect(() => { bufferRef.current = value; }, [value]);
+  // forceRender triggers a local re-render so the visible text and
+  // cursor position update. Because the component is uncontrolled,
+  // this is the ONLY mechanism that causes it to re-render.
+  const [, forceRender] = useReducer((x: number) => x + 1, 0);
 
-  const commitLine = useCallback((line: string) => {
-    const trimmed = line.trim();
-    if (trimmed) {
-      historyRef.current.push(trimmed);
-      if (historyRef.current.length > 100) historyRef.current.shift();
-    }
-    historyIdxRef.current = -1;
-    onSubmit(trimmed);
-    onChange("");
-  }, [onSubmit, onChange]);
+  const commitLine = useCallback(
+    (line: string) => {
+      const trimmed = line.trim();
+      if (trimmed) {
+        historyRef.current.push(trimmed);
+        if (historyRef.current.length > 100) historyRef.current.shift();
+      }
+      historyIdxRef.current = -1;
+      onSubmit(trimmed);
+      textRef.current = "";
+      cursorRef.current = 0;
+      forceRender();
+    },
+    [onSubmit],
+  );
 
   useEffect(() => {
     if (disabled) return;
 
     let buf = "";
 
+    // ------------------------------------------------------------------
+    // Helpers (operate on refs directly, call forceRender)
+    // ------------------------------------------------------------------
+
+    const notify = () => {
+      forceRender();
+    };
+
+    const moveLeft = () => {
+      if (cursorRef.current > 0) {
+        cursorRef.current--;
+        forceRender();
+      }
+    };
+
+    const moveRight = () => {
+      if (cursorRef.current < textRef.current.length) {
+        cursorRef.current++;
+        forceRender();
+      }
+    };
+
+    const moveHome = () => {
+      cursorRef.current = 0;
+      forceRender();
+    };
+
+    const moveEnd = () => {
+      cursorRef.current = textRef.current.length;
+      forceRender();
+    };
+
+    const deleteBefore = () => {
+      if (cursorRef.current > 0) {
+        textRef.current =
+          textRef.current.slice(0, cursorRef.current - 1) +
+          textRef.current.slice(cursorRef.current);
+        cursorRef.current--;
+        notify();
+      }
+    };
+
+    const deleteAt = () => {
+      if (cursorRef.current < textRef.current.length) {
+        textRef.current =
+          textRef.current.slice(0, cursorRef.current) +
+          textRef.current.slice(cursorRef.current + 1);
+        notify();
+      }
+    };
+
+    const deleteWordBefore = () => {
+      if (cursorRef.current === 0) return;
+      const before = textRef.current.slice(0, cursorRef.current);
+      let i = before.length;
+      // Skip trailing whitespace
+      while (i > 0 && /\s/.test(before[i - 1])) i--;
+      // Skip word characters
+      while (i > 0 && /\S/.test(before[i - 1])) i--;
+      if (i < before.length) {
+        textRef.current =
+          before.slice(0, i) + textRef.current.slice(cursorRef.current);
+        cursorRef.current = i;
+        notify();
+      }
+    };
+
+    const killToEnd = () => {
+      if (cursorRef.current < textRef.current.length) {
+        textRef.current = textRef.current.slice(0, cursorRef.current);
+        notify();
+      }
+    };
+
+    const insertAtCursor = (s: string) => {
+      textRef.current =
+        textRef.current.slice(0, cursorRef.current) +
+        s +
+        textRef.current.slice(cursorRef.current);
+      cursorRef.current += s.length;
+      notify();
+    };
+
+    // ------------------------------------------------------------------
+    // CSI sequence length: scan for final byte 0x40-0x7E
+    // Returns 0 when the sequence is incomplete (need more data).
+    // ------------------------------------------------------------------
+    const csiLength = (b: string): number => {
+      if (b.length < 2) return 0;
+      if (b[1] !== "[") return 1; // standalone ESC
+      for (let i = 2; i < b.length; i++) {
+        const c = b.charCodeAt(i);
+        if (c >= 0x40 && c <= 0x7e) return i + 1;
+      }
+      return 0; // incomplete CSI — wait for more data
+    };
+
+    // ------------------------------------------------------------------
+    // CSI dispatch
+    // ------------------------------------------------------------------
+    const handleCSI = (seq: string): void => {
+      const final = seq[seq.length - 1];
+      const params = seq.slice(2, -1); // between '[' and final
+
+      if (final === "A") {
+        // Up arrow — history
+        if (historyIdxRef.current < historyRef.current.length - 1) {
+          historyIdxRef.current++;
+          const h =
+            historyRef.current[
+              historyRef.current.length - 1 - historyIdxRef.current
+            ];
+          textRef.current = h;
+          cursorRef.current = h.length;
+          notify();
+        }
+      } else if (final === "B") {
+        // Down arrow — history
+        if (historyIdxRef.current > 0) {
+          historyIdxRef.current--;
+          const h =
+            historyRef.current[
+              historyRef.current.length - 1 - historyIdxRef.current
+            ];
+          textRef.current = h;
+          cursorRef.current = h.length;
+          notify();
+        } else if (historyIdxRef.current === 0) {
+          historyIdxRef.current = -1;
+          textRef.current = "";
+          cursorRef.current = 0;
+          notify();
+        }
+      } else if (final === "C") {
+        moveRight();
+      } else if (final === "D") {
+        moveLeft();
+      } else if (final === "H") {
+        moveHome();
+      } else if (final === "F") {
+        moveEnd();
+      } else if (final === "~") {
+        if (params === "3") {
+          deleteAt();              // Delete key
+        } else if (params === "1" || params === "7") {
+          moveHome();              // Home (VT)
+        } else if (params === "4" || params === "8") {
+          moveEnd();               // End (VT)
+        } else if (params === "200") {
+          // Bracketed paste start — enter paste mode
+          pasteModeRef.current = true;
+          pasteAccRef.current = "";
+        }
+        // params === "201" (paste end) is handled in the paste-mode
+        // branch of the main loop, not here.
+        // Other ~ sequences silently ignored.
+      } else if (final === "Z") {
+        // Shift+Tab → toggle plan mode (most terminals send \x1b[Z for Shift+Tab)
+        if (onTogglePlanMode) {
+          onTogglePlanMode();
+        }
+      }
+      // Unknown CSI — silently consumed
+    };
+
+    // ------------------------------------------------------------------
+    // Control-key dispatch (0x00–0x1F, excluding \r \n handled above)
+    // ------------------------------------------------------------------
+    const handleControl = (code: number): void => {
+      switch (code) {
+        case 0x01: moveHome(); break;          // Ctrl+A
+        case 0x02: moveLeft(); break;          // Ctrl+B
+        case 0x03: process.exit(0);            // Ctrl+C
+        case 0x04: deleteAt(); break;          // Ctrl+D (delete forward)
+        case 0x05: moveEnd(); break;           // Ctrl+E
+        case 0x06: moveRight(); break;         // Ctrl+F
+        case 0x08: deleteBefore(); break;      // Ctrl+H (backspace)
+        case 0x0b: killToEnd(); break;         // Ctrl+K
+        case 0x15:                             // Ctrl+U — clear line
+          textRef.current = "";
+          cursorRef.current = 0;
+          notify();
+          break;
+        case 0x17: deleteWordBefore(); break;  // Ctrl+W
+        // Other control chars silently skipped
+      }
+    };
+
+    // ------------------------------------------------------------------
+    // Main stdin handler
+    // ------------------------------------------------------------------
     const handler = (data: Buffer) => {
-      // toString("utf-8") decodes raw bytes to proper JavaScript characters.
       buf += data.toString("utf-8");
 
       while (buf.length > 0) {
+        // ---- Paste mode: accumulate until end marker ----
+        // This check is INSIDE the while loop so that when handleCSI
+        // sets pasteModeRef.current = true mid-iteration, the very next
+        // iteration picks up the remaining buffer as paste content
+        // instead of processing it character by character.
+        if (pasteModeRef.current) {
+          const endIdx = buf.indexOf("\x1b[201~");
+          if (endIdx === -1) {
+            // End marker not yet received — keep accumulating
+            pasteAccRef.current += buf;
+            buf = "";
+            return; // wait for more data
+          }
+          // Found end marker — extract everything before it
+          pasteAccRef.current += buf.slice(0, endIdx);
+          buf = buf.slice(endIdx + 6);
+          pasteModeRef.current = false;
+
+          // Normalise line endings: \r\n → \n, standalone \r → \n
+          const content = pasteAccRef.current
+            .replace(/\r\n/g, "\n")
+            .replace(/\r/g, "\n");
+          pasteAccRef.current = "";
+          insertAtCursor(content);
+          continue; // process any remaining buf after the end marker
+        }
+
         const ch = buf[0];
-
-        // --- ESC / CSI sequences ---
-        if (ch === "\x1b") {
-          // Check complete bracketed paste markers BEFORE generic CSI stripping
-          if (buf.length >= 6) {
-            if (buf.startsWith("\x1b[200~")) { buf = buf.slice(6); continue; }
-            if (buf.startsWith("\x1b[201~")) { buf = buf.slice(6); continue; }
-          }
-          // Generic CSI: arrow keys, home, end, etc.
-          if (buf.length >= 3 && buf[1] === "[") {
-            const csi = buf[2];
-            buf = buf.slice(3);
-            if (csi === "A") {
-              if (historyIdxRef.current < historyRef.current.length - 1) {
-                historyIdxRef.current++;
-                bufferRef.current = historyRef.current[historyRef.current.length - 1 - historyIdxRef.current];
-                onChange(bufferRef.current);
-              }
-            } else if (csi === "B") {
-              if (historyIdxRef.current > 0) {
-                historyIdxRef.current--;
-                bufferRef.current = historyRef.current[historyRef.current.length - 1 - historyIdxRef.current];
-                onChange(bufferRef.current);
-              } else if (historyIdxRef.current === 0) {
-                historyIdxRef.current = -1;
-                bufferRef.current = "";
-                onChange("");
-              }
-            }
-            // Other CSI sequences (C, D, H, F, etc.) silently consumed
-          } else {
-            buf = buf.slice(1); // standalone ESC
-          }
-          continue;
-        }
-
-        // Ctrl+C
-        if (ch === "\x03") { buf = buf.slice(1); process.exit(0); }
-
-        // Ctrl+U - clear line
-        if (ch === "\x15") { buf = buf.slice(1); bufferRef.current = ""; onChange(""); continue; }
-
-        // Backspace
-        if (ch === "\x7f" || ch === "\b") {
-          buf = buf.slice(1);
-          bufferRef.current = bufferRef.current.slice(0, -1);
-          onChange(bufferRef.current);
-          continue;
-        }
-
-        // Enter
-        if (ch === "\r" || ch === "\n") { buf = buf.slice(1); commitLine(bufferRef.current); continue; }
-
-        // Printable characters: ASCII >= 0x20 and already-decoded multi-byte characters
         const cc = ch.charCodeAt(0);
-        if (cc >= 0x20 && cc !== 0x7f) {
+
+        // ESC sequences
+        if (cc === 0x1b) {
+          const len = csiLength(buf);
+          if (len === 0) return; // incomplete — wait for more data
+          if (len === 1) {
+            buf = buf.slice(1); // standalone ESC
+          } else {
+            handleCSI(buf.slice(0, len));
+            buf = buf.slice(len);
+          }
+          continue;
+        }
+
+        // Enter / Return
+        if (cc === 0x0d) {
+          if (buf.length >= 2 && buf[1] === "\n") buf = buf.slice(2);
+          else buf = buf.slice(1);
+          commitLine(textRef.current);
+          continue;
+        }
+        if (cc === 0x0a) {
           buf = buf.slice(1);
-          bufferRef.current += ch;
-          onChange(bufferRef.current);
+          commitLine(textRef.current);
+          continue;
+        }
+
+        // Backspace (DEL 0x7f)
+        if (cc === 0x7f) {
+          buf = buf.slice(1);
+          deleteBefore();
+          continue;
+        }
+
+        // Control characters (0x00–0x1F)
+        if (cc < 0x20) {
+          buf = buf.slice(1);
+          handleControl(cc);
+          continue;
+        }
+
+        // Printable characters (>= 0x20, excluding 0x7f already handled)
+        if (cc >= 0x20) {
+          buf = buf.slice(1);
+          insertAtCursor(ch);
         } else {
-          // Skip other control characters (0x00-0x1F, 0x7f)
-          buf = buf.slice(1);
+          buf = buf.slice(1); // skip unreachable
         }
       }
     };
 
+    // Enable bracketed paste mode so the terminal wraps pasted content
+    // with \x1b[200~ ... \x1b[201~ markers.
+    process.stdout.write("\x1b[?2004h");
     process.stdin.on("data", handler);
     process.stdin.setRawMode?.(true);
+
     return () => {
       process.stdin.off("data", handler);
       process.stdin.setRawMode?.(false);
+      process.stdout.write("\x1b[?2004l");
     };
-  }, [disabled, onChange, commitLine]);
+  }, [disabled, commitLine, onTogglePlanMode]);
 
-  const display = value || "";
+  // --------------------------------------------------------------------
+  // Render — read directly from refs (uncontrolled)
+  // --------------------------------------------------------------------
+  const display = textRef.current || "";
+  const cursorPos = Math.min(cursorRef.current, display.length);
+
+  if (!display && placeholder) {
+    return (
+      <Text color="white">
+        <Text dimColor>{placeholder}</Text>
+        <Text backgroundColor="gray"> </Text>
+      </Text>
+    );
+  }
+
   return (
     <Text color="white">
-      {display}
-      {(placeholder && !value) ? <Text dimColor>{placeholder}</Text> : null}
-      <Text backgroundColor="gray"> </Text>
+      {display.slice(0, cursorPos)}
+      <Text backgroundColor="gray">
+        {display[cursorPos] || " "}
+      </Text>
+      {display.slice(cursorPos + 1)}
     </Text>
   );
 }
