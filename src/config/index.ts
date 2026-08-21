@@ -17,7 +17,18 @@ export interface AppConfig {
   apiTrustProxy: boolean;
   apiFailureLimit: number;
   apiFailureWindowMs: number;
+
+  agentMode: AgentMode;           // AGENT_MODE，默认 "normal"
+  // ptc
+  ptcMaxProgramLength: number;    // PTC_MAX_PROGRAM_LENGTH，默认 16_384（字符）
+  ptcMaxWallMs: number;           // PTC_MAX_WALL_MS，默认 60_000
+  ptcMaxComputeMs: number;        // PTC_MAX_COMPUTE_MS，默认 30_000（可选）
+  ptcMaxOutputBytes: number;      // PTC_MAX_OUTPUT_BYTES，默认 64_1024（64KB）
+  ptcMaxParallelSubCalls: number; // PTC_MAX_PARALLEL_SUBCALLS，默认 10；1 恢复串行
+  ptcMode: "code" | "both";       // PTC_TOOL_MODE，默认 "code"（PTC 内是否同时保留原生工具）
 }
+
+export type AgentMode = "normal" | "plan" | "ptc"
 
 export function loadConfig(): AppConfig {
   config();
@@ -54,6 +65,20 @@ export function loadConfig(): AppConfig {
     }
   }
 
+  // 执行模式：normal | plan | ptc（非法值回退 "normal"）
+  const agentModeRaw = process.env.AGENT_MODE ?? "normal";
+  const agentMode: AgentMode =
+    agentModeRaw === "plan" || agentModeRaw === "ptc" ? agentModeRaw : "normal";
+
+  // PTC 预算（均有默认值；数值非法时回退默认）
+  const num = (raw: string | undefined, fallback: number): number => {
+    if (!raw) return fallback;
+    const parsed = parseInt(raw, 10);
+    return Number.isNaN(parsed) ? fallback : parsed;
+  };
+  const ptcModeRaw = process.env.PTC_TOOL_MODE ?? "code";
+  const ptcMode: "code" | "both" = ptcModeRaw === "both" ? "both" : "code";
+
   return {
     openAIApiKey: apiKey,
     modelName: process.env.OPENAI_MODEL ?? "gpt-4o",
@@ -70,5 +95,13 @@ export function loadConfig(): AppConfig {
     apiTrustProxy: (process.env.API_TRUST_PROXY ?? "").toLowerCase() === "true",
     apiFailureLimit: Number.isNaN(apiFailureLimitRaw) ? 5 : apiFailureLimitRaw,
     apiFailureWindowMs: Number.isNaN(apiFailureWindowRaw) ? 60000 : apiFailureWindowRaw,
+
+    agentMode,
+    ptcMaxProgramLength: num(process.env.PTC_MAX_PROGRAM_LENGTH, 16_384),
+    ptcMaxWallMs: num(process.env.PTC_MAX_WALL_MS, 60_000),
+    ptcMaxComputeMs: num(process.env.PTC_MAX_COMPUTE_MS, 30_000),
+    ptcMaxOutputBytes: num(process.env.PTC_MAX_OUTPUT_BYTES, 64 * 1024),
+    ptcMaxParallelSubCalls: num(process.env.PTC_MAX_PARALLEL_SUBCALLS, 10),
+    ptcMode,
   };
 }

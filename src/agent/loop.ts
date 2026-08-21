@@ -1,5 +1,3 @@
-import { AgentExecutor, createOpenAIToolsAgent } from "langchain/agents";
-import { ChatPromptTemplate, MessagesPlaceholder } from "@langchain/core/prompts";
 import {
   HumanMessage,
   AIMessage,
@@ -12,6 +10,18 @@ import type { ChatOpenAI } from "@langchain/openai";
 import type { AgentStep } from "@langchain/core/agents";
 import type { AgentEvents, AgentMessage } from "./types.js";
 import { logAgent } from "./logger.js";
+import { GraphAgentExecutor } from "./graph-agent-executor.js";
+import { Tracer } from "./tracer.js";
+import { HierarchicalAgentLangGraph } from "./hierarchical-agent-langgraph.js";
+
+
+export async function createHierarchicalAgent(
+  llm: ChatOpenAI,
+  tools: StructuredToolInterface[],
+  tracer?: Tracer,
+): Promise<HierarchicalAgentLangGraph> {
+  return new HierarchicalAgentLangGraph(llm, tools, tracer);
+}
 
 /**
  * Create an agent executor using OpenAI tools agent with streaming support.
@@ -21,26 +31,13 @@ export async function createAgentExecutor(
   tools: StructuredToolInterface[],
   systemPrompt: string,
   maxIterations: number,
-): Promise<AgentExecutor> {
-  const prompt = ChatPromptTemplate.fromMessages([
-    new SystemMessage(systemPrompt),
-    new MessagesPlaceholder("messages"),
-    new MessagesPlaceholder("agent_scratchpad"),
-  ]);
-  const agent = await createOpenAIToolsAgent({
+): Promise<GraphAgentExecutor> {
+  return new GraphAgentExecutor(
     llm,
     tools,
-    prompt,
-    streamRunnable: true,
-  });
-  return new AgentExecutor({
-    agent,
-    tools,
-    maxIterations,
-    returnIntermediateSteps: true,
-    earlyStoppingMethod: "generate",
-    handleParsingErrors: true,
-  });
+    systemPrompt,
+    maxIterations
+  );
 }
 
 function normalizeToolInput(
@@ -61,7 +58,7 @@ function normalizeToolInput(
  * tokens, and completion.
  */
 export async function runAgent(
-  executor: AgentExecutor,
+  executor: GraphAgentExecutor,
   input: string,
   history?: AgentMessage[],
   events?: AgentEvents,

@@ -16,7 +16,8 @@
         "db:reset": "docker-compose down -v && docker-compose up -d",
         "dev:zyplayer": "docker-compose -f docker-compose.zyplayer.yml up -d",
         "test": "vitest run --dir src",
-        "test:watch": "vitest --dir src"
+        "test:watch": "vitest --dir src",
+        "mytest": "tsx src/test.ts"
     },
     "dependencies": {
         "@langchain/core": "^1.2.5",

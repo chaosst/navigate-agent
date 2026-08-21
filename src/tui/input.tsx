@@ -3,22 +3,24 @@ import { Box, Text } from "ink";
 import { ControlledTextInput } from "./text-input.js";
 
 interface InputProps {
-  value: string;
-  onChange: (value: string) => void;
   onSubmit: (value: string) => void;
   disabled: boolean;
+  planMode?: boolean;
+  onTogglePlanMode?: () => void;
 }
 
-export function Input({ value, onChange, onSubmit, disabled }: InputProps) {
+export function Input({ onSubmit, disabled, planMode, onTogglePlanMode }: InputProps) {
   return (
-    <Box borderStyle="round" borderColor="cyan" paddingX={1}>
-      <Text bold color="cyan">&gt; </Text>
+    <Box borderStyle="round" borderColor={planMode ? "magenta" : "cyan"} paddingX={1}>
+      <Text bold color={planMode ? "magenta" : "cyan"}>
+        {planMode ? "[Plan] " : "> "}
+      </Text>
       <ControlledTextInput
-        value={value}
-        onChange={onChange}
         onSubmit={onSubmit}
         disabled={disabled}
-        placeholder="Type your message..."
+        placeholder={planMode ? "Plan mode — Shift+Tab to toggle..." : "Type your message..."}
+        planMode={planMode}
+        onTogglePlanMode={onTogglePlanMode}
       />
     </Box>
   );

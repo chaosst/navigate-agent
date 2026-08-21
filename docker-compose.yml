@@ -1,9 +1,7 @@
-version: "3.9"
 services:
   postgres:
-    build:
-      context: .
-      dockerfile: Dockerfile.pg
+    image: liuwenbo/pg_vector_fts:pg17
+    restart: unless-stopped
     environment:
       POSTGRES_DB: navigate
       POSTGRES_USER: navigate
