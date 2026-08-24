@@ -1,0 +1,25 @@
+# 构建上下文排除（韩国服务器上传带宽有限，务必精简）
+node_modules
+dist
+wiki-js
+rag-mcp
+navigate.db
+rag_data
+rag_uploads
+backup
+docs
+.claude
+.git
+.gitignore
+.env
+.env.*
+*.md
+# 以上 *.md 之后必须重新包含运行期要用的 md（dockerignore 后者覆盖前者）
+!resume.md
+!skills/*.md
+agent chat history.txt
+agentTodoList.txt
+gen-sk.txt
+test-uml.md
+basketball-website
+undefined

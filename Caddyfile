@@ -1,0 +1,13 @@
+# Caddy 配置 —— DOMAIN 由 docker-compose.prod.yml 注入
+# 主站：navigate.example.com → app(:3001)
+# wiki：wiki.子域名 → app 的 wiki 代理(:3003)，代理再整站转发到 zyplayer-doc
+# 使用前提：域名服务商已把 wiki.{$DOMAIN} 的 A 记录解析到本机 IP
+
+{$DOMAIN:localhost} {
+    reverse_proxy app:3001
+}
+
+# wiki 子域名（H5 页面 Wiki 链接指向 https://wiki.{$DOMAIN}）
+wiki.{$DOMAIN} {
+    reverse_proxy app:3003
+}

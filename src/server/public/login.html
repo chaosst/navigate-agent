@@ -49,6 +49,16 @@
 <script>
   const params = new URLSearchParams(location.search);
   const next = params.get("next") || "/";
+
+  // 剥离 next 里的 token 参数：旧 token 会覆盖有效登录态，造成登录死循环
+  function cleanNext(u) {
+    try {
+      const x = new URL(u, location.origin);
+      x.searchParams.delete("token");
+      return x.pathname + x.search + x.hash;
+    } catch { return u; }
+  }
+
   const form = document.getElementById("login-form");
   const errorEl = document.getElementById("error");
   const submitBtn = document.getElementById("submit-btn");
@@ -60,7 +70,7 @@
       const data = await res.json();
       if (data.valid) {
         if (data.token) sessionStorage.setItem("navigate_token", data.token);
-        location.href = next;
+        location.href = cleanNext(next);
       }
     } catch { /* 网络错误则留在登录页 */ }
   })();
@@ -81,7 +91,7 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "登录失败");
       sessionStorage.setItem("navigate_token", data.token);
-      location.href = data.next || next;
+      location.href = data.next || cleanNext(next);
     } catch (err) {
       errorEl.textContent = err.message || "登录失败";
       submitBtn.disabled = false;

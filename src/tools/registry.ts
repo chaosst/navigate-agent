@@ -4,6 +4,7 @@ import { ReadFileTool, WriteFileTool, EditFileTool } from "./filesystem.js";
 import { ListFilesTool, SearchFilesTool } from "./search.js";
 import { PermissionWrapper, type ToolPermission } from "./permission.js";
 import type { ToolStatsRegistry } from "./stats-registry.js";
+import { WebSearchTool } from "./websearch.js";
 
 /**
  * 创建核心工具集。
@@ -28,5 +29,6 @@ export function createTools(registry?: ToolStatsRegistry): StructuredTool[] {
     wrap(new EditFileTool(), "write"),
     wrap(new ListFilesTool(), "read"),
     wrap(new SearchFilesTool(), "read"),
+    wrap(new WebSearchTool(), "read")
   ];
 }

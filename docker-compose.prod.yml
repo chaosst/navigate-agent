@@ -1,0 +1,122 @@
+# ============================================================
+# navigate 生产部署编排（韩国节点 · 容器型轻量 2核2G）
+#
+# 用法（注意 --env-file 保证 ${POSTGRES_PASSWORD} 从 .env.prod 读取）：
+#   docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
+# ============================================================
+
+services:
+  # ---------- 应用主服务 ----------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: navigate-app:latest
+    restart: unless-stopped
+    env_file: .env.prod
+    environment:
+      DATABASE_URL: postgresql://navigate:${POSTGRES_PASSWORD}@postgres:5432/navigate
+      API_TRUST_PROXY: "true"     # 经 Caddy 反代后读真实 IP（限流/白名单）
+      H5_COOKIE_SECURE: "true"    # HTTPS 下 cookie 带 Secure
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3001:3001"     # 仅本机，供运维调试；公网走 Caddy
+      - "127.0.0.1:3003:3003"     # wiki 鉴权代理（zyplayer-doc 入口），隧道或 Caddy 访问
+    volumes:
+      - appdata:/app/data         # SQLite(navigate.db) + rag_uploads/ + skills + resume.md
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3001/login"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  # ---------- PostgreSQL（pgvector + zhparser 中文分词）----------
+  postgres:
+    # 本地构建（基于 pgvector 官方镜像编译 zhparser，见 docker/postgres/Dockerfile）。
+    # 构建过一次后镜像复用；如已有可用镜像可改回：
+    #   image: liuwenbo/pg_vector_fts:pg17
+    build:
+      context: ./docker/postgres
+    image: navigate/pg-vector-fts:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: navigate
+      POSTGRES_USER: navigate
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init-pg.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U navigate -d navigate"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # 不映射 5432 端口：仅 compose 内网可达，公网无法直连数据库
+
+  # ---------- zyplayer-doc 知识库（Java + MySQL，2G 内存机器需调优）----------
+  zyplayer-mysql:
+    image: mysql:8.0
+    container_name: zyplayer-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: zyplayer_root
+      MYSQL_DATABASE: zyplayer_doc
+      MYSQL_USER: zyplayer
+      MYSQL_PASSWORD: zyplayer_pass
+    # 2G 内存调优：收缩 buffer pool、关性能库，避免和 postgres/app 抢内存
+    command:
+      - --innodb-buffer-pool-size=128M
+      - --performance-schema=OFF
+    volumes:
+      - zyplayer-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # 不映射 3306：仅 compose 内网（本地开发用 docker-compose.zyplayer.yml 的 3307）
+
+  zyplayer-doc:
+    image: zyplayer/zyplayer-doc:latest
+    container_name: zyplayer-doc
+    restart: unless-stopped
+    environment:
+      DATASOURCE_HOST_PORT: zyplayer-mysql:3306
+      DATASOURCE_USER: zyplayer
+      DATASOURCE_PASSWORD: zyplayer_pass
+      TZ: Asia/Shanghai
+      # Java 堆限制（镜像若支持 JAVA_OPTS 则生效，防止 OOM）
+      JAVA_OPTS: -Xms256m -Xmx768m
+    volumes:
+      - zyplayer-files:/zyplayer/files
+    depends_on:
+      zyplayer-mysql:
+        condition: service_healthy
+    # 不映射 8083：由 app 的 wiki 代理（:3003）转发
+
+  # ---------- Caddy：HTTPS 反向代理（自动签发证书）----------
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      DOMAIN: ${DOMAIN}            # 如 navigate.example.com；无域名时可先不启本服务
+    depends_on:
+      - app
+
+volumes:
+  pgdata:
+  appdata:
+  caddy_data:
+  caddy_config:
+  zyplayer-mysql-data:
+  zyplayer-files:

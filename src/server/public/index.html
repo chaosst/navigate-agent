@@ -87,8 +87,8 @@
 <body>
 <div class="nav-bar" style="text-align:center;margin-bottom:24px;font-size:0.9rem;">
   <a href="/" style="color:#2563eb;text-decoration:none;padding:6px 16px;border-radius:8px;font-weight:600;">📄 文档管理</a>
-  <a href="http://localhost:3003" target="_blank" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">📚 Wiki ↗</a>
-  <a href="/api/logout" onclick="sessionStorage.removeItem('navigate_token')" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">🚪 退出</a>
+  <a href="__WIKI_URL__" target="_blank" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">📚 Wiki ↗</a>
+  <a href="/api/logout?next=/login" onclick="sessionStorage.removeItem('navigate_token')" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">🚪 退出</a>
   <a href="/resume" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">👤 简历</a>
   <a href="/resume/chat" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">💬 简历问答</a>
 </div>

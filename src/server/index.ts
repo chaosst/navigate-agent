@@ -16,7 +16,7 @@ import { ContentPoller } from "../wiki-sync/poller.js";
 import { mountMcpRoutes } from "./mcp-http.js";
 import type { ApiKeyAuthConfig } from "./api-key-auth.js";
 import { createRequireTokenOrApiKey } from "./rest-auth.js";
-import { getToken } from "./auth-helpers.js";
+import { getToken, stripTokenQuery } from "./auth-helpers.js";
 import { mountLoginRoutes } from "./login.js";
 import { startWikiProxy } from "./wiki-proxy.js";
 
@@ -61,7 +61,7 @@ function requireToken(req: express.Request, res: express.Response, next: express
   deny(res);
 }
 
-/** 页面门槛：无有效 token/cookie 则 302 到登录页 */
+/** 页面门槛：无有效 token/cookie 则 302 到登录页（next 剥离 token，防死循环） */
 function requireLoginPage(req: express.Request, res: express.Response, next: express.NextFunction): void {
   const token = getToken(req);
   if (tokenManager.validate(token)) {
@@ -69,7 +69,7 @@ function requireLoginPage(req: express.Request, res: express.Response, next: exp
     next();
     return;
   }
-  res.redirect(`/login?next=${encodeURIComponent(req.originalUrl || "/")}`);
+  res.redirect(`/login?next=${encodeURIComponent(stripTokenQuery(req.originalUrl || "/"))}`);
 }
 
 export function createRagServer(
@@ -125,8 +125,22 @@ export function createRagServer(
   // === H5 登录 + wiki 鉴权代理配置 ===
   const wikiProxyPort = parseInt(process.env.H5_WIKI_PROXY_PORT || "3003", 10);
   const wikiProxyTarget = process.env.H5_WIKI_TARGET || "http://localhost:8083";
-  const proxyOrigin = `http://localhost:${wikiProxyPort}`;
-  mountLoginRoutes(app, { proxyOrigin });
+  // 公网 wiki 地址（wiki 子域名方案，如 https://wiki.example.com）：
+  // 用于 H5 页面 Wiki 链接 + 登录 next 白名单；未配置时回退 localhost（本地开发/隧道）
+  const wikiPublicUrl = (process.env.H5_WIKI_PUBLIC_URL || `http://localhost:${wikiProxyPort}`).replace(/\/+$/, "");
+  // 主站公网地址（如 https://example.com）：wiki 代理未登录时跳转公网登录页
+  const publicBaseUrl = (process.env.H5_PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+  const proxyOrigins = [...new Set([wikiPublicUrl, `http://localhost:${wikiProxyPort}`])];
+  mountLoginRoutes(app, { proxyOrigins });
+
+  /** 渲染 H5 页面并注入服务端变量（__WIKI_URL__ 等占位符） */
+  function sendHtml(res: express.Response, file: string, vars: Record<string, string>): void {
+    let html = readFileSync(path.join(__dirname, "public", file), "utf-8");
+    for (const [k, v] of Object.entries(vars)) {
+      html = html.split(`__${k}__`).join(v);
+    }
+    res.type("html").send(html);
+  }
 
   // zyplayer-doc 适配器与轮询器（替代旧的 Wiki.js GraphQL 集成）
   let zyplayerAdapter: ZyplayerDocAdapter | undefined;
@@ -187,11 +201,11 @@ export function createRagServer(
 
   // 页面路由：需要登录（服务端校验 cookie/token，未登录 302 到 /login）
   app.get("/", requireLoginPage, (_req, res) => {
-    res.sendFile(path.join(__dirname, "public", "index.html"));
+    sendHtml(res, "index.html", { WIKI_URL: wikiPublicUrl });
   });
 
   app.get("/resume/chat", requireLoginPage, (_req, res) => {
-    res.sendFile(path.join(__dirname, "public", "resume-chat.html"));
+    sendHtml(res, "resume-chat.html", { WIKI_URL: wikiPublicUrl });
   });
 
   // Protect RAG API endpoints
@@ -352,7 +366,7 @@ export function createRagServer(
 
   // Resume display page — public
   app.get("/resume", (_req, res) => {
-    res.sendFile(path.join(__dirname, "public", "resume.html"));
+    sendHtml(res, "resume.html", { WIKI_URL: wikiPublicUrl });
   });
 
   // Resume data API — public
@@ -476,8 +490,8 @@ export function createRagServer(
       wikiProxyServer = startWikiProxy({
         port: wikiProxyPort,
         target: wikiProxyTarget,
-        loginUrl: `http://localhost:${port}/login`,
-        proxyOrigin,
+        loginUrl: publicBaseUrl ? `${publicBaseUrl}/login` : `http://localhost:${port}/login`,
+        proxyOrigin: wikiPublicUrl,
         wikiUsername: process.env.H5_WIKI_USERNAME,
         wikiPassword: process.env.H5_WIKI_PASSWORD,
         wikiLoginMode: process.env.H5_WIKI_LOGIN_MODE === "rsa" || process.env.H5_WIKI_LOGIN_MODE === "json"

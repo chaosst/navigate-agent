@@ -1,8 +1,14 @@
 node_modules/
 dist/
 .env
+.env.prod
+.env.prod.*
+!.env.prod.example
+.env.tmp
 *.log
 navigate.db
+navigate.dump
+/zyplayer_doc.sql
 rag_data/
 rag_uploads/
 .vscode/
@@ -15,3 +21,13 @@ agentTodoList.txt
 .idea/
 .trae/
 basketball-website/
+
+# 备份与部署包
+backup/
+*.tar.gz
+
+# 个人/运行时数据
+/resume.md
+/skills/
+undefined/
+agent chat history.txt

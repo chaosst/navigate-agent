@@ -6,6 +6,7 @@ import {
   ptcProgramToMessage,
   ptcDispatchToMessage,
   extractRunCodeErrorKind,
+  StreamAccumulator,
 } from "./ptc.js";
 import { handleCommand } from "./commands.js";
 import { createAgentExecutor, createHierarchicalAgent, createPtcAgent, runAgent } from "../agent/loop.js";
@@ -28,7 +29,10 @@ import { ToolFilter } from "../tools/tool-filter.js"
 interface StreamChunk {
   plan?: ExecutionPlan;
   intermediateSteps?: AgentStep[];
+  /** 最终回答（finalize/fallback 产出；累积进最终 assistant 消息） */
   output?: string;
+  /** 中间轮次的叙述文字（agent 思考/说明，仅动态预览，不进入最终消息） */
+  outputPreview?: string;
   ptcProgram?: { code: string; description: string };
   ptcDispatch?: PtcDispatchEvent;
 }
@@ -246,7 +250,7 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
         ...prev,
         { role: "user", content: value, timestamp: new Date() },
       ]);
-      memory.addUserMessage(value);
+      await memory.addUserMessage(value);
       setRunning(true);
       streamingBufferRef.current = "";
       setStreamingText("");
@@ -261,7 +265,7 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
         }
         if (exec instanceof PtcAgentLangGraph) {
           // ---- PTC Mode: programmatic tool calling ----
-          output = "";
+          const streamAcc = new StreamAccumulator();
           const { parseHistory: parseHist } = await import("../agent/loop.js");
           const messageHistory = parseHist([
             ...historyRef.current,
@@ -271,6 +275,9 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
           const stream = exec.stream({ messages: messageHistory });
           for await (const rawChunk of stream) {
             const chunk = rawChunk as StreamChunk;
+            // 中间叙述 → 仅动态预览；finalize 输出 → 进入最终回答（见 StreamAccumulator）
+            streamAcc.push(chunk);
+            streamingBufferRef.current = streamAcc.previewText;
             // run_code 程序卡片
             if (chunk.ptcProgram) {
               const p = chunk.ptcProgram;
@@ -317,15 +324,12 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
                 ]);
               }
             }
-            if (chunk.output) {
-              output += String(chunk.output);
-              streamingBufferRef.current += String(chunk.output);
-            }
           }
+          output = streamAcc.output;
         } else if (exec instanceof HierarchicalAgentLangGraph) {
           // ---- Plan Mode: use HierarchicalAgentLangGraph ----
           const planExecutor = exec;
-          output = "";
+          const streamAcc = new StreamAccumulator();
           const { parseHistory: parseHist } = await import("../agent/loop.js");
           const messageHistory = parseHist([
             ...historyRef.current,
@@ -335,6 +339,9 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
           const stream = planExecutor.stream({ messages: messageHistory });
           for await (const rawChunk of stream) {
             const chunk = rawChunk as StreamChunk;
+            // 中间叙述 → 仅动态预览；finalize 输出 → 进入最终回答
+            streamAcc.push(chunk);
+            streamingBufferRef.current = streamAcc.previewText;
             if (chunk.plan) {
               const plan = chunk.plan;
               const planText = [
@@ -395,11 +402,8 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
                 ]);
               }
             }
-            if (chunk.output) {
-              output += String(chunk.output);
-              streamingBufferRef.current += String(chunk.output);
-            }
           }
+          output = streamAcc.output;
         } else {
           // ---- Normal Mode: use GraphAgentExecutor ----
           output = await runAgent(exec as GraphAgentExecutor, value, historyRef.current, {
@@ -456,7 +460,7 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
           role: "assistant",
           content: output,
         } as AgentMessage);
-        memory.addAssistantMessage(output);
+        await memory.addAssistantMessage(output);
         try {
           await memory.summarizeAndStore(`User: ${value}\nAssistant: ${output}`);
         } catch {}
@@ -544,7 +548,12 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
               </Text>
             </Box>
             <Box paddingLeft={2}>
-              <Text color="white">{streamingText}</Text>
+              <Text color="white">
+                {/* 中间叙述可能很长（PTC 模式 agent 逐步说明），截断尾部避免撑爆动态区域 */}
+                {streamingText.length > 800
+                  ? "…" + streamingText.slice(-800)
+                  : streamingText}
+              </Text>
             </Box>
           </Box>
         ) : null}

@@ -109,7 +109,9 @@ export class PgSessionStore {
   }
 
   async getMessages(sessionId: string, limit?: number): Promise<MemoryMessage[]> {
-    let sql = `SELECT role, content, created_at FROM messages WHERE session_id = $1 ORDER BY created_at ASC`;
+    // created_at 仅毫秒精度（now().toISOString()），同一毫秒插入的多条消息排序不确定，
+    // 追加 BIGSERIAL id 作第二排序键，保证消息按实际插入顺序稳定返回（重启加载不乱序）。
+    let sql = `SELECT role, content, created_at FROM messages WHERE session_id = $1 ORDER BY created_at ASC, id ASC`;
     const params: any[] = [sessionId];
     if (limit !== undefined) {
       sql += ` LIMIT $2`;

@@ -15,6 +15,7 @@ export function logAgent(entry: {
     | "llm_request"
     | "llm_response"
     | "error"
+    | "warning"
     | "info"
     | "ptc_program"    // PTC：模型发起 run_code
     | "ptc_dispatch"   // PTC：程序内子调用
