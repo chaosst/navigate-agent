@@ -848,12 +848,18 @@ export class HierarchicalAgentLangGraph {
                     yield { intermediateSteps: updates.intermediateSteps };
                 }
 
-                // 产出最终答案
+                // 产出最终答案 / 中间叙述：
+                // finalize / fallback 节点 → output（进入最终 assistant 消息）
+                // 其他节点（planner/executor 若有文字）→ outputPreview（仅动态预览）
                 if (updates.messages && updates.messages.length > 0) {
                     const lastMsg = updates.messages[updates.messages.length - 1];
                     if (lastMsg._getType() === "ai") {
                         const output = lastMsg.content as string;
-                        yield { output };
+                        if (nodeName === "finalize" || nodeName === "fallback") {
+                            yield { output };
+                        } else {
+                            yield { outputPreview: output };
+                        }
                     }
                 }
             }

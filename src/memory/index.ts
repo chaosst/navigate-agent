@@ -111,12 +111,12 @@ export class AgentMemory {
     return s;
   }
 
-  addUserMessage(content: string): void {
-    this.store.addMessage(this.activeSessionId, "user", content);
+  async addUserMessage(content: string): Promise<void> {
+    await this.store.addMessage(this.activeSessionId, "user", content);
   }
 
-  addAssistantMessage(content: string): void {
-    this.store.addMessage(this.activeSessionId, "assistant", content);
+  async addAssistantMessage(content: string): Promise<void> {
+    await this.store.addMessage(this.activeSessionId, "assistant", content);
   }
 
   async getContextWindow(limit?: number): Promise<string> {

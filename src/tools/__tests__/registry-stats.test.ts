@@ -20,6 +20,7 @@ describe("createTools with registry", () => {
       "edit_file",
       "list_files",
       "search_files",
+      "web_search",
     ]);
   });
 
@@ -52,16 +53,18 @@ describe("createTools with registry", () => {
     // 只读请求 → 只暴露 read 级
     const readOnly = filter.filter(tools, "帮我看看这个文件的内容");
     expect(readOnly.every((t) => t.permission === "read")).toBe(true);
-    expect(readOnly.map((t) => t.name)).toEqual(["read_file", "list_files", "search_files"]);
+    expect(readOnly.map((t) => t.name)).toEqual(
+      ["read_file", "list_files", "search_files", "web_search"],
+    );
 
     // 写请求 → read + write
     const write = filter.filter(tools, "帮我创建一份文档");
     expect(write.map((t) => t.name).sort()).toEqual(
-      ["read_file", "list_files", "search_files", "write_file", "edit_file"].sort(),
+      ["edit_file", "list_files", "read_file", "search_files", "web_search", "write_file"].sort(),
     );
 
     // 命令请求 → 全量
     const dangerous = filter.filter(tools, "运行 npm install 并编译");
-    expect(dangerous.length).toBe(6);
+    expect(dangerous.length).toBe(7);
   });
 });

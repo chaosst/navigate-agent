@@ -1,1 +1,0 @@
-node -e "console.log('sk-' + require('crypto').randomBytes(24).toString('hex'))"

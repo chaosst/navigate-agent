@@ -8,6 +8,8 @@ import { Tracer } from "../agent/tracer.js";
 /** 一次程序内子调用事件（对应 dsh 的 tool/code-dispatch） */
 export interface PtcDispatchEvent {
     parentId: string;    // 所属 run_code 调用的确定性 id
+    seq: number;         // 程序内提交序号（提交时分配，0 起）。并发执行时完成顺序 ≠ 提交顺序，
+                         // 消费端按 (parentId, seq) 重排，保证展示与调用顺序一致
     tool: string;        // 子调用工具名
     input: unknown;      // 规范化参数（无损 JSON 快照）
     output: unknown;     // 规范化结果
@@ -21,6 +23,7 @@ interface QueuedCall {
     tool: StructuredToolInterface
     args: unknown
     parentId: string
+    seq: number          // 提交序号（入队时分配）
     resolve: (v: CodeJsonValue) => void
     reject: (e: unknown) => void
 }
@@ -41,6 +44,7 @@ export class DispatchBridge {
     private listeners = new Set<DispatchListener>();
     private tracer?: Tracer
     private runCounter = 0              // run_code 调用计数器 → parentId
+    private submitSeq = 0               // 子调用提交计数器 → seq（提交顺序，与完成顺序解耦）
     private exclusiveTools: Set<string>
     private _subCallCount = 0           // 实际执行的子调用总数（统计上报用）
     private exclusiveInFlight = false   // 排他工具正在执行：所有其他调用必须等待
@@ -111,8 +115,11 @@ export class DispatchBridge {
 
     /** 并发有界调度：入队后尝试泵出 */
     private async enqueue(tool: StructuredToolInterface, args: unknown, parentId: string): Promise<CodeJsonValue> {
+        // seq 在提交（入队）时分配：程序内并发执行的完成顺序可能与提交顺序不同，
+        // 消费端依赖 seq 把事件重排回调用顺序展示。
+        const seq = ++this.submitSeq;
         return new Promise((resolve, reject) => {
-            this.queue.push({ tool, args, parentId, resolve, reject });
+            this.queue.push({ tool, args, parentId, seq, resolve, reject });
             this.pump(); // 满足条件即出队
         });
     }
@@ -150,7 +157,7 @@ export class DispatchBridge {
     /** 执行单个出队调用，结算后 resolve/reject 对应 promise */
     private async runCall(call: QueuedCall): Promise<void> {
         try {
-            const value = await this.invokeTool(call.tool, call.args, call.parentId);
+            const value = await this.invokeTool(call.tool, call.args, call.parentId, call.seq);
             call.resolve(value);
         } catch (err) {
             call.reject(err);
@@ -178,7 +185,7 @@ export class DispatchBridge {
      * 归一化参数 → 无损 JSON 校验 → tool.invoke → 结果无损化 →
      * 派发事件（onDispatch + tracer）→ 成功返回 JSON / 失败抛错（程序内变 ToolCallError）。
      */
-    private async invokeTool(tool: StructuredToolInterface, args: unknown, parentId: string): Promise<CodeJsonValue> {
+    private async invokeTool(tool: StructuredToolInterface, args: unknown, parentId: string, seq: number): Promise<CodeJsonValue> {
         // 1. 归一化输入（对标 loop.ts normalizeToolInput：string → JSON.parse）
         const normalized = normalizeToolInput(args)
         // 2. 参数无损 JSON 校验（非 JSON 值 → 报 invalid 错误）
@@ -191,13 +198,13 @@ export class DispatchBridge {
             const json = toLosslessJson(result)
             this._subCallCount++
             // 5. 事件：onDispatch 订阅者（TUI）+ tracer
-            this.emit({ parentId, tool: tool.name, input: normalized, output: json, isError: false })
+            this.emit({ parentId, seq, tool: tool.name, input: normalized, output: json, isError: false })
             this.tracer?.addPtcDispatch(parentId, tool.name, normalized, json, false, 0)
             return json
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
             this._subCallCount++
-            this.emit({ parentId, tool: tool.name, input: normalized, output: message, isError: true })
+            this.emit({ parentId, seq, tool: tool.name, input: normalized, output: message, isError: true })
             this.tracer?.addPtcDispatch(parentId, tool.name, normalized, message, true, 0)
             throw new Error(message) // 程序内被捕获为 ToolCallError
         }

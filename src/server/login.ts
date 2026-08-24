@@ -4,7 +4,7 @@ import path from "node:path";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tokenManager, TOKEN_TTL_MS } from "./token.js";
-import { AUTH_COOKIE, serializeCookie, getToken } from "./auth-helpers.js";
+import { AUTH_COOKIE, serializeCookie, getToken, deriveCookieDomain, stripTokenQuery } from "./auth-helpers.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -62,16 +62,25 @@ export function recordLoginFailure(ip: string): void {
   attempts.set(ip, rec);
 }
 
-/** next 白名单：同源路径，或 wiki 代理 origin（防开放重定向） */
-export function allowNext(next: unknown, proxyOrigin: string): string {
+/**
+ * next 白名单：同源路径，或 wiki 代理 origin（防开放重定向）。
+ * proxyOrigins 兼容本地（http://localhost:3003）与公网 wiki（https://wiki.xxx.com）多个入口。
+ * 返回前统一剥离 token 查询参数，避免旧 token 造成登录死循环。
+ */
+export function allowNext(next: unknown, proxyOrigins: string | string[] = []): string {
   if (typeof next !== "string" || !next) return "/";
-  if (next.startsWith("/")) return next;
-  if (proxyOrigin && next.startsWith(proxyOrigin)) return next;
+  const cleaned = stripTokenQuery(next);
+  if (cleaned.startsWith("/")) return cleaned;
+  const origins = Array.isArray(proxyOrigins) ? proxyOrigins : [proxyOrigins];
+  if (origins.some((o) => o && cleaned.startsWith(o))) return cleaned;
   return "/";
 }
 
-export function mountLoginRoutes(app: express.Express, opts: { proxyOrigin: string }): void {
-  const { proxyOrigin } = opts;
+export function mountLoginRoutes(app: express.Express, opts: { proxyOrigin?: string; proxyOrigins?: string[] }): void {
+  const proxyOrigins = [
+    ...(opts.proxyOrigins ?? []),
+    ...(opts.proxyOrigin ? [opts.proxyOrigin] : []),
+  ];
 
   // 登录页（公开）
   app.get("/login", (_req, res) => {
@@ -93,23 +102,31 @@ export function mountLoginRoutes(app: express.Express, opts: { proxyOrigin: stri
     }
     attempts.delete(ip); // 登录成功，清失败计数
     const token = tokenManager.generate();
+    const domain = deriveCookieDomain(req.hostname);
     res.setHeader("Set-Cookie", serializeCookie(AUTH_COOKIE, token, {
       maxAgeSec: TOKEN_TTL_MS / 1000,
       httpOnly: true,
       sameSite: "Lax",
       secure: process.env.H5_COOKIE_SECURE === "true",
+      domain,
     }));
-    res.json({ token, expiresIn: Math.floor(TOKEN_TTL_MS / 1000), next: allowNext(next, proxyOrigin) });
+    res.json({ token, expiresIn: Math.floor(TOKEN_TTL_MS / 1000), next: allowNext(next, proxyOrigins) });
   });
 
-  // 登出：吊销 token + 清 cookie
+  // 登出：吊销 token + 清 cookie（带相同 domain 才能清掉跨子域 cookie）
+  // 带 ?next= 时 302 跳转（H5 退出链接用）；否则返回 JSON（供 API 调用方）
   app.get("/api/logout", (req, res) => {
     const token = getToken(req);
     if (token) tokenManager.revoke(token);
+    const domain = deriveCookieDomain(req.hostname);
     res.setHeader("Set-Cookie", serializeCookie(AUTH_COOKIE, "", {
       maxAgeSec: 0, httpOnly: true, sameSite: "Lax",
       secure: process.env.H5_COOKIE_SECURE === "true",
+      domain,
     }));
+    if (req.query.next) {
+      return res.redirect(302, allowNext(req.query.next, proxyOrigins));
+    }
     res.json({ ok: true });
   });
 }

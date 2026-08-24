@@ -49,3 +49,44 @@ export function extractRunCodeErrorKind(observation: unknown): string | null {
   const m = /^\[run_code (\w+)\]/.exec(String(observation ?? ""));
   return m ? m[1] : null;
 }
+
+/** 流式块的 output 相关字段（app.tsx 中 StreamChunk 的子集） */
+export interface StreamOutputChunk {
+  /** 最终回答（finalize/fallback 产出） */
+  output?: string;
+  /** 中间轮次叙述（仅动态预览） */
+  outputPreview?: string;
+}
+
+/**
+ * PTC / plan 模式流式块的输出累积器。
+ *
+ * 关键约束：中间叙述（outputPreview）只进入预览 buffer，绝不进入最终 output；
+ * 否则 agent 每轮工具调用前的说明文字会与 finalize 的完整回答拼接，
+ * 导致最终 assistant 消息重复、乱序（历史问题）。
+ */
+export class StreamAccumulator {
+  /** 最终回答（进入 <Static> 的 assistant 消息） */
+  output = "";
+  /** 预览文本（动态区域流式显示，循环结束后清空） */
+  private preview = "";
+
+  push(chunk: StreamOutputChunk): void {
+    if (chunk.outputPreview) {
+      this.preview += chunk.outputPreview;
+    }
+    if (chunk.output) {
+      this.output += chunk.output;
+      this.preview += chunk.output;
+    }
+  }
+
+  get previewText(): string {
+    return this.preview;
+  }
+
+  reset(): void {
+    this.output = "";
+    this.preview = "";
+  }
+}

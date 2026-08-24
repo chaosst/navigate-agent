@@ -40,6 +40,14 @@ describe("createRagServer login gating (e2e)", () => {
     expect(res.headers.get("location")).toContain("/login?next=");
   });
 
+  it("strips stale token from next when redirecting to login (loop guard)", async () => {
+    const res = await fetch(base + "/?token=stale", { redirect: "manual" });
+    expect(res.status).toBe(302);
+    const loc = res.headers.get("location") || "";
+    expect(loc.startsWith("/login?next=")).toBe(true);
+    expect(decodeURIComponent(loc)).not.toContain("token=");
+  });
+
   it("redirects unauthenticated /resume/chat to login", async () => {
     const res = await fetch(base + "/resume/chat", { redirect: "manual" });
     expect(res.status).toBe(302);
@@ -49,6 +57,11 @@ describe("createRagServer login gating (e2e)", () => {
   it("serves /resume publicly (no login)", async () => {
     const res = await fetch(base + "/resume");
     expect(res.status).toBe(200);
+    const html = await res.text();
+    // 未配置 H5_WIKI_PUBLIC_URL 时，占位符回退为本地默认 wiki 地址
+    // （测试中 H5_WIKI_PROXY_PORT=0，故地址为 http://localhost:0）
+    expect(html).toMatch(/href="http:\/\/localhost:\d+"/);
+    expect(html).not.toContain("__WIKI_URL__");
   });
 
   it("redirects /index.html static bypass to /", async () => {
@@ -97,5 +110,40 @@ describe("createRagServer login gating (e2e)", () => {
     const res = await fetch(base + "/login");
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("Navigate 登录");
+  });
+});
+
+describe("createRagServer wiki public url injection", () => {
+  let server: import("node:http").Server;
+  let base: string;
+
+  beforeAll(async () => {
+    process.env.H5_LOGIN_USERNAME = "admin";
+    process.env.H5_LOGIN_PASSWORD = "secret";
+    process.env.H5_LOGIN_USERS = "";
+    process.env.H5_WIKI_PROXY_PORT = "0";
+    process.env.H5_WIKI_PUBLIC_URL = "https://wiki.example.com";
+    const app = createRagServer(mockStore, 0);
+    server = (app as unknown as { httpServer: import("node:http").Server }).httpServer;
+    await new Promise<void>((r) => server.once("listening", () => r()));
+    base = `http://localhost:${(server.address() as AddressInfo).port}`;
+  });
+  afterAll(() => {
+    server?.closeAllConnections?.();
+    server?.close();
+    delete process.env.H5_WIKI_PROXY_PORT;
+    delete process.env.H5_WIKI_PUBLIC_URL;
+    delete process.env.H5_LOGIN_USERNAME;
+    delete process.env.H5_LOGIN_PASSWORD;
+    delete process.env.H5_LOGIN_USERS;
+  });
+
+  it("injects public wiki url into H5 pages", async () => {
+    const res = await fetch(base + "/resume");
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('href="https://wiki.example.com"');
+    expect(html).not.toContain("localhost:3003");
+    expect(html).not.toContain("__WIKI_URL__");
   });
 });
