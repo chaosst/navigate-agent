@@ -21,6 +21,7 @@ agentTodoList.txt
 .idea/
 .trae/
 basketball-website/
+/docs/
 
 # 备份与部署包
 backup/
