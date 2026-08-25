@@ -62,10 +62,15 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(b'{"status":"deploy started"}')
 
     def _run_deploy(self):
-        with open(LOG_FILE, "a", encoding="utf-8") as f:
-            f.write("\n===== deploy triggered %s =====\n" % time.strftime("%F %T"))
-            subprocess.run([self.deploy_script], stdout=f, stderr=subprocess.STDOUT)
-            f.write("===== done %s =====\n" % time.strftime("%F %T"))
+        try:
+            with open(LOG_FILE, "a", encoding="utf-8") as f:
+                f.write("\n===== deploy triggered %s =====\n" % time.strftime("%F %T"))
+                # 用 bash 显式执行：不依赖脚本可执行位（git reset 后权限会被重写为 644）
+                subprocess.run(["bash", self.deploy_script], stdout=f, stderr=subprocess.STDOUT)
+                f.write("===== done %s =====\n" % time.strftime("%F %T"))
+        except Exception as e:  # 任何异常都要写进日志，避免静默失败
+            with open(LOG_FILE, "a", encoding="utf-8") as f:
+                f.write("===== ERROR %s: %s =====\n" % (time.strftime("%F %T"), e))
 
 
 if __name__ == "__main__":
