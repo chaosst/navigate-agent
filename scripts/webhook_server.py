@@ -14,10 +14,16 @@ import argparse
 import hmac
 import logging
 import os
+import socketserver
 import subprocess
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+# ThreadingHTTPServer 是 Python 3.7+ 才内置的类，
+# 此处自定义兼容 CentOS 7 等自带 Python 3.6 的旧系统
+class ThreadingHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
+    daemon_threads = True
 
 DEPLOY_SCRIPT = "/opt/navigate/scripts/deploy.sh"
 LOG_FILE = "/var/log/webhook-deploy.log"
