@@ -11,6 +11,7 @@ navigate.dump
 /zyplayer_doc.sql
 rag_data/
 rag_uploads/
+rag-mcp/
 .vscode/
 wiki-js/
 .superpowers/

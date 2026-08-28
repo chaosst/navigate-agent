@@ -125,6 +125,10 @@ export function createRagServer(
   // === H5 登录 + wiki 鉴权代理配置 ===
   const wikiProxyPort = parseInt(process.env.H5_WIKI_PROXY_PORT || "3003", 10);
   const wikiProxyTarget = process.env.H5_WIKI_TARGET || "http://localhost:8083";
+  // 界面定制注入（方案 A）：默认开启，品牌名默认 "Navigate Wiki"，主题色 #519670
+  const wikiHtmlInject = (process.env.H5_WIKI_INJECT ?? "true").toLowerCase() !== "false";
+  const wikiBrandName = process.env.H5_WIKI_BRAND || "Navigate Wiki";
+  const wikiThemeColor = process.env.H5_WIKI_THEME || "#519670";
   // 公网 wiki 地址（wiki 子域名方案，如 https://wiki.example.com）：
   // 用于 H5 页面 Wiki 链接 + 登录 next 白名单；未配置时回退 localhost（本地开发/隧道）
   const wikiPublicUrl = (process.env.H5_WIKI_PUBLIC_URL || `http://localhost:${wikiProxyPort}`).replace(/\/+$/, "");
@@ -232,7 +236,7 @@ export function createRagServer(
     }
   });
 
-  app.get("/api/documents", requireToken, async (_req, res) => {
+  app.get("/api/documents", createRequireTokenOrApiKey(apiAuth), async (_req, res) => {
     try {
       // 从 PostgreSQL 读取（同时预热 L1 缓存），返回格式兼容旧版
       const docs = await store.listDocs();
@@ -330,7 +334,7 @@ export function createRagServer(
     }
   });
 
-  app.get("/api/stats", requireToken, (_req, res) => {
+  app.get("/api/stats", createRequireTokenOrApiKey(apiAuth), (_req, res) => {
     const cache = store.getCacheStats();
     res.json({ cacheEntries: cache.total, cacheDetail: cache });
   });
@@ -500,6 +504,7 @@ export function createRagServer(
         wikiLoginPath: process.env.H5_WIKI_LOGIN_PATH,
         wikiLoginCsrf: process.env.H5_WIKI_LOGIN_CSRF !== "false",
         wikiSessionTtlSec: parseInt(process.env.H5_WIKI_SESSION_TTL_SEC || "600", 10),
+        htmlInject: { enabled: wikiHtmlInject, brand: wikiBrandName, theme: wikiThemeColor },
       });
     } catch (err) {
       console.error(`❌ Wiki 代理启动失败: ${(err as Error).message}`);
