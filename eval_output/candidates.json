@@ -1,0 +1,162 @@
+[
+  {
+    "question": "帮我查看一下当前目录的文件，还有上一层目录的文件、上上一层目录的文件",
+    "firstSeen": "2026-07-26T15:47:18.772Z",
+    "occurrences": 5
+  },
+  {
+    "question": "查询深圳天气",
+    "firstSeen": "2026-07-16T16:27:19.231Z",
+    "occurrences": 3
+  },
+  {
+    "question": "深圳的天气",
+    "firstSeen": "2026-07-25T16:00:59.828Z",
+    "occurrences": 3
+  },
+  {
+    "question": "查询myfirstPage内容",
+    "firstSeen": "2026-07-11T13:17:37.562Z",
+    "occurrences": 2
+  },
+  {
+    "question": "myMcpDemo__getUser查询id为1的用户",
+    "firstSeen": "2026-07-13T14:42:28.063Z",
+    "occurrences": 2
+  },
+  {
+    "question": "rag搜索ohos的开发指南",
+    "firstSeen": "2026-07-31T13:25:29.273Z",
+    "occurrences": 2
+  },
+  {
+    "question": "获取deepseek首页的内容",
+    "firstSeen": "2026-08-21T09:55:36.414Z",
+    "occurrences": 2
+  },
+  {
+    "question": "继续深化这个网站D:\\develop\\navigate\\basketball-website",
+    "firstSeen": "2026-08-21T15:52:15.022Z",
+    "occurrences": 2
+  },
+  {
+    "question": "D:\\develop\\navigate\\basketball-website，换一下主题颜色",
+    "firstSeen": "2026-08-21T17:53:11.476Z",
+    "occurrences": 2
+  },
+  {
+    "question": "当前连接了几个mcp",
+    "firstSeen": "2026-07-13T14:38:36.226Z",
+    "occurrences": 1
+  },
+  {
+    "question": "当前有哪些MCP-sevr",
+    "firstSeen": "2026-07-13T14:41:42.660Z",
+    "occurrences": 1
+  },
+  {
+    "question": "当前agent能使用skill.md格式的技能吗？",
+    "firstSeen": "2026-07-16T15:02:48.338Z",
+    "occurrences": 1
+  },
+  {
+    "question": "你是什么模型",
+    "firstSeen": "2026-07-16T16:12:50.848Z",
+    "occurrences": 1
+  },
+  {
+    "question": "台风红霞的最新情况",
+    "firstSeen": "2026-07-25T15:58:30.647Z",
+    "occurrences": 1
+  },
+  {
+    "question": "没有对应的tools吗",
+    "firstSeen": "2026-07-25T16:01:31.469Z",
+    "occurrences": 1
+  },
+  {
+    "question": "当前目录下的文件有哪些",
+    "firstSeen": "2026-07-25T16:04:32.891Z",
+    "occurrences": 1
+  },
+  {
+    "question": "当前有哪些skills",
+    "firstSeen": "2026-07-25T16:11:54.414Z",
+    "occurrences": 1
+  },
+  {
+    "question": "我是问当前这个agent加载了哪些skill",
+    "firstSeen": "2026-07-25T16:12:43.994Z",
+    "occurrences": 1
+  },
+  {
+    "question": "当前agent有哪些skill",
+    "firstSeen": "2026-07-25T16:18:01.702Z",
+    "occurrences": 1
+  },
+  {
+    "question": "查询一下深圳的天气",
+    "firstSeen": "2026-07-25T16:18:17.199Z",
+    "occurrences": 1
+  },
+  {
+    "question": "当前有哪些可以调用的skill",
+    "firstSeen": "2026-07-25T16:28:12.230Z",
+    "occurrences": 1
+  },
+  {
+    "question": "不是有一个weather skill吗",
+    "firstSeen": "2026-07-25T16:29:18.425Z",
+    "occurrences": 1
+  },
+  {
+    "question": "查看一下深圳和北京的天气",
+    "firstSeen": "2026-07-26T15:45:19.151Z",
+    "occurrences": 1
+  },
+  {
+    "question": "查询一下我的简历",
+    "firstSeen": "2026-07-26T15:46:43.179Z",
+    "occurrences": 1
+  },
+  {
+    "question": "rag搜索ohos开发指南",
+    "firstSeen": "2026-07-31T13:40:08.327Z",
+    "occurrences": 1
+  },
+  {
+    "question": "查看一下深圳的天气",
+    "firstSeen": "2026-08-12T15:18:53.161Z",
+    "occurrences": 1
+  },
+  {
+    "question": "帮我生成一个简单的首页网站，主题是篮球",
+    "firstSeen": "2026-08-21T07:52:39.032Z",
+    "occurrences": 1
+  },
+  {
+    "question": "为什么刚刚的问题没有统计输出",
+    "firstSeen": "2026-08-21T07:53:56.955Z",
+    "occurrences": 1
+  },
+  {
+    "question": "优化D:\\develop\\navigate\\basketball-website的网页，改一下版",
+    "firstSeen": "2026-08-21T08:03:27.947Z",
+    "occurrences": 1
+  },
+  {
+    "question": "查一下深圳的天气",
+    "firstSeen": "2026-08-21T08:10:45.930Z",
+    "occurrences": 1
+  },
+  {
+    "question": "查一下当前目录文件",
+    "firstSeen": "2026-08-21T08:11:02.936Z",
+    "occurrences": 1
+  },
+  {
+    "question": "完成了吗",
+    "firstSeen": "2026-08-21T15:59:11.728Z",
+    "occurrences": 1
+  }
+]

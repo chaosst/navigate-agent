@@ -1,0 +1,20 @@
+[
+  {
+    "id": "example-001",
+    "question": "rag搜索ohos的开发指南",
+    "referenceClaims": [
+      "示例占位：OHOS 开发指南包含环境搭建章节",
+      "示例占位：OHOS 开发指南包含应用开发入门"
+    ],
+    "relevantChunks": [],
+    "_note": "示例数据：referenceClaims / relevantChunks 需在 PG 就绪后按真实文档内容标注；relevantChunks 格式为 'docId:chunkIndex'"
+  },
+  {
+    "id": "example-002",
+    "question": "查询myfirstPage内容",
+    "referenceClaims": [],
+    "relevantChunks": [],
+    "referenceAnswer": "示例占位：myfirstPage 是项目 wiki 的一篇页面",
+    "_note": "示例数据：referenceClaims 留空 → contextRecall 将为 null，用于演示 null 指标在报告中的表现"
+  }
+]

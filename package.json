@@ -17,7 +17,8 @@
         "dev:zyplayer": "docker-compose -f docker-compose.zyplayer.yml up -d",
         "test": "vitest run --dir src",
         "test:watch": "vitest --dir src",
-        "mytest": "tsx src/test.ts"
+        "mytest": "tsx src/test.ts",
+        "eval": "tsx src/eval/index.ts"
     },
     "dependencies": {
         "@langchain/core": "^1.2.5",

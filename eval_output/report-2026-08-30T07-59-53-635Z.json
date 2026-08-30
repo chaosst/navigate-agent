@@ -1,0 +1,134 @@
+{
+  "createdAt": "2026-08-30T07:59:53.641Z",
+  "k": 5,
+  "sampleCount": 3,
+  "failedCount": 1,
+  "summary": {
+    "hitRate": {
+      "mean": 0.5,
+      "min": 0,
+      "max": 1,
+      "validCount": 2
+    },
+    "mrr": {
+      "mean": 0.5,
+      "min": 0,
+      "max": 1,
+      "validCount": 2
+    },
+    "ndcg": {
+      "mean": 0.5,
+      "min": 0,
+      "max": 1,
+      "validCount": 2
+    },
+    "contextPrecision": {
+      "mean": 0.5,
+      "min": 0.5,
+      "max": 0.5,
+      "validCount": 1
+    },
+    "contextRecall": {
+      "mean": 1,
+      "min": 1,
+      "max": 1,
+      "validCount": 1
+    },
+    "faithfulness": {
+      "mean": 0.67,
+      "min": 0.67,
+      "max": 0.67,
+      "validCount": 2
+    },
+    "answerRelevancy": {
+      "mean": 1,
+      "min": 1,
+      "max": 1,
+      "validCount": 2
+    }
+  },
+  "samples": [
+    {
+      "sample": {
+        "id": "s1",
+        "question": "navigate 部署在哪里？",
+        "referenceClaims": [
+          "c1"
+        ],
+        "relevantChunks": [
+          "doc1:0"
+        ]
+      },
+      "contexts": [],
+      "contextKeys": [
+        "doc1:0",
+        "doc2:3"
+      ],
+      "answer": "navigate 部署在阿里云首尔节点，通过 Caddy 反代 app 和 wiki。",
+      "metrics": {
+        "hitRate": 1,
+        "mrr": 1,
+        "ndcg": 1,
+        "contextPrecision": 0.5,
+        "contextRecall": 1,
+        "faithfulness": 0.67,
+        "answerRelevancy": 1
+      }
+    },
+    {
+      "sample": {
+        "id": "s2",
+        "question": "Caddy 代理了什么？",
+        "referenceClaims": [
+          "c1"
+        ],
+        "relevantChunks": [
+          "doc1:0"
+        ]
+      },
+      "contexts": [],
+      "contextKeys": [
+        "doc1:0",
+        "doc2:3"
+      ],
+      "answer": "navigate 部署在阿里云首尔节点，通过 Caddy 反代 app 和 wiki。",
+      "metrics": {
+        "hitRate": 0,
+        "mrr": 0,
+        "ndcg": 0,
+        "contextPrecision": null,
+        "contextRecall": null,
+        "faithfulness": 0.67,
+        "answerRelevancy": 1
+      }
+    },
+    {
+      "sample": {
+        "id": "s3",
+        "question": "会失败的样本",
+        "referenceClaims": [
+          "c1"
+        ],
+        "relevantChunks": [
+          "doc1:0"
+        ]
+      },
+      "contexts": [],
+      "contextKeys": [
+        "doc1:0",
+        "doc2:3"
+      ],
+      "answer": "",
+      "failed": "LLM timeout",
+      "metrics": {
+        "hitRate": 1,
+        "mrr": 1,
+        "ndcg": 1,
+        "contextPrecision": 0.5,
+        "contextRecall": 1,
+        "faithfulness": 0.67,
+        "answerRelevancy": 1
+      }
+    }
+  ]
+}
