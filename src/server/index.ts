@@ -258,11 +258,17 @@ export function createRagServer(
     }
   });
 
-  app.delete("/api/documents/:id", requireToken, (req, res) => {
+  app.delete("/api/documents/:id", requireToken, async (req, res) => {
     const id = req.params.id as string;
-    docMeta.delete(id);
-    saveDocMeta();
-    res.json({ deleted: id });
+    try {
+      await store.deleteDoc(id) // 1. 删 PostgreSQL（doc_chunks 由 CASCADE 级联删除）
+      docMeta.delete(id); // 2. 删旧元数据源
+      saveDocMeta();
+      res.json({ deleted: id });
+    } catch (err) {
+      console.error(`[delete] Error deleting "${id}":`, (err as Error).message);
+      res.status(500).json({ error: (err as Error).message });
+    }
   });
 
   /**

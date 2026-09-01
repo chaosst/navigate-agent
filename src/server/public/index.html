@@ -261,7 +261,11 @@
 
   async function deleteDoc(id) {
     try {
-      await fetch(`/api/documents/${id}?token=${TOKEN}`, { method: "DELETE" });
+      const res = await fetch(`/api/documents/${id}?token=${TOKEN}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
       setStatus("Document removed from index");
       loadDocs();
     } catch (err) {
