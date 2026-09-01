@@ -1,0 +1,11 @@
+{
+  "id": "task-2-tool-orchestrate",
+  "description": "自主调用 calculator 与 weather_now 工具完成任务，答案必须来自工具返回值",
+  "question": "请计算 3+4*2 的结果，并查询北京的天气。",
+  "expected_tool_usage": ["calculator", "weather_now"],
+  "expected_keywords": ["11", "sunny"],
+  "check_rules": {
+    "must_use_tools": true,
+    "forbid_hallucination": true
+  }
+}

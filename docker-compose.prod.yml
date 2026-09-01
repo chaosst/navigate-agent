@@ -21,6 +21,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      ollama:
+        condition: service_started   # embedding 依赖；仅顺序保证，不等 healthcheck
     ports:
       - "127.0.0.1:3001:3001"     # 仅本机，供运维调试；公网走 Caddy
       - "127.0.0.1:3003:3003"     # wiki 鉴权代理（zyplayer-doc 入口），隧道或 Caddy 访问
@@ -55,6 +57,28 @@ services:
       timeout: 5s
       retries: 10
     # 不映射 5432 端口：仅 compose 内网可达，公网无法直连数据库
+
+  # ---------- ollama：本地 embedding（DeepSeek 无 embedding 服务，向量化走本地）----------
+  # chat 仍走 DeepSeek（.env.prod 的 OPENAI_BASE_URL），embedding 走本服务，两端点分离。
+  # 首次/重置后拉模型：
+  #   docker compose --env-file .env.prod -f docker-compose.prod.yml exec ollama ollama pull nomic-embed-text
+  # 验证模型：docker compose --env-file .env.prod -f docker-compose.prod.yml exec ollama ollama list
+  # 不映射 11434：app 经 compose 内网服务名 ollama:11434 访问（.env.prod 的 EMBEDDING_BASE_URL
+  # 须写 http://ollama:11434/v1，不能写 localhost——容器内 localhost 是容器自己）。
+  ollama:
+    container_name: ollama
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    environment:
+      # 模型驻留内存 30 分钟后自动卸载，2G 机器避免常驻吃内存
+      OLLAMA_KEEP_ALIVE: "30m"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # ---------- zyplayer-doc 知识库（Java + MySQL，2G 内存机器需调优）----------
   zyplayer-mysql:
@@ -120,3 +144,4 @@ volumes:
   caddy_config:
   zyplayer-mysql-data:
   zyplayer-files:
+  ollama-data:

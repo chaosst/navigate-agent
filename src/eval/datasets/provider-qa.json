@@ -1,0 +1,116 @@
+[
+  {
+    "id": "fact-01",
+    "category": "factual",
+    "question": "HTTP 状态码 404 表示什么？",
+    "referenceClaims": [
+      "404 表示请求的资源不存在或未被找到",
+      "404 属于客户端错误响应（4xx）"
+    ]
+  },
+  {
+    "id": "fact-02",
+    "category": "factual",
+    "question": "TCP 和 UDP 的核心区别是什么？请简要说明。",
+    "referenceClaims": [
+      "TCP 是面向连接的、可靠的传输协议",
+      "UDP 是无连接的、不保证可靠送达",
+      "TCP 有重传与顺序保证，UDP 没有"
+    ]
+  },
+  {
+    "id": "fact-03",
+    "category": "factual",
+    "question": "什么是向量数据库？它解决什么问题？",
+    "referenceClaims": [
+      "向量数据库用于持久化存储高维向量",
+      "它支持按相似度进行近邻检索",
+      "典型用途是为大模型提供语义检索（RAG）"
+    ]
+  },
+  {
+    "id": "reas-01",
+    "category": "reasoning",
+    "question": "一个水池，进水管单独开 3 小时注满，出水管单独开 6 小时排空。两管同时打开，多久能注满？请给出计算过程。",
+    "referenceClaims": [
+      "进水速率是每小时 1/3 池",
+      "出水速率是每小时 1/6 池",
+      "净速率为每小时 1/6 池",
+      "因此需要 6 小时注满"
+    ]
+  },
+  {
+    "id": "reas-02",
+    "category": "reasoning",
+    "question": "把数组 [5, 2, 9, 1] 按升序排序，结果是什么？只给出排序后的数组。",
+    "referenceClaims": [
+      "排序结果是 [1, 2, 5, 9]"
+    ]
+  },
+  {
+    "id": "reas-03",
+    "category": "reasoning",
+    "question": "某商品原价 200 元，先涨价 10%，再降价 10%，最终价格是多少？与原价相比如何？",
+    "referenceClaims": [
+      "涨价后价格为 220 元",
+      "降价后最终价格为 198 元",
+      "最终价格低于原价 200 元"
+    ]
+  },
+  {
+    "id": "inst-01",
+    "category": "instruction",
+    "question": "用一句话解释什么是 RAG（检索增强生成）。",
+    "referenceClaims": [
+      "提到先从外部知识库检索相关内容",
+      "提到把检索结果作为上下文交给大模型生成答案"
+    ]
+  },
+  {
+    "id": "inst-02",
+    "category": "instruction",
+    "question": "列出三个最常用的 Git 命令，并各用一句话说明用途。",
+    "referenceClaims": [
+      "git add 用于将改动加入暂存区",
+      "git commit 用于将暂存改动提交到本地仓库",
+      "git push 用于将本地提交推送到远端仓库"
+    ]
+  },
+  {
+    "id": "inst-03",
+    "category": "instruction",
+    "question": "把下面这句话改写成更正式的商务表达：「这个方案不太行，再想想吧。」",
+    "referenceClaims": [
+      "输出使用了更正式、得体的措辞",
+      "保留了「当前方案不可行、需要重新考虑」这一核心含义"
+    ]
+  },
+  {
+    "id": "fmt-01",
+    "category": "format",
+    "question": "用 JSON 输出中国四大名著及其作者，键为书名、值为作者，不要任何解释文字。",
+    "referenceClaims": [
+      "输出是合法可解析的 JSON",
+      "包含《红楼梦》《三国演义》《水浒传》《西游记》四部",
+      "作者分别为曹雪芹、罗贯中、施耐庵、吴承恩"
+    ]
+  },
+  {
+    "id": "fmt-02",
+    "category": "format",
+    "question": "用 Markdown 表格对比 REST 与 GraphQL 的两点差异。",
+    "referenceClaims": [
+      "输出包含 Markdown 表格（有表头与分隔行）",
+      "至少列出两点差异，例如端点数量、客户端取数灵活性"
+    ]
+  },
+  {
+    "id": "fmt-03",
+    "category": "format",
+    "question": "把日期 2026-09-01 转换成 YYYY/MM/DD 格式。只输出结果，不要任何解释。",
+    "referenceClaims": [
+      "输出为 2026/09/01",
+      "不包含任何解释性文字"
+    ]
+  }
+]

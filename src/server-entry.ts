@@ -7,7 +7,7 @@
  */
 import "dotenv/config";
 import { loadConfig } from "./config/index.js";
-import { createChatModel } from "./agent/langchain.js";
+import { createChatModel, createEmbeddings } from "./agent/langchain.js";
 import { buildSystemPrompt } from "./agent/prompt.js";
 import { createAgentExecutor, createPtcAgent } from "./agent/loop.js";
 import { createTools } from "./tools/registry.js";
@@ -45,10 +45,7 @@ async function main() {
       : undefined;
   const llm = createChatModel(config);
 
-  const embeddings = new OpenAIEmbeddings({
-    apiKey: config.openAIApiKey,
-    model: "text-embedding-3-small",
-  });
+  const embeddings = createEmbeddings(config)
 
   // RAG setup
   const pool = await getPool(config);

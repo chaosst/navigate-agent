@@ -35,7 +35,9 @@ CREATE TABLE IF NOT EXISTS doc_chunks (
   id          UUID PRIMARY KEY,
   doc_id      UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
   content     TEXT NOT NULL,
-  embedding   vector(1536),
+  -- 维度与 embedding 模型强相关：nomic-embed-text=768 / bge-m3=1024 / text-embedding-3-small=1536。
+  -- 换模型需同步 ALTER COLUMN + 重建 ivfflat 索引。
+  embedding   vector(768),
   chunk_index INTEGER NOT NULL,
   metadata    JSONB NOT NULL DEFAULT '{}',
   fts_vector  tsvector

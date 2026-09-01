@@ -5,24 +5,18 @@
  * 用法: npx tsx scripts/reembed.ts
  */
 import { Pool } from "pg";
-import { OpenAIEmbeddings } from "@langchain/openai";
-import { config } from "dotenv";
-
-config();
+import "dotenv/config";
+import { loadConfig } from "../src/config/index.js";
+import { createEmbeddings } from "../src/agent/langchain.js";
 
 async function main() {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) { console.error("OPENAI_API_KEY required"); process.exit(1); }
-
-  const dbUrl = process.env.DATABASE_URL;
-  if (!dbUrl) { console.error("DATABASE_URL required"); process.exit(1); }
+  // 统一走 loadConfig + createEmbeddings：baseURL/模型/apiKey 全部跟随 provider 解析，
+  // 此前硬编码 baseURL="https://api.deepseek.com/v1" 且模型写死，切 provider 就得改脚本。
+  const config = loadConfig();
+  const dbUrl = config.databaseUrl;
 
   const pg = new Pool({ connectionString: dbUrl });
-  const embeddings = new OpenAIEmbeddings({
-    apiKey,
-    baseURL: "https://api.deepseek.com/v1",
-    model: "deepseek-embedding-v1",
-  });
+  const embeddings = createEmbeddings(config);
 
   // 找出所有没有 embedding 的 chunk
   const { rows: chunks } = await pg.query(

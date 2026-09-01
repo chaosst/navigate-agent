@@ -1,0 +1,10 @@
+{
+  "id": "task-1-rag-qa",
+  "description": "基于给定上下文回答用户问题，禁止编造",
+  "context": "navigate 是一个基于 TypeScript 的 Agent 系统，使用 LangGraph 双模式执行器，支持 MCP 工具集成，通过 Docker 部署到阿里云。",
+  "question": "navigate 的技术栈是什么？",
+  "expected_keywords": ["TypeScript", "LangGraph", "MCP"],
+  "check_rules": {
+    "no_hallucination": true
+  }
+}

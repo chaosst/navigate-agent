@@ -71,10 +71,9 @@ async function cmdRag(): Promise<void> {
   }
 
   const { loadConfig } = await import("../config/index.js");
-  const { createChatModel } = await import("../agent/langchain.js");
+  const { createChatModel, createEmbeddings } = await import("../agent/langchain.js");
   const { getPool } = await import("../storage/pool.js");
   const { PgVectorStore } = await import("../storage/pg-vector-store.js");
-  const { OpenAIEmbeddings } = await import("@langchain/openai");
   const { runRagEval } = await import("./runner/rag-eval.js");
   const { writeReports } = await import("./report/report.js");
 
@@ -82,10 +81,9 @@ async function cmdRag(): Promise<void> {
   const samples = JSON.parse(readFileSync(datasetPath, "utf-8")) as Parameters<typeof runRagEval>[0]["samples"];
 
   const llm = createChatModel(config);
-  const embeddings = new OpenAIEmbeddings({
-    apiKey: config.openAIApiKey,
-    model: config.embeddingModel,
-  });
+  // 统一走 createEmbeddings 工厂：baseURL 跟随 provider 解析（DeepSeek/vLLM/Ollama 场景必需），
+  // 此前直接 new OpenAIEmbeddings({ apiKey, model }) 会打到 OpenAI 官方端点而失败。
+  const embeddings = createEmbeddings(config);
   const pool = await getPool(config);
   const store = new PgVectorStore(pool, embeddings);
 

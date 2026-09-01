@@ -1,0 +1,73 @@
+# 本地推理引擎：ollama 为主（Windows 可跑，CPU 即可）。
+# 用法：
+#   docker compose -f docker-compose.local-llm.yml up -d
+#   docker exec ollama ollama pull qwen2.5:7b        # 约 4.7GB，注意磁盘
+# 验证：curl http://localhost:11434/v1/models
+
+services:
+  ollama:
+    # 固定容器名：默认 compose 会按 <项目名>_<服务名>_<副本号> 命名（如 navigate-ollama-1），
+    # 导致 `docker exec ollama ...` 找不到容器。固定后文档命令原样可用。
+    container_name: ollama
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  # ── vLLM（本机已实测 GPU 透传 OK：docker run --rm --gpus all nvidia/cuda nvidia-smi）──
+  # 显存账本：RTX 2070 8GB，但启动时可用仅 ~6.98GB（约 1.3GB 被桌面进程占用）
+  #   1.5B FP16 ~3GB（当前配置：跑通链路首选，KV cache 充足）
+  #   3B FP16 ~6.2GB（util 需 ≥0.9 且无其他显存占用，KV cache 接近零，慎用）
+  #   7B 需 AWQ INT4 ~5-6GB（max-model-len 压 2048）
+  # Turing 无 BF16 → 必须 --dtype float16
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: vllm
+    ports:
+      - "8000:8000"
+    volumes:
+      - vllm-cache:/root/.cache/huggingface
+    environment:
+      - HF_ENDPOINT=https://hf-mirror.com   # 国内拉 HF 模型必须，否则直连超时
+      - HF_HUB_DISABLE_XET=1                # 禁用 HF Xet 二进制存储（走独立域名，镜像不到会 401），强制回退普通 HTTP 下载
+      - HF_TOKEN=${HF_TOKEN:-}
+      - VLLM_WSL2_ENABLE_PIN_MEMORY=1       # WSL2 跑 vLLM 必需：解锁锁页内存，否则 UVA 不可用直接崩（RuntimeError: UVA is not available）
+    command:
+      - "--model"
+      - "Qwen/Qwen2.5-1.5B-Instruct"
+      - "--served-model-name"
+      - "Qwen2.5-1.5B-Instruct"
+      - "--dtype"
+      - "float16"
+      - "--max-model-len"
+      - "4096"
+      - "--gpu-memory-utilization"
+      - "0.85"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+# ── 备选 2：SGLang（需 NVIDIA GPU，Linux 专用；端口 30000）──
+# sglang:
+#   image: lmsysorg/sglang:latest
+#   runtime: nvidia
+#   ports:
+#     - "30000:30000"
+#   command: ["python3", "-m", "sglang.launch_server",
+#             "--model-path", "Qwen/Qwen2.5-7B-Instruct",
+#             "--host", "0.0.0.0", "--port", "30000"]
+
+
+volumes:
+  ollama-data:
+  vllm-cache:

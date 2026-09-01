@@ -1,0 +1,15 @@
+{
+  "id": "task-3-multi-agent",
+  "description": "多 Agent 协作：researcher 基于给定材料产出要点，writer 依据要点成文",
+  "context": "navigate 是一个基于 TypeScript 的 Agent 系统，使用 LangGraph 双模式执行器，支持 MCP 工具集成，通过 Docker 部署到阿里云。",
+  "topic": "navigate 的核心架构",
+  "requirements": {
+    "researcher_output": "至少 3 条要点，全部来自给定材料",
+    "writer_output": "成文 3-5 句，必须覆盖全部要点"
+  },
+  "expected_keywords": ["TypeScript", "LangGraph", "MCP"],
+  "check_rules": {
+    "handoff_required": true,
+    "no_hallucination": true
+  }
+}

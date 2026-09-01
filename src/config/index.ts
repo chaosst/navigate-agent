@@ -1,11 +1,14 @@
 import { config } from "dotenv";
 import type { McpServerConfig } from "../tools/mcp.js";
+import { ProviderName, resolveProvider } from "./llm-providers.js";
 
 export interface AppConfig {
   openAIApiKey: string;
   modelName: string;
   maxIterations: number;
   baseURL: string;
+  /** embedding 专用端点。EMBEDDING_BASE_URL 未设置时与 baseURL 相同（跟随 provider） */
+  embeddingBaseURL: string;
   /** 单次 LLM 调用超时（ms）。PTC 场景模型常生成大段程序/文档，默认 120s */
   llmTimeoutMs: number;
   /** embedding 模型（摘要/向量检索用）。若 baseURL 无该模型，摘要检索自动降级关键词 */
@@ -30,6 +33,10 @@ export interface AppConfig {
   ptcMaxOutputBytes: number;      // PTC_MAX_OUTPUT_BYTES，默认 64_1024（64KB）
   ptcMaxParallelSubCalls: number; // PTC_MAX_PARALLEL_SUBCALLS，默认 10；1 恢复串行
   ptcMode: "code" | "both";       // PTC_TOOL_MODE，默认 "code"（PTC 内是否同时保留原生工具）
+
+  /** 推理引擎 provider（PROVIDER 解析结果，默认 "openai"）。供日志/验证展示 */
+  provider: ProviderName;
+
 }
 
 export type AgentMode = "normal" | "plan" | "ptc"
@@ -37,11 +44,9 @@ export type AgentMode = "normal" | "plan" | "ptc"
 export function loadConfig(): AppConfig {
   config();
 
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is required but not set.");
-  }
-
+  const profile = resolveProvider(process.env)
+  // 统一走 provider 解析。openai 必填校验已下沉到 resolveProvider 的 openai 分支；
+  // 本地后端（ollama/vllm/sglang）缺 OPENAI_API_KEY 时用 provider 名占位，不抛错。
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
     throw new Error("DATABASE_URL is required but not set.");
@@ -84,12 +89,14 @@ export function loadConfig(): AppConfig {
   const ptcMode: "code" | "both" = ptcModeRaw === "both" ? "both" : "code";
 
   return {
-    openAIApiKey: apiKey,
-    modelName: process.env.OPENAI_MODEL ?? "gpt-4o",
+    provider: profile.provider,
+    openAIApiKey: profile.apiKey,
+    modelName: profile.model,
+    baseURL: profile.baseURL,
+    embeddingBaseURL: profile.embeddingBaseURL,
+    embeddingModel: profile.embeddingModel,
     maxIterations,
-    baseURL: process.env.OPENAI_BASE_URL ?? "",
     llmTimeoutMs: num(process.env.LLM_TIMEOUT_MS, 120_000),
-    embeddingModel: process.env.EMBEDDING_MODEL ?? "text-embedding-3-small",
     mcpServers,
     databaseUrl,
     databasePoolMin: parseInt(process.env.DATABASE_POOL_MIN ?? "2", 10),

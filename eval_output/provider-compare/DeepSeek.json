@@ -1,0 +1,174 @@
+{
+  "label": "DeepSeek",
+  "provider": "openai",
+  "model": "deepseek-v4-flash",
+  "baseURL": "https://api.deepseek.com",
+  "createdAt": "2026-09-01T06:56:20.641Z",
+  "counts": {
+    "total": 12,
+    "ok": 12,
+    "failed": 0
+  },
+  "avg": {
+    "answerRelevancy": 1,
+    "claimCoverage": 0.7777777777777777,
+    "totalMs": 2371.4361583333293,
+    "outputTokens": 172.5
+  },
+  "byCategory": {
+    "factual": {
+      "answerRelevancy": 1,
+      "claimCoverage": 0.611111111111111,
+      "n": 3
+    },
+    "reasoning": {
+      "answerRelevancy": 1,
+      "claimCoverage": 0.6666666666666666,
+      "n": 3
+    },
+    "instruction": {
+      "answerRelevancy": 1,
+      "claimCoverage": 0.8333333333333334,
+      "n": 3
+    },
+    "format": {
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "n": 3
+    }
+  },
+  "samples": [
+    {
+      "id": "fact-01",
+      "category": "factual",
+      "question": "HTTP 状态码 404 表示什么？",
+      "answer": "HTTP 状态码 **404** 表示 **“Not Found”（未找到）**。\n\n具体含义是：**服务器无法找到请求的资源**（如网页、图片、接口等），或者服务器拒绝返回该资源但不想说明原因。常见情况包括：\n\n- 网址拼写错误\n- 资源被删除或移动\n- 链接失效\n\n简单说：**你想访问的东西不存在**。",
+      "totalMs": 4037.587599999999,
+      "outputTokens": 99,
+      "answerRelevancy": 1,
+      "claimCoverage": 0.5,
+      "error": null
+    },
+    {
+      "id": "fact-02",
+      "category": "factual",
+      "question": "TCP 和 UDP 的核心区别是什么？请简要说明。",
+      "answer": "TCP 和 UDP 的核心区别在于：\n\n- **TCP**：面向连接、可靠传输。通信前需建立连接（三次握手），提供确认、重传、排序和流量/拥塞控制，保证数据完整有序到达。适合网页、文件传输、邮件等对可靠性要求高的场景。\n- **UDP**：无连接、尽力而为。不建立连接，不保证可靠性和顺序，但开销小、延迟低、效率高。适合视频直播、语音通话、在线游戏等实时性要求高、可容忍一定丢包的场景。\n\n简单说：**TCP 重可靠，UDP 重速度。**",
+      "totalMs": 2490.1221000000005,
+      "outputTokens": 179,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "error": null
+    },
+    {
+      "id": "fact-03",
+      "category": "factual",
+      "question": "什么是向量数据库？它解决什么问题？",
+      "answer": "## 什么是向量数据库？\n\n向量数据库是一种专门用于存储、管理和检索**向量数据**的数据库。向量是一组数值（通常由浮点数组成），它表示某个对象（如文本、图片、音频、用户行为等）在高维空间中的位置。这些向量通常由机器学习模型（如嵌入模型）生成，能够捕捉对象的语义特征。\n\n例如，一句话“我喜欢猫”可以被转换成一个 512 维的向量，而“我热爱猫咪”的向量会与它非常接近，因为它们语义相似。\n\n## 它解决什么问题？\n\n传统数据库（关系型数据库）通常存储结构化数据，并按精确匹配或规则查询（如 SQL 中的 `=`、`LIKE`）。但面对以下场景时，传统数据库力不从心：\n\n1. **相似性搜索**：找到“和这段文字意思最相近的文本”，而不是完全匹配。\n2. **非结构化数据的语义理解**：图片、音频、视频无法用传统字段直接描述。\n3. **大规模高维数据检索**：当数据量达到百万、亿级时，暴力计算距离会非常慢。\n\n向量数据库专门解决这些问题，核心能力包括：\n\n- **高效相似度计算**：支持余弦相似度、欧氏距离、内积等距离算法，快速找到“最相似的 Top-K”向量。\n- **高维索引技术**：采用 ANN（近似最近邻）算法，如 HNSW、IVF、PQ 等，在牺牲极小精度的情况下，将检索速度提升数个数量级，支撑海量数据实时检索。\n- **实时写入与更新**：支持向量的增删改查，适合动态变化的数据。\n- **混合查询**：结合结构化过滤条件（如“只搜索 2024 年且类别为新闻的向量”）与向量相似度检索，满足复杂业务需求。\n- **与 AI 生态无缝集成**：常与 Embedding 模型、大语言模型（LLM）配合使用。\n\n## 典型应用场景\n\n- **RAG（检索增强生成）**：将知识库内容向量化存入向量数据库，用户提问时先检索最相关片段，再交给大模型生成答案。\n- **语义搜索**：电商、文档、企业搜索中，按“含义”而非“关键词”匹配。\n- **推荐系统**：将用户和物品向量化，通过相似度计算实现个性化推荐。\n- **异常检测**：识别与正常模式向量距离过大的异常点。\n- **人脸识别 / 图片搜索**：将图像编码为向量，进行“以图搜图”或身份验证。\n\n## 与传统数据库的关系\n\n向量数据库并不是要完全取代传统数据库，而是作为补充。在实际系统中，常见架构是：\n- 用 MySQL / PostgreSQL 存储业务元数据（如商品 ID、价格、库存）。\n- 用向量数据库存储商品图片/描述的语义向量，并负责相似检索。\n- 先通过向量数据库找到 Top-K 候选，再回传统数据库查详情，或直接在向量数据库中同时存储元数据，做混合检索。\n\n---\n\n**总结**：向量数据库是面向 AI 时代的数据基础设施，它让机器能够高效地处理和检索“语义信息”，是构建智能搜索、推荐、大模型应用的关键组件。",
+      "totalMs": 7752.924499999997,
+      "outputTokens": 717,
+      "answerRelevancy": 1,
+      "claimCoverage": 0.3333333333333333,
+      "error": null
+    },
+    {
+      "id": "reas-01",
+      "category": "reasoning",
+      "question": "一个水池，进水管单独开 3 小时注满，出水管单独开 6 小时排空。两管同时打开，多久能注满？请给出计算过程。",
+      "answer": "进水管效率：每小时注满 \\( \\frac{1}{3} \\) 水池  \n出水管效率：每小时排空 \\( \\frac{1}{6} \\) 水池\n\n两管同时打开，净效率为：\n\n\\[\n\\frac{1}{3} - \\frac{1}{6} = \\frac{2}{6} - \\frac{1}{6} = \\frac{1}{6}\n\\]\n\n即每小时实际注满水池的 \\( \\frac{1}{6} \\)。\n\n所以注满整个水池所需时间为：\n\n\\[\n1 \\div \\frac{1}{6} = 6 \\text{小时}\n\\]\n\n答：两管同时打开，需要 **6 小时** 才能注满水池。",
+      "totalMs": 2443.487399999998,
+      "outputTokens": 261,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "error": null
+    },
+    {
+      "id": "reas-02",
+      "category": "reasoning",
+      "question": "把数组 [5, 2, 9, 1] 按升序排序，结果是什么？只给出排序后的数组。",
+      "answer": "[1, 2, 5, 9]",
+      "totalMs": 1096.8323000000019,
+      "outputTokens": 65,
+      "answerRelevancy": 1,
+      "claimCoverage": 0,
+      "error": null
+    },
+    {
+      "id": "reas-03",
+      "category": "reasoning",
+      "question": "某商品原价 200 元，先涨价 10%，再降价 10%，最终价格是多少？与原价相比如何？",
+      "answer": "最终价格是 **198 元**。\n\n计算：  \n200 ×（1 + 10%）= 220 元  \n220 ×（1 - 10%）= 198 元  \n\n与原价 200 元相比：**便宜了 2 元**，相当于降低了 **1%**。",
+      "totalMs": 1640.8022999999957,
+      "outputTokens": 112,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "error": null
+    },
+    {
+      "id": "inst-01",
+      "category": "instruction",
+      "question": "用一句话解释什么是 RAG（检索增强生成）。",
+      "answer": "RAG（检索增强生成）是一种让大语言模型在生成回答前先从外部知识库检索相关信息，再结合这些信息生成更准确、可溯源答案的技术方法。",
+      "totalMs": 838.917300000001,
+      "outputTokens": 50,
+      "answerRelevancy": 1,
+      "claimCoverage": 0.5,
+      "error": null
+    },
+    {
+      "id": "inst-02",
+      "category": "instruction",
+      "question": "列出三个最常用的 Git 命令，并各用一句话说明用途。",
+      "answer": "1. `git add`：将工作区的文件改动添加到暂存区，为提交做准备。  \n2. `git commit`：把暂存区的内容保存为一个新的版本记录，提交到本地仓库。  \n3. `git push`：将本地仓库的提交推送到远程仓库，实现同步共享。",
+      "totalMs": 1587.1134999999995,
+      "outputTokens": 116,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "error": null
+    },
+    {
+      "id": "inst-03",
+      "category": "instruction",
+      "question": "把下面这句话改写成更正式的商务表达：「这个方案不太行，再想想吧。」",
+      "answer": "好的，这里有几个更正式的商务表达方式供您参考：\n\n1. **该方案尚有不妥之处，建议进一步优化后再行评估。**\n2. **此方案目前看来可行性略有欠缺，烦请再做深入考量。**\n3. **关于该方案，我们建议暂缓推进，待进一步完善后再作决策。**\n4. **经初步评估，现有方案与预期目标仍存在差距，请重新修订。**",
+      "totalMs": 1733.4291999999914,
+      "outputTokens": 101,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "error": null
+    },
+    {
+      "id": "fmt-01",
+      "category": "format",
+      "question": "用 JSON 输出中国四大名著及其作者，键为书名、值为作者，不要任何解释文字。",
+      "answer": "{\"三国演义\":\"罗贯中\",\"水浒传\":\"施耐庵\",\"西游记\":\"吴承恩\",\"红楼梦\":\"曹雪芹\"}",
+      "totalMs": 1361.353299999988,
+      "outputTokens": 81,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "error": null
+    },
+    {
+      "id": "fmt-02",
+      "category": "format",
+      "question": "用 Markdown 表格对比 REST 与 GraphQL 的两点差异。",
+      "answer": "| 对比维度 | REST | GraphQL |\n|---------|------|---------|\n| **数据获取方式** | 通常由服务端返回固定结构，客户端可能获取到多余字段（over-fetching）或需多次请求（under-fetching） | 客户端可精确指定所需字段，一次请求获取恰好需要的数据，减少冗余与多次往返 |\n| **接口形态与版本管理** | 以多个 URL 端点（Endpoint）表示不同资源，新增/调整需求常需新增端点或版本化（如 `/v2`） | 单一端点（通常为 `/graphql`），通过 query/mutation 操作数据，API 演进依赖 schema 扩展而非新建端点 |",
+      "totalMs": 2621.599099999992,
+      "outputTokens": 236,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "error": null
+    },
+    {
+      "id": "fmt-03",
+      "category": "format",
+      "question": "把日期 2026-09-01 转换成 YYYY/MM/DD 格式。只输出结果，不要任何解释。",
+      "answer": "2026/09/01",
+      "totalMs": 853.0652999999875,
+      "outputTokens": 53,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "error": null
+    }
+  ]
+}

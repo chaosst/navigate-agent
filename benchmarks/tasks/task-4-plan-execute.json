@@ -1,0 +1,14 @@
+{
+  "id": "task-4-plan-execute",
+  "description": "先产出可执行的步骤计划，再逐步执行；执行中若超预算必须回退修改计划后重算（验证控制流回环）",
+  "goal": "为 3 人团建做预算：先列出至少 3 步计划，然后逐项用 calculator 计算总花费；若总花费超过 300 元，必须回退修改计划后重算，直到不超过 300 元。",
+  "budget": 300,
+  "people": 3,
+  "expected_plan_steps_min": 3,
+  "require_replan_on_failure": true,
+  "check_rules": {
+    "plan_before_execute": true,
+    "replan_loop_detected": true,
+    "final_budget_ok": true
+  }
+}

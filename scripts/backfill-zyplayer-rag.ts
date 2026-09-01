@@ -11,7 +11,7 @@
 
 import "dotenv/config";
 import { loadConfig } from "../src/config/index.js";
-import { OpenAIEmbeddings } from "@langchain/openai";
+import { createEmbeddings } from "../src/agent/langchain.js";
 import { PgVectorStore } from "../src/storage/pg-vector-store.js";
 import { getPool } from "../src/storage/pool.js";
 import { ZyplayerDocAdapter } from "../src/wiki-sync/zyplayer-doc-adapter.js";
@@ -28,10 +28,9 @@ async function main() {
 
   // 2. 初始化 RAG 存储（与 server-entry.ts 一致）
   console.log("🔌 连接 PostgreSQL...");
-  const embeddings = new OpenAIEmbeddings({
-    apiKey: config.openAIApiKey,
-    model: "text-embedding-3-small",
-  });
+  // 统一走 createEmbeddings 工厂：baseURL 跟随 provider 解析，模型跟随 EMBEDDING_MODEL，
+  // 此前硬编码 "text-embedding-3-small" 且不传 baseURL，DeepSeek/vLLM 场景会失败。
+  const embeddings = createEmbeddings(config);
   const pool = await getPool(config);
   const ragStore = new PgVectorStore(pool, embeddings);
 

@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS summaries (
   msg_start_id    BIGINT,
   msg_end_id      BIGINT,
   original_chars  INTEGER DEFAULT 0,
-  embedding       vector(1536),
+  -- 维度与 embedding 模型强相关（当前 nomic-embed-text = 768），换模型需同步 ALTER
+  embedding       vector(768),
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_summaries_session ON summaries(session_id, created_at);

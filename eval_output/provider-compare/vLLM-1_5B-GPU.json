@@ -1,0 +1,174 @@
+{
+  "label": "vLLM-1.5B-GPU",
+  "provider": "vllm",
+  "model": "Qwen2.5-1.5B-Instruct",
+  "baseURL": "http://localhost:8000/v1",
+  "createdAt": "2026-09-01T07:05:12.567Z",
+  "counts": {
+    "total": 12,
+    "ok": 12,
+    "failed": 0
+  },
+  "avg": {
+    "answerRelevancy": 1,
+    "claimCoverage": 0.6527777777777778,
+    "totalMs": 2692.614075000002,
+    "outputTokens": 129.33333333333334
+  },
+  "byCategory": {
+    "factual": {
+      "answerRelevancy": 1,
+      "claimCoverage": 0.49999999999999994,
+      "n": 3
+    },
+    "reasoning": {
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "n": 3
+    },
+    "instruction": {
+      "answerRelevancy": 1,
+      "claimCoverage": 0.1111111111111111,
+      "n": 3
+    },
+    "format": {
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "n": 3
+    }
+  },
+  "samples": [
+    {
+      "id": "fact-01",
+      "category": "factual",
+      "question": "HTTP 状态码 404 表示什么？",
+      "answer": "HTTP状态码404表示“Not Found”，意为请求的资源未找到。当客户端向服务器发送一个请求，而服务器无法找到该请求所指向的资源时，就会返回这个状态码。例如，如果用户在搜索引擎中输入了一个不存在的关键词，搜索引擎会返回404错误页面，告诉用户找不到相关结果。",
+      "totalMs": 4992.790800000001,
+      "outputTokens": 74,
+      "answerRelevancy": 1,
+      "claimCoverage": 0.5,
+      "error": null
+    },
+    {
+      "id": "fact-02",
+      "category": "factual",
+      "question": "TCP 和 UDP 的核心区别是什么？请简要说明。",
+      "answer": "TCP（传输控制协议）和UDP（用户数据报协议）是两种不同的网络通信协议，它们在功能、服务质量和性能上有所不同。\n\n1. **可靠性**：\n   - TCP 是一种面向连接的协议，它提供了一种可靠的数据传输机制。这意味着即使在网络中出现错误或延迟，TCP 也能确保数据能够被正确地发送和接收。\n   - UDP 是一种无连接的协议，它不保证数据包的顺序、完整性或可靠性。因此，如果数据丢失或损坏，UDP 不会进行重传。\n\n2. **服务质量**：\n   - TCP 提供了较高的服务质量，因为它可以处理突发流量，并且具有更好的错误恢复能力。\n   - UDP 更适合于需要低延迟和高吞吐量的应用场景，如实时视频流或在线游戏。\n\n3. **应用范围**：\n   - TCP 常用于需要可靠传输的应用，例如文件传输、电子邮件和远程桌面等。\n   - UDP 常用于不需要可靠传输的应用，例如即时消息、音频流和视频流等。\n\n4. **效率**：\n   - TCP 在大多数情况下比 UDP 更高效，因为它的数据传输过程更加复杂，但这也意味着它可以更好地处理突发流量。\n   - UDP 比 TCP 更简单，因此其数据传输速度更快，适用于对延迟敏感的应用。\n\n5. **使用场景**：\n   - 对于需要高可靠性和低延迟的应用，通常会选择 TCP。\n   - 对于需要快速传输大量数据的应用，或者对延迟不敏感的应用，通常会选择 UDP。\n\n总的来说，TCP 和 UDP 都是实现互联网通信的重要协议，选择哪种协议取决于具体的应用需求和应用场景。",
+      "totalMs": 7439.8240000000005,
+      "outputTokens": 347,
+      "answerRelevancy": 1,
+      "claimCoverage": 0.6666666666666666,
+      "error": null
+    },
+    {
+      "id": "fact-03",
+      "category": "factual",
+      "question": "什么是向量数据库？它解决什么问题？",
+      "answer": "向量数据库是一种特殊的数据库，用于存储和检索具有高维特征的数据。这些数据通常以向量形式表示，每个向量代表一个对象或文档的特征描述。\n\n向量数据库的主要优势在于它们能够高效地处理大规模、高维度的数据，并且可以快速进行相似性搜索。这使得它们在许多领域中非常有用，例如：\n\n1. 信息检索：向量数据库可以帮助搜索引擎更准确地找到用户想要的信息。\n2. 图像识别：通过将图像转换为向量表示，向量数据库可以提高图像识别的准确性。\n3. 推荐系统：向量数据库可以用来分析用户的兴趣和行为模式，从而提供个性化的推荐。\n4. 自然语言处理：向量数据库可以用于文本分类、情感分析等任务。\n\n然而，向量数据库也有一些挑战需要克服，例如如何有效地存储和查询大量高维数据，以及如何保证数据的一致性和完整性。因此，在实际应用中，向量数据库通常会与其他技术（如分布式计算、机器学习算法）结合使用，以实现更好的性能和效果。",
+      "totalMs": 4314.561300000001,
+      "outputTokens": 227,
+      "answerRelevancy": 1,
+      "claimCoverage": 0.3333333333333333,
+      "error": null
+    },
+    {
+      "id": "reas-01",
+      "category": "reasoning",
+      "question": "一个水池，进水管单独开 3 小时注满，出水管单独开 6 小时排空。两管同时打开，多久能注满？请给出计算过程。",
+      "answer": "要解决这个问题，我们可以使用逆向思维的方法来简化问题。\n\n首先，我们假设整个水池的容量为 \\(C\\) 单位（例如：100升）。\n\n- 进水管单独工作3小时可以注满整个水池，所以进水管每小时的工作效率是 \\(\\frac{C}{3}\\)。\n- 出水管单独工作6小时可以排空整个水池，所以出水管每小时的工作效率是 \\(-\\frac{C}{6}\\)（负号表示排水）。\n\n当两管同时工作时，它们的总工作效率就是进水管和出水管工作效率之和：\n\\[ \\text{总工作效率} = \\left( \\frac{C}{3} - \\frac{C}{6} \\right) \\]\n\n为了方便计算，我们将分母统一，得到：\n\\[ \\text{总工作效率} = \\left( \\frac{2C}{6} - \\frac{C}{6} \\right) = \\frac{C}{6} \\]\n\n这意味着，当两管同时工作时，每小时可以注满 \\(\\frac{C}{6}\\) 的水。\n\n因此，要注满整个水池 \\(C\\) 单位的水，所需的时间 \\(T\\) 可以通过以下公式计算：\n\\[ T = \\frac{C}{\\frac{C}{6}} = 6 \\text{ 小时} \\]\n\n所以，两管同时打开需要6小时才能注满整个水池。",
+      "totalMs": 4766.1874000000025,
+      "outputTokens": 315,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "error": null
+    },
+    {
+      "id": "reas-02",
+      "category": "reasoning",
+      "question": "把数组 [5, 2, 9, 1] 按升序排序，结果是什么？只给出排序后的数组。",
+      "answer": "[1, 2, 5, 9]",
+      "totalMs": 509.5971000000063,
+      "outputTokens": 13,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "error": null
+    },
+    {
+      "id": "reas-03",
+      "category": "reasoning",
+      "question": "某商品原价 200 元，先涨价 10%，再降价 10%，最终价格是多少？与原价相比如何？",
+      "answer": "首先计算商品在涨价后的价格：\n\n原价 = 200元\n\n涨价后价格 = 原价 + 原价的10% = 200元 + 200元 * 10% = 200元 + 20元 = 220元\n\n然后计算在降价后的价格：\n\n降价后价格 = 涨价后价格 - 涨价后价格的10% = 220元 - 220元 * 10% = 220元 - 22元 = 198元\n\n最后比较最终价格和原价：\n\n原价 = 200元\n\n最终价格 = 198元\n\n与原价相比，最终价格降低了2元。",
+      "totalMs": 2632.874799999998,
+      "outputTokens": 170,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "error": null
+    },
+    {
+      "id": "inst-01",
+      "category": "instruction",
+      "question": "用一句话解释什么是 RAG（检索增强生成）。",
+      "answer": "RAG是一种结合了检索和生成技术的AI系统，用于回答复杂问题。",
+      "totalMs": 438.08600000000297,
+      "outputTokens": 19,
+      "answerRelevancy": 1,
+      "claimCoverage": 0,
+      "error": null
+    },
+    {
+      "id": "inst-02",
+      "category": "instruction",
+      "question": "列出三个最常用的 Git 命令，并各用一句话说明用途。",
+      "answer": "1. `git clone <repository>`：克隆一个远程仓库到本地，方便快速访问和使用。\n2. `git add .`：将当前目录下的所有文件添加到暂存区，准备提交。\n3. `git commit -m \"message\"`：提交更改，通过提供一条简短的描述来记录这次变更的原因。",
+      "totalMs": 1336.820200000002,
+      "outputTokens": 74,
+      "answerRelevancy": 1,
+      "claimCoverage": 0.3333333333333333,
+      "error": null
+    },
+    {
+      "id": "inst-03",
+      "category": "instruction",
+      "question": "把下面这句话改写成更正式的商务表达：「这个方案不太行，再想想吧。」",
+      "answer": "\"Given the current situation, this proposal may not be suitable for implementation at this time. Please consider revising it further.\"",
+      "totalMs": 634.9709000000003,
+      "outputTokens": 26,
+      "answerRelevancy": 1,
+      "claimCoverage": 0,
+      "error": null
+    },
+    {
+      "id": "fmt-01",
+      "category": "format",
+      "question": "用 JSON 输出中国四大名著及其作者，键为书名、值为作者，不要任何解释文字。",
+      "answer": "```json\n{\n  \"西游记\": \"吴承恩\",\n  \"红楼梦\": \"曹雪芹\",\n  \"水浒传\": \"施耐庵\",\n  \"三国演义\": \"罗贯中\"\n}\n```",
+      "totalMs": 996.3676000000123,
+      "outputTokens": 49,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "error": null
+    },
+    {
+      "id": "fmt-02",
+      "category": "format",
+      "question": "用 Markdown 表格对比 REST 与 GraphQL 的两点差异。",
+      "answer": "以下是一个使用Markdown格式的表格，用于对比REST和GraphQL在两个主要方面的差异：\n\n| 特性 | REST | GraphQL |\n| --- | --- | --- |\n| 数据传输方式 | HTTP/HTTPS请求 | 使用HTTP/HTTPS进行数据查询 |\n| 数据结构 | 面向资源（如GET /users） | 面向对象（如query { user(id: \"123\") }） |\n| 编程模型 | 简单、直观且易于理解 | 强调类型安全和可扩展性 |\n| 查询复杂度 | 可以通过多个URL来获取不同部分的数据 | 只能通过单一URL获取所有数据 |\n| 安全性 | 对于每个操作都需要单独的认证和授权 | 提供了更细粒度的安全控制 |\n| 性能 | 在处理大量数据时可能需要多次网络请求 | 可以一次性返回所有数据 |\n\n请注意，这个表格只是一个示例，并不全面地涵盖所有的差异。GraphQL还支持其他特性，例如优化的缓存机制、更好的错误处理等。",
+      "totalMs": 3730.1226999999926,
+      "outputTokens": 227,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "error": null
+    },
+    {
+      "id": "fmt-03",
+      "category": "format",
+      "question": "把日期 2026-09-01 转换成 YYYY/MM/DD 格式。只输出结果，不要任何解释。",
+      "answer": "2026/09/01",
+      "totalMs": 519.1661000000022,
+      "outputTokens": 11,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "error": null
+    }
+  ]
+}

@@ -304,6 +304,11 @@ describe("WebSearchTool 代理配置", () => {
   });
 
   it("无任何代理时 dispatcher 为空、proxySource 为 none", async () => {
+    // 宿主机（CI/沙箱/企业网络）常带 HTTP(S)_PROXY 全局代理，会污染"无代理"断言；
+    // 这里显式清空，让用例只测代码自身行为，不依赖运行环境
+    vi.stubEnv("HTTP_PROXY", "");
+    vi.stubEnv("HTTPS_PROXY", "");
+    vi.stubEnv("ALL_PROXY", "");
     const fetchImpl = vi.fn(
       async (_url: string, init?: { dispatcher?: unknown }) => {
         expect(init?.dispatcher).toBeUndefined();

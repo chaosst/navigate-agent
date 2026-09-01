@@ -4,7 +4,7 @@ import React from "react";
 import { render } from "ink";
 import { App } from "./tui/app.js";
 import { loadConfig } from "./config/index.js";
-import { createChatModel } from "./agent/langchain.js";
+import { createChatModel, createEmbeddings } from "./agent/langchain.js";
 import { buildSystemPrompt } from "./agent/prompt.js";
 import { createTools } from "./tools/registry.js";
 import type { StructuredTool } from "@langchain/core/tools";
@@ -27,13 +27,7 @@ import { PermissionWrapper } from "./tools/permission.js";
 async function main() {
   const config = loadConfig();
   const llm = createChatModel(config);
-
-  const embeddings = new OpenAIEmbeddings({
-    apiKey: config.openAIApiKey,
-    model: config.embeddingModel,
-    // baseURL 默认与 LLM 一致；若你的 API 无 embedding 模型，摘要检索会降级关键词（不致命）
-    ...(config.baseURL ? { configuration: { baseURL: config.baseURL } } : {}),
-  });
+  const embeddings = createEmbeddings(config)
 
   // 连接池（被 AgentMemory 和 PgVectorStore 共享）
   const pool = await getPool(config);
