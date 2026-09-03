@@ -14,7 +14,10 @@ import { HumanMessage, SystemMessage } from "langchain";
 export interface RagEvalOptions {
     samples: RagEvalSample[]
     store: PgVectorStore        // 注入现有检索实例
-    llm: ChatOpenAI             // 生成答案 + judge 共用
+    llm: ChatOpenAI             // 生成答案
+    /** 独立 judge（可选）。判分若与被测共用同一 llm → self-preference bias；
+     *  跨后端对比必须传独立实例（如固定 DeepSeek），见 provider-eval-compare.md §8 P3 */
+    judge?: ChatOpenAI
     k?: number                  // 默认5
 }
 
@@ -36,6 +39,10 @@ export interface RagEvalSampleResult {
 }
 
 export async function runRagEval(opts: RagEvalOptions): Promise<{ results: RagEvalSampleResult[] }> {
+    if (!opts.judge) {
+        // 解耦提示只在整批开头打一次，不刷屏
+        console.warn("[eval] judge 与被测共用同一 llm（self-preference bias）。跨后端对比请传独立 judge，如 JUDGE_BASE_URL/JUDGE_MODEL。");
+    }
     const results: RagEvalSampleResult[] = [];
 
     for (let sample of opts.samples) {
@@ -81,8 +88,8 @@ async function processSample(sample: RagEvalSample, opts: RagEvalOptions): Promi
     // 生成
     const answer = await generateAnswer(opts.llm, sample.question, contexts)
 
-    // 六路指标 -- 注意：LLM judge 得复用同一个judge实例
-    const judge = new LlmJudge(opts.llm)
+    // 六路指标 -- judge 默认复用生成 llm；opts.judge 提供时（跨后端对比）用独立实例
+    const judge = new LlmJudge(opts.judge ?? opts.llm)
     const relevant = new Set(sample.relevantChunks ?? [])
     const hasAnnotation = !!sample.relevantChunks?.length
 

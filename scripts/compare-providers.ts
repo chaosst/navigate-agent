@@ -19,6 +19,7 @@
  *   npx tsx scripts/compare-providers.ts --provider deepseek --label "DeepSeek 云端"
  *   npx tsx scripts/compare-providers.ts --provider ollama --model qwen2.5:7b --label "ollama 7B CPU"
  *   npx tsx scripts/compare-providers.ts --provider vllm --model Qwen/Qwen2.5-1.5B-Instruct --label "vLLM 1.5B GPU"
+ *   （可选 --rounds 3：judge 每题独立判定 3 次取多数，默认已开，见 §8 改进项）
  *
  * 输出：eval_output/provider-compare/<label>.md 与 .json
  */
@@ -29,7 +30,7 @@ import { parseArgs } from "node:util";
 import { loadConfig, type AppConfig } from "../src/config/index.js";
 import { resolveProvider } from "../src/config/llm-providers.js";
 import { createChatModel } from "../src/agent/langchain.js";
-import { LlmJudge } from "../src/eval/judge/llm-judge.js";
+import { LlmJudge, type ClaimVerdict } from "../src/eval/judge/llm-judge.js";
 
 // ── 数据结构 ────────────────────────────────────────────────────────────────
 
@@ -54,6 +55,8 @@ interface SampleResult {
   answerRelevancy: number | null;
   /** 关键断言覆盖度 0-1 */
   claimCoverage: number | null;
+  /** 逐条 claim 判定明细（多数表决后），失败/未测为 null */
+  claimVerdicts: ClaimVerdict[] | null;
   /** 失败原因；成功为 null */
   error: string | null;
 }
@@ -64,6 +67,8 @@ interface ProviderSummary {
   model: string;
   baseURL: string;
   createdAt: string;
+  /** judge 每题的独立判定轮数（>1 = 多数表决，消除单次抖动） */
+  judgeRounds: number;
   counts: { total: number; ok: number; failed: number };
   avg: {
     answerRelevancy: number | null;
@@ -109,10 +114,12 @@ async function main(): Promise<void> {
       label: { type: "string" },
       dataset: { type: "string" },
       "judge-model": { type: "string", default: "deepseek-v4-flash" },
+      rounds: { type: "string" },
     },
   });
 
   const label = values.label ?? values.provider ?? "unknown";
+  const rounds = Math.max(1, parseInt(values.rounds ?? "3", 10) || 1); // §8 改进项：judge 多数表决轮数
   const datasetPath = resolve(values.dataset ?? "src/eval/datasets/provider-qa.json");
   const samples = JSON.parse(readFileSync(datasetPath, "utf-8")) as QaSample[];
 
@@ -141,6 +148,7 @@ async function main(): Promise<void> {
   console.log(`[compare] target   = ${targetProfile.provider} / ${targetProfile.model} @ ${targetProfile.baseURL}`);
   console.log(`[compare] judge    = ${judgeProfile.provider} / ${judgeProfile.model} @ ${judgeProfile.baseURL} (fixed)`);
   console.log(`[compare] dataset  = ${datasetPath} (${samples.length} samples)`);
+  console.log(`[compare] judge    = ${rounds} round(s) majority voting`);
   console.log("");
 
   const results: SampleResult[] = [];
@@ -155,6 +163,7 @@ async function main(): Promise<void> {
       outputTokens: null,
       answerRelevancy: null,
       claimCoverage: null,
+      claimVerdicts: null,
       error: null,
     };
 
@@ -176,14 +185,15 @@ async function main(): Promise<void> {
 
     // ── 评分。judge 出错同样只记 error，保留已测出的延迟 ──
     try {
-      row.answerRelevancy = await judge.scoreAnswer(s.question, row.answer);
+      row.answerRelevancy = await judge.scoreAnswer(s.question, row.answer, { rounds });
     } catch (e) {
       row.error = `judge scoreAnswer failed: ${e instanceof Error ? e.message : String(e)}`;
     }
 
     try {
       // 把模型自己的答案当作 context，判它是否覆盖了标准答案的关键断言 → 正确性/覆盖度
-      const verdicts = await judge.verifyClaims(s.referenceClaims, [row.answer]);
+      const verdicts = await judge.verifyClaims(s.referenceClaims, [row.answer], { rounds });
+      row.claimVerdicts = verdicts;
       row.claimCoverage = verdicts.filter((v) => v.supported).length / verdicts.length;
     } catch (e) {
       row.error = `judge verifyClaims failed: ${e instanceof Error ? e.message : String(e)}`;
@@ -214,6 +224,7 @@ async function main(): Promise<void> {
     model: targetProfile.model,
     baseURL: targetProfile.baseURL,
     createdAt: new Date().toISOString(),
+    judgeRounds: rounds,
     counts: { total: results.length, ok: okRows.length, failed: results.length - okRows.length },
     avg: {
       answerRelevancy: mean(okRows.map((r) => r.answerRelevancy)),
@@ -251,6 +262,7 @@ function renderMarkdown(s: ProviderSummary): string {
   L.push("");
   L.push(`- provider: \`${s.provider}\` / model: \`${s.model}\` @ \`${s.baseURL}\``);
   L.push(`- judge: 固定 DeepSeek（**与被测解耦**，避免 self-preference bias）`);
+  L.push(`- judge 判定：每题 ${s.judgeRounds} 轮独立判定取多数（claim 布尔多数 / 分数众数档）；claim 判定允许语义等价`);
   L.push(`- createdAt: ${s.createdAt}`);
   L.push(`- samples: ${s.counts.total}（成功 ${s.counts.ok} / 失败 ${s.counts.failed}）`);
   L.push("");
@@ -282,6 +294,24 @@ function renderMarkdown(s: ProviderSummary): string {
     );
   }
   L.push("");
+
+  // ── 低分题逐条判定明细（claimCoverage < 1 才展开，便于归因是 judge 误判还是真实偏差）──
+  const lowScores = s.samples.filter((r) => r.claimVerdicts && (r.claimCoverage ?? 1) < 1);
+  if (lowScores.length > 0) {
+    L.push("## 低分题 claim 判定明细");
+    L.push("");
+    for (const r of lowScores) {
+      L.push(`### ${r.id}（${r.category}，claimCoverage=${fmt(r.claimCoverage, 2)}）`);
+      L.push("");
+      L.push("| # | claim | supported | reason |");
+      L.push("|---|---|---|---|");
+      r.claimVerdicts!.forEach((v, i) => {
+        L.push(`| ${i} | ${v.claim} | ${v.supported ? "✅" : "❌"} | ${v.reason} |`);
+      });
+      L.push("");
+    }
+  }
+
   return L.join("\n");
 }
 

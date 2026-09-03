@@ -1,0 +1,511 @@
+{
+  "label": "DeepSeek 云端",
+  "provider": "openai",
+  "model": "deepseek-v4-flash",
+  "baseURL": "https://api.deepseek.com",
+  "createdAt": "2026-09-03T04:00:52.931Z",
+  "judgeRounds": 3,
+  "counts": {
+    "total": 16,
+    "ok": 16,
+    "failed": 0
+  },
+  "avg": {
+    "answerRelevancy": 1,
+    "claimCoverage": 1,
+    "totalMs": 2245.4923875000013,
+    "outputTokens": 202.8125
+  },
+  "byCategory": {
+    "factual": {
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "n": 4
+    },
+    "reasoning": {
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "n": 4
+    },
+    "instruction": {
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "n": 4
+    },
+    "format": {
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "n": 4
+    }
+  },
+  "samples": [
+    {
+      "id": "fact-01",
+      "category": "factual",
+      "question": "HTTP 状态码 404 表示什么？它属于哪一类错误响应？",
+      "answer": "HTTP 状态码 **404** 表示 **请求的资源不存在**，即服务器无法找到客户端请求的 URL 对应的资源。\n\n它属于 **4xx 客户端错误**（Client Error）这一类响应，表示错误通常源于请求本身，例如链接拼写错误、资源被删除或路径不正确。",
+      "totalMs": 3446.8821000000003,
+      "outputTokens": 83,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "claimVerdicts": [
+        {
+          "claim": "404 表示请求的资源不存在或未被找到",
+          "supported": true,
+          "reason": "上下文明确说明404表示资源不存在或找不到"
+        },
+        {
+          "claim": "404 属于客户端错误响应（4xx）",
+          "supported": true,
+          "reason": "上下文说明404属于4xx客户端错误"
+        },
+        {
+          "claim": "常见于访问了不存在、已删除或地址有误的资源",
+          "supported": true,
+          "reason": "上下文提到链接错误、资源删除或路径不正确，语义一致"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "fact-02",
+      "category": "factual",
+      "question": "TCP 和 UDP 的核心区别是什么？请简要说明。",
+      "answer": "TCP 和 UDP 的核心区别在于：\n\n- **TCP**：面向连接、可靠、有序。通信前需三次握手建立连接，提供确认、重传、排序、流量控制等功能，保证数据完整送达。适合需要可靠传输的场景，如网页、文件传输。\n- **UDP**：无连接、不可靠、无序。不建立连接直接发送数据，不确认、不重传，因此头部开销小、延迟低。适合实时或允许丢包的场景，如视频通话、在线游戏、DNS。\n\n一句话总结：**TCP 追求“可靠”，UDP 追求“速度”。**",
+      "totalMs": 2295.9375,
+      "outputTokens": 232,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "claimVerdicts": [
+        {
+          "claim": "TCP 是面向连接的、可靠的传输协议",
+          "supported": true,
+          "reason": "上下文明确表述TCP面向连接、可靠，语义一致。"
+        },
+        {
+          "claim": "UDP 是无连接的、不保证可靠送达",
+          "supported": true,
+          "reason": "上下文明确表述UDP无连接、不可靠，语义一致。"
+        },
+        {
+          "claim": "TCP 有重传与顺序保证，UDP 没有",
+          "supported": true,
+          "reason": "上下文明确表述TCP提供重传排序，UDP不确认不重传。"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "fact-03",
+      "category": "factual",
+      "question": "什么是向量数据库？它解决什么问题？",
+      "answer": "## 什么是向量数据库？\n\n向量数据库是一种专门用来存储、管理和检索**向量数据**的数据库。这里的“向量”通常指**嵌入向量**——也就是通过机器学习模型（如 BERT、GPT、CLIP 等）把文本、图片、音频、视频等非结构化数据转换成的**一串浮点数**。\n\n例如：\n- 一句话 “我喜欢猫” 可以变成一个 768 维的向量：`[0.12, -0.35, ...]`\n- 一张猫的图片可以变成同样的 768 维向量\n\n这些向量的核心特点是：**语义相近的对象，在向量空间中的距离也更近**。\n\n向量数据库会为这些向量建立专门的索引（如 HNSW、IVF、PQ 等），从而支持高效的**近似最近邻搜索**（ANN, Approximate Nearest Neighbor），也就是“查找与给定向量最相似的向量”。\n\n---\n\n## 它解决什么问题？\n\n传统数据库（如 MySQL、PostgreSQL）主要处理结构化数据（行和列），擅长精确匹配、范围查询和事务处理，但它们**不擅长“按语义相似度搜索”**。\n\n比如：\n- MySQL 中查找“含有‘猫’字的文本”可以用 `LIKE '%猫%'`，但没法回答“找出语义上跟‘我喜欢猫’最接近的句子”。\n- 传统索引（B+树）无法高效处理上千维的浮点向量，更无法计算“距离最近”的邻居。\n\n向量数据库主要解决以下几类问题：\n\n### 1. 非结构化数据的语义检索\n文本、图片、音频、视频没有固定的结构，无法用传统 SQL 精确匹配。向量数据库把它们的语义压缩成向量，并支持“以图搜图”“以文搜图”“语义搜索”等。\n\n- 例如：输入一句“一只在沙发上的橘猫”，系统能返回语义最匹配的图片。\n\n### 2. 大规模相似性搜索的性能\n当数据量达到千万、亿级时，暴力计算两两距离是不现实的。向量数据库通过 ANN 索引在海量数据中快速返回近似最近邻，通常可以在**毫秒级**完成搜索。\n\n### 3. 支持 AI/大模型应用（RAG）\n这是目前最热门的场景之一。大语言模型（LLM）存在知识过时、幻觉等问题。使用 **RAG（检索增强生成）** 时：\n\n1. 先将私有知识库（PDF、网页等）切分并向量化；\n2. 用户提问时，把问题向量化；\n3. 在向量数据库中检索最相关的知识片段；\n4. 将检索结果与上下文一起交给 LLM，生成更准确、可追溯的答案。\n\n向量数据库在这个流程中充当“长期记忆”或“外部知识库”的角色。\n\n### 4. 推荐系统\n用户行为、物品属性可以表示为向量。通过计算用户向量与物品向量的相似度，可以实现“与该用户兴趣最匹配的物品推荐”。\n\n### 5. 异常检测 / 去重\n在金融风控、网络安全中，正常行为构成一个向量空间，偏离正常簇的点可视为异常。\n\n---\n\n## 与传统数据库的关系\n\n向量数据库并不是完全取代传统数据库，而是互补：\n\n| 场景 | 传统数据库 | 向量数据库 |\n|---|---|---|\n| 精确匹配 | ✅ 强 | ❌ 弱 |\n| 范围查询 | ✅ 强 | ❌ 弱 |\n| 事务（ACID） | ✅ 强 | ❌ 弱 |\n| 语义相似搜索 | ❌ 不支持 | ✅ 强 |\n| 海量向量检索 | ❌ 效率极低 | ✅ 高效 |\n| RAG / AI 应用 | ❌ 不适合 | ✅ 核心组件 |\n\n常见的向量数据库包括：\n\n- **开源**：Milvus、Qdrant、Weaviate、Chroma、FAISS（更准确说是相似搜索库）\n- **商业化/云服务**：Pinecone、Zilliz（基于 Milvus）\n- **传统数据库扩展向量能力**：pgvector（PostgreSQL 插件）、Redis 向量搜索\n\n---\n\n## 总结\n\n> **向量数据库 = 向量化 + 相似度索引 + 高效检索**\n\n它解决的问题本质上是：**如何让计算机在海量的非结构化数据中，快速找到“语义相似”的内容**。它是 AI 时代连接大模型与海量知识之间的重要桥梁，也是 RAG、推荐、多模态搜索等系统的底层关键支撑。",
+      "totalMs": 9080.4083,
+      "outputTokens": 1011,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "claimVerdicts": [
+        {
+          "claim": "向量数据库用于持久化存储高维向量",
+          "supported": true,
+          "reason": "上下文指出向量数据库专门存储和管理向量数据"
+        },
+        {
+          "claim": "它支持按相似度进行近邻检索",
+          "supported": true,
+          "reason": "上下文明确支持近似最近邻相似度检索"
+        },
+        {
+          "claim": "典型用途是为大模型提供语义检索（RAG）",
+          "supported": true,
+          "reason": "上下文详述RAG场景中向量数据库承担检索角色"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "fact-04",
+      "category": "factual",
+      "question": "分别说明 HTTP 状态码 403 与 500 的含义，并指出各自属于客户端错误还是服务端错误。",
+      "answer": "HTTP 状态码 **403** 与 **500** 的含义如下：\n\n- **403 Forbidden**  \n  含义：服务器成功解析了客户端的请求，但拒绝执行该请求。即客户端没有权限访问该资源，即使通过身份验证也可能被禁止访问。  \n  类别：属于**客户端错误**（4xx 系列）。\n\n- **500 Internal Server Error**  \n  含义：服务器在处理请求时发生了未预期的错误，导致无法完成请求。通常是服务器端的代码异常、配置错误或资源问题所致。  \n  类别：属于**服务端错误**（5xx 系列）。",
+      "totalMs": 2112.740899999997,
+      "outputTokens": 204,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "claimVerdicts": [
+        {
+          "claim": "403 表示服务器理解请求但拒绝执行（通常因权限不足）",
+          "supported": true,
+          "reason": "上下文明确403为服务器拒绝执行，且因权限不足"
+        },
+        {
+          "claim": "500 表示服务器内部错误",
+          "supported": true,
+          "reason": "上下文指出500是服务器处理请求时发生未预期错误"
+        },
+        {
+          "claim": "403 属于客户端错误（4xx）",
+          "supported": true,
+          "reason": "上下文明确说明403属于客户端错误4xx"
+        },
+        {
+          "claim": "500 属于服务端错误（5xx）",
+          "supported": true,
+          "reason": "上下文明确说明500属于服务端错误5xx"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "reas-01",
+      "category": "reasoning",
+      "question": "一个水池，进水管单独开 3 小时注满，出水管单独开 6 小时排空。两管同时打开，多久能注满？请给出计算过程。",
+      "answer": "进水管效率：\\(1 \\div 3 = \\frac{1}{3}\\)（每小时注满水池的 \\(\\frac{1}{3}\\)）\n\n出水管效率：\\(1 \\div 6 = \\frac{1}{6}\\)（每小时排空水池的 \\(\\frac{1}{6}\\)）\n\n两管同时打开，每小时净注水量：\n\n\\[\n\\frac{1}{3} - \\frac{1}{6} = \\frac{2}{6} - \\frac{1}{6} = \\frac{1}{6}\n\\]\n\n也就是说，每小时能注满水池的 \\(\\frac{1}{6}\\)。\n\n所以注满整个水池需要：\n\n\\[\n1 \\div \\frac{1}{6} = 6 \\text{小时}\n\\]\n\n答案：两管同时打开，需要 **6 小时** 注满水池。",
+      "totalMs": 2060.075100000002,
+      "outputTokens": 250,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "claimVerdicts": [
+        {
+          "claim": "进水速率是每小时 1/3 池",
+          "supported": true,
+          "reason": "上下文明确给出进水管效率为1/3池每小时"
+        },
+        {
+          "claim": "出水速率是每小时 1/6 池",
+          "supported": true,
+          "reason": "上下文明确给出出水管效率为1/6池每小时"
+        },
+        {
+          "claim": "净速率为每小时 1/6 池",
+          "supported": true,
+          "reason": "上下文计算得净注水量为1/6池每小时"
+        },
+        {
+          "claim": "因此需要 6 小时注满",
+          "supported": true,
+          "reason": "上下文得出需要6小时注满水池"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "reas-02",
+      "category": "reasoning",
+      "question": "把数组 [5, 2, 9, 1] 按升序排序，结果是什么？只给出排序后的数组。",
+      "answer": "[1, 2, 5, 9]",
+      "totalMs": 618.9758999999976,
+      "outputTokens": 46,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "claimVerdicts": [
+        {
+          "claim": "排序结果的最小元素是 1 且排在最前",
+          "supported": true,
+          "reason": "上下文列表为[1,2,5,9]，最小元素1位于首位。"
+        },
+        {
+          "claim": "排序结果的最大元素是 9 且排在最后",
+          "supported": true,
+          "reason": "上下文列表末尾为9，且为最大元素。"
+        },
+        {
+          "claim": "完整排序结果为 [1, 2, 5, 9]",
+          "supported": true,
+          "reason": "上下文直接给出完整有序列表[1,2,5,9]。"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "reas-03",
+      "category": "reasoning",
+      "question": "某商品原价 200 元，先涨价 10%，再降价 10%，最终价格是多少？与原价相比如何？",
+      "answer": "最终价格是：\n\n\\[\n200 \\times (1+10\\%) \\times (1-10\\%)=200\\times1.1\\times0.9=198\\text{元}\n\\]\n\n与原价 200 元相比，降低了：\n\n\\[\n200-198=2\\text{元}\n\\]\n\n也就是比原价便宜了 **1%**。",
+      "totalMs": 1029.409599999999,
+      "outputTokens": 116,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "claimVerdicts": [
+        {
+          "claim": "涨价后价格为 220 元",
+          "supported": true,
+          "reason": "式子含200×(1+10%)，涨价后即200×1.1=220元。"
+        },
+        {
+          "claim": "降价后最终价格为 198 元",
+          "supported": true,
+          "reason": "上下文明确给出最终价格为198元。"
+        },
+        {
+          "claim": "最终价格低于原价 200 元",
+          "supported": true,
+          "reason": "上下文说明198元比200元便宜2元，低于原价。"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "reas-04",
+      "category": "reasoning",
+      "question": "一辆车先以 60 km/h 行驶 1 小时，再以 90 km/h 行驶 1 小时。全程平均速度是多少？请给出计算过程与最终数值。",
+      "answer": "全程平均速度 = 总路程 ÷ 总时间\n\n计算过程：\n\n- 第一段路程：60 km/h × 1 h = 60 km  \n- 第二段路程：90 km/h × 1 h = 90 km  \n- 总路程：60 + 90 = 150 km  \n- 总时间：1 + 1 = 2 h  \n\n所以：\n\n\\[\n\\text{平均速度}=\\frac{150\\text{ km}}{2\\text{ h}}=75\\text{ km/h}\n\\]\n\n最终答案：全程平均速度是 **75 km/h**。",
+      "totalMs": 1632.36510000001,
+      "outputTokens": 166,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "claimVerdicts": [
+        {
+          "claim": "前 1 小时行驶了 60 公里",
+          "supported": true,
+          "reason": "上下文明确写出第一段路程60km/h×1h=60km"
+        },
+        {
+          "claim": "后 1 小时行驶了 90 公里，总路程 150 公里",
+          "supported": true,
+          "reason": "上下文写明第二段90km，总路程150km"
+        },
+        {
+          "claim": "总用时 2 小时",
+          "supported": true,
+          "reason": "上下文列出总时间1+1=2h"
+        },
+        {
+          "claim": "全程平均速度为 75 km/h",
+          "supported": true,
+          "reason": "上下文计算得出平均速度75km/h"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "inst-01",
+      "category": "instruction",
+      "question": "用一句话解释什么是 RAG（检索增强生成），并说明它主要解决什么问题。",
+      "answer": "RAG（检索增强生成）是一种先检索外部知识再交给大模型生成回答的技术，主要解决模型知识过时、产生幻觉以及缺乏特定领域知识的问题。",
+      "totalMs": 1142.1229000000021,
+      "outputTokens": 91,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "claimVerdicts": [
+        {
+          "claim": "提到先从外部知识库检索相关内容",
+          "supported": true,
+          "reason": "上下文明确说先检索外部知识，再交给大模型生成回答。"
+        },
+        {
+          "claim": "提到检索到的信息被用于辅助生成（检索与生成相结合）",
+          "supported": true,
+          "reason": "上下文说检索外部知识后交给大模型生成，体现检索与生成结合。"
+        },
+        {
+          "claim": "提到该机制用于提升答案准确性或减少幻觉",
+          "supported": true,
+          "reason": "上下文明确提到RAG可解决幻觉问题，并缓解知识过时和缺乏领域知识。"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "inst-02",
+      "category": "instruction",
+      "question": "列出三个最常用的 Git 命令，并各用一句话说明用途。",
+      "answer": "1. `git add`：将工作区的文件改动添加到暂存区，准备提交。  \n2. `git commit`：将暂存区的内容保存为一次新的提交记录，形成版本历史。  \n3. `git push`：将本地的提交推送到远程仓库，与他人同步更新。",
+      "totalMs": 1577.081600000005,
+      "outputTokens": 165,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "claimVerdicts": [
+        {
+          "claim": "列出了至少三个 Git 命令",
+          "supported": true,
+          "reason": "上下文明确列出了git add、commit、push三个命令"
+        },
+        {
+          "claim": "每个命令都有对应的一句话用途说明",
+          "supported": true,
+          "reason": "每个命令后均有对应的一句话用途说明"
+        },
+        {
+          "claim": "所列命令及其用途描述准确（与 Git 实际行为一致）",
+          "supported": true,
+          "reason": "命令用途描述与Git实际行为一致，如add添加暂存区等"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "inst-03",
+      "category": "instruction",
+      "question": "把下面这句话改写成更正式的商务表达：「这个方案不太行，再想想吧。」",
+      "answer": "好的，这里有几个更正式的商务表达方式供您参考：\n\n1. **委婉建议型：** “该方案尚有优化空间，建议我们重新审视并进一步完善。”\n\n2. **说明理由型：** “鉴于当前方案在可行性/成本效益等方面存在不足，需请团队作进一步论证与调整。”\n\n3. **决策指令型：** “此方案暂不具备实施条件，请项目组另行拟定备选方案。”\n\n4. **引导反馈型：** “我们可能需要重新评估此方案的执行效果，请各位就关键环节提出修改意见。”\n\n您可以根据具体场合和沟通对象选择使用。",
+      "totalMs": 2184.5532999999996,
+      "outputTokens": 154,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "claimVerdicts": [
+        {
+          "claim": "输出为非口语化的书面/商务措辞（不使用「不太行」「再想想」这类口语）",
+          "supported": true,
+          "reason": "示例均为正式书面商务表达，无口语化词汇"
+        },
+        {
+          "claim": "保留了原句的否定/不满态度（方案不被认可，而非被肯定或夸赞）",
+          "supported": true,
+          "reason": "示例以“不足”“不具备条件”等表述隐含否定态度"
+        },
+        {
+          "claim": "给出了改进方向或后续行动建议（如优化、完善、重新评估等）",
+          "supported": true,
+          "reason": "示例均包含优化、调整、拟定方案等后续行动建议"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "inst-04",
+      "category": "instruction",
+      "question": "用两句话向非技术背景的人解释「什么是 API」。第一句给一句话定义，第二句给一个生活中的类比。避免专业术语堆砌。",
+      "answer": "API 是让不同软件之间能够互相请求和传递信息的“约定接口”。  \n就像在餐厅里，你只需向服务员点菜，服务员会帮你把需求传达给厨房，再把做好的菜端给你——你不用知道厨房里是怎么运作的。",
+      "totalMs": 1524.7311999999947,
+      "outputTokens": 119,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "claimVerdicts": [
+        {
+          "claim": "第一句给出 API 的简明定义（软件/服务间交互的接口）",
+          "supported": true,
+          "reason": "第一句明确定义API为软件间交互的约定接口。"
+        },
+        {
+          "claim": "第二句包含一个生活化类比（如餐厅服务员、插座）",
+          "supported": true,
+          "reason": "第二句用餐厅服务员类比，属生活化比喻。"
+        },
+        {
+          "claim": "整段解释不依赖未经解释的专业术语",
+          "supported": true,
+          "reason": "术语API已解释，其余为常见用词。"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "fmt-01",
+      "category": "format",
+      "question": "用 JSON 输出中国四大名著及其作者，键为书名、值为作者，不要任何解释文字。",
+      "answer": "{\"红楼梦\":\"曹雪芹\",\"三国演义\":\"罗贯中\",\"水浒传\":\"施耐庵\",\"西游记\":\"吴承恩\"}",
+      "totalMs": 1307.8930999999866,
+      "outputTokens": 105,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "claimVerdicts": [
+        {
+          "claim": "输出是合法可解析的 JSON",
+          "supported": true,
+          "reason": "上下文是合法JSON对象"
+        },
+        {
+          "claim": "包含《红楼梦》《三国演义》《水浒传》《西游记》四部",
+          "supported": true,
+          "reason": "上下文包含四部书名"
+        },
+        {
+          "claim": "作者分别为曹雪芹、罗贯中、施耐庵、吴承恩",
+          "supported": true,
+          "reason": "上下文明确标注对应作者"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "fmt-02",
+      "category": "format",
+      "question": "用 Markdown 表格对比 REST 与 GraphQL 的两点差异。",
+      "answer": "| 对比维度 | REST | GraphQL |\n| --- | --- | --- |\n| **数据获取方式** | 每个资源对应一个端点，返回固定结构；客户端可能需要多次请求或获取冗余/不足数据 | 单个端点，客户端通过查询声明所需字段，一次请求精确获取所需数据，避免 over-fetching / under-fetching |\n| **接口设计与版本** | 通过多个 URL 和 HTTP 方法（GET/POST/PUT/DELETE）组织资源，通常需要新端点或版本号来演进 API | 使用强类型 Schema 组织数据模型，通过查询（Query）、变更（Mutation）等操作满足需求；可通过平滑扩展字段演进，较少依赖版本号 |",
+      "totalMs": 3176.055000000022,
+      "outputTokens": 342,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "claimVerdicts": [
+        {
+          "claim": "输出包含 Markdown 表格（有表头与分隔行）",
+          "supported": true,
+          "reason": "上下文是标准 Markdown 表格，含表头和分隔行。"
+        },
+        {
+          "claim": "至少列出两点 REST 与 GraphQL 的差异",
+          "supported": true,
+          "reason": "表格包含数据获取方式和接口设计两个维度的差异。"
+        },
+        {
+          "claim": "至少有一点差异聚焦在数据获取方式（如是否按需取字段）或端点数量上",
+          "supported": true,
+          "reason": "第一行数据获取方式具体对比了端点数量与按需取字段。"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "fmt-03",
+      "category": "format",
+      "question": "把日期 2026-09-01 转换成 YYYY/MM/DD 格式。只输出结果，不要任何解释。",
+      "answer": "2026/09/01",
+      "totalMs": 1419.7472000000125,
+      "outputTokens": 56,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "claimVerdicts": [
+        {
+          "claim": "输出为 2026/09/01",
+          "supported": true,
+          "reason": "上下文就是2026/09/01，直接匹配输出。"
+        },
+        {
+          "claim": "不包含任何解释性文字",
+          "supported": true,
+          "reason": "上下文字符串只有该日期，没有解释性文字。"
+        },
+        {
+          "claim": "年、月、日各部分以斜杠 / 分隔（四位年 + 两位月 + 两位日）",
+          "supported": true,
+          "reason": "日期格式为四位年/两位月/两位日，斜杠分隔。"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "fmt-04",
+      "category": "format",
+      "question": "用 JSON 表示一笔订单：含 orderId（字符串）、items（数组，至少 2 个对象，每个对象含 name 与 price 数值）、total（数字，等于各 item 的 price 之和）。只输出 JSON，不要任何解释。",
+      "answer": "{\n  \"orderId\": \"ORD123456\",\n  \"items\": [\n    { \"name\": \"Apple\", \"price\": 2.5 },\n    { \"name\": \"Banana\", \"price\": 1.5 },\n    { \"name\": \"Cherry\", \"price\": 3.0 }\n  ],\n  \"total\": 7.0\n}",
+      "totalMs": 1318.8993999999948,
+      "outputTokens": 105,
+      "answerRelevancy": 1,
+      "claimCoverage": 1,
+      "claimVerdicts": [
+        {
+          "claim": "输出是合法可解析的 JSON 对象",
+          "supported": true,
+          "reason": "上下文是合法的JSON对象，可直接解析。"
+        },
+        {
+          "claim": "包含 orderId 字符串字段与 items 数组",
+          "supported": true,
+          "reason": "包含orderId字符串及items数组。"
+        },
+        {
+          "claim": "items 至少含 2 个元素，每项含 name 与数值型 price",
+          "supported": true,
+          "reason": "items含3项，每项含name与数值price。"
+        },
+        {
+          "claim": "total 数值等于各 price 之和",
+          "supported": true,
+          "reason": "价格总和2.5+1.5+3.0=7.0，与total一致。"
+        }
+      ],
+      "error": null
+    }
+  ]
+}
