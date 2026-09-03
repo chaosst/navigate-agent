@@ -76,8 +76,19 @@ export const PROVIDER_DEFAULTS: Record<ProviderName, Omit<ProviderProfile, "prov
         ollama: { baseURL: "http://localhost:11434/v1", model: "qwen2.5:7b",           embeddingModel: "nomic-embed-text" },  
         vllm:   { baseURL: "http://localhost:8000/v1",  model: "Qwen2.5-7B-Instruct",  embeddingModel: "BAAI/bge-m3" },  
         sglang: { baseURL: "http://localhost:30000/v1", model: "Qwen2.5-7B-Instruct",  embeddingModel: "BAAI/bge-m3" }      
-    };
+};
 
+
+/**
+ * provider 专属 env 变量键。专属变量优先于 OPENAI_*（向后兼容兜底）。
+ * openai 的专属键即 OPENAI_* 本身，行为与旧版完全一致。
+ */
+const PROVIDER_ENV_KEYS: Record<ProviderName, { baseURL: string; model: string }> = {
+    openai: { baseURL: "OPENAI_BASE_URL", model: "OPENAI_MODEL" },
+    ollama: { baseURL: "OLLAMA_BASE_URL", model: "OLLAMA_MODEL" },
+    vllm:   { baseURL: "VLLM_BASE_URL",   model: "VLLM_MODEL" },
+    sglang: { baseURL: "SGLANG_BASE_URL", model: "SGLANG_MODEL" },
+};
 
 /**
  * 把任意 PROVIDER 原始值归一为 ProviderName。
@@ -129,8 +140,10 @@ export function resolveProvider(env: NodeJS.ProcessEnv): ProviderProfile {
     const provider = parseProvider(env.PROVIDER)
     const def = PROVIDER_DEFAULTS[provider]
 
-    const baseURL = env.OPENAI_BASE_URL?.trim() || def.baseURL
-    const model = env.OPENAI_MODEL?.trim() || def.model
+    const keys = PROVIDER_ENV_KEYS[provider];
+
+    const baseURL = env[keys.baseURL]?.trim() || env.OPENAI_BASE_URL?.trim() || def.baseURL
+    const model = env[keys.model]?.trim() || env.OPENAI_MODEL?.trim() || def.model
     const embeddingModel = env.EMBEDDING_MODEL?.trim() || def.embeddingModel
     const embeddingBaseURL = env.EMBEDDING_BASE_URL?.trim() || baseURL
 

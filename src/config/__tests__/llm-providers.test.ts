@@ -67,4 +67,20 @@ describe("模型切换注入单测", () => {
         const provide = resolveProvider({ PROVIDER:"vllm", OPENAI_BASE_URL:" " })
         expect(provide.baseURL).toEqual("http://localhost:8000/v1")
     })
+
+
+    it("专属变量优先于 OPENAI_* 兜底", () => {
+        const p = resolveProvider({ PROVIDER: "ollama", OLLAMA_MODEL: "qwen3:8b", OPENAI_MODEL: "gpt-4o" });
+        expect(p.model).toBe("qwen3:8b");
+    });
+      
+    it("专属变量隔离 OPENAI_* 残留，防止串扰", () => {
+        const p = resolveProvider({ PROVIDER: "ollama", OLLAMA_BASE_URL: "http://10.0.0.5:11434/v1", OPENAI_BASE_URL: "https://api.deepseek.com" });
+        expect(p.baseURL).toBe("http://10.0.0.5:11434/v1"); // 不回落到 deepseek
+    });
+      
+    it("专属变量空白按未设置，回落到 OPENAI_* 与默认", () => {
+        expect(resolveProvider({ PROVIDER: "vllm", VLLM_MODEL: " ", OPENAI_MODEL: "Qwen2.5-32B" }).model).toBe("Qwen2.5-32B");
+        expect(resolveProvider({ PROVIDER: "ollama", OLLAMA_MODEL: " ", OPENAI_BASE_URL: " " }).model).toBe("qwen2.5:7b");
+    });
 })
