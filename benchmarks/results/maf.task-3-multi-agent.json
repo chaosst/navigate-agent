@@ -1,0 +1,37 @@
+{
+  "framework": "maf",
+  "framework_version": "1.16.0",
+  "task_id": "task-3-multi-agent",
+  "run_at": "2026-09-03T01:12:31+08:00",
+  "success": true,
+  "output": "navigate 是一个基于 TypeScript 构建的智能体系统，其核心执行机制采用 LangGraph 双模式执行器，以灵活应对不同任务场景。该系统支持通过 MCP 工具集成来扩展外部功能，从而提升系统的适用性与交互能力。最终，navigate 通过 Docker 方式部署到阿里云平台，确保了环境的统一性和可移植性。整体上，该系统在架构上注重模块化与可扩展性，适合在云端环境中运行。",
+  "metrics": {
+    "wall_time_ms": 2732,
+    "llm_calls": null,
+    "tool_calls": null,
+    "input_tokens": null,
+    "output_tokens": null,
+    "code_lines": 233
+  },
+  "trace": [
+    {
+      "step": 1,
+      "kind": "llm",
+      "name": "researcher",
+      "ms": 1204
+    },
+    {
+      "step": 2,
+      "kind": "handoff",
+      "name": "researcher→writer(手工拼接)",
+      "ms": 0
+    },
+    {
+      "step": 3,
+      "kind": "llm",
+      "name": "writer",
+      "ms": 1529
+    }
+  ],
+  "notes": "校验: 关键词命中: TypeScript, LangGraph, MCP | 工具经 MCPStdioTool（TS 侧 benchmark-mcp-server）桥接，与 ts-navigate/CrewAI 同一份实现 | MAF python 未直接暴露 usage 统计，llm_calls/tokens/tool_calls 记 null（不编造）| task-3 为手工两次 run 表达 handoff（未用 Workflow API，pre-release 形态不稳）| task-4 replan 由 instructions 指令 + calculator 返回事实驱动，非结构层硬编码 | MAF python 为 pre-release，API 以安装版本实测为准 | code_lines 为 run.py 净行数（共享 py-common 与 tools/ 不计入）"
+}

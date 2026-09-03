@@ -1,0 +1,25 @@
+{
+  "framework": "maf",
+  "framework_version": "1.16.0",
+  "task_id": "task-1-rag-qa",
+  "run_at": "2026-09-03T01:12:22+08:00",
+  "success": false,
+  "output": "navigate 基于 TypeScript 技术栈，使用 LangGraph 双模式执行器，并通过 Docker 部署到阿里云。",
+  "metrics": {
+    "wall_time_ms": 1203,
+    "llm_calls": null,
+    "tool_calls": null,
+    "input_tokens": null,
+    "output_tokens": null,
+    "code_lines": 233
+  },
+  "trace": [
+    {
+      "step": 1,
+      "kind": "llm",
+      "name": "agent.run(单 agent)",
+      "ms": 1203
+    }
+  ],
+  "notes": "校验: 缺少关键词: MCP | 工具经 MCPStdioTool（TS 侧 benchmark-mcp-server）桥接，与 ts-navigate/CrewAI 同一份实现 | MAF python 未直接暴露 usage 统计，llm_calls/tokens/tool_calls 记 null（不编造）| task-3 为手工两次 run 表达 handoff（未用 Workflow API，pre-release 形态不稳）| task-4 replan 由 instructions 指令 + calculator 返回事实驱动，非结构层硬编码 | MAF python 为 pre-release，API 以安装版本实测为准 | code_lines 为 run.py 净行数（共享 py-common 与 tools/ 不计入）"
+}

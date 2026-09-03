@@ -1,0 +1,11 @@
+{
+    "schema_version": 1,
+    "tools": [
+      { "name": "calculator",
+        "description": "四则运算求值，输入如 '3+4*2'",
+        "inputSchema": { "type": "object", "properties": { "expression": { "type": "string" } }, "required": ["expression"] } },
+      { "name": "weather_now",
+        "description": "查询天气（mock，固定数据）",
+        "inputSchema": { "type": "object", "properties": { "city": { "type": "string" } }, "required": ["city"] } }
+    ]
+  }

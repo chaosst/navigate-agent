@@ -1,0 +1,25 @@
+{
+  "framework": "navigate",
+  "framework_version": "0.1.0",
+  "task_id": "task-2-tool-orchestrate",
+  "run_at": "2026-09-02T17:34:18.363Z",
+  "success": true,
+  "output": "计算 3+4*2 的结果为 **11**；北京实时天气为 **晴（sunny），气温 22℃**。",
+  "metrics": {
+    "wall_time_ms": 2060,
+    "llm_calls": null,
+    "tool_calls": 1,
+    "input_tokens": null,
+    "output_tokens": null,
+    "code_lines": 284
+  },
+  "trace": [
+    {
+      "step": 1,
+      "kind": "tool",
+      "name": "calculator",
+      "ms": 988
+    }
+  ],
+  "notes": "校验: 关键词命中: 11, sunny | 执行器: GraphAgentExecutor（src/server-entry 同款生产路径） | total_wall_ms(含装载)≈2061"
+}

@@ -1,0 +1,25 @@
+{
+  "framework": "crewai",
+  "framework_version": "1.15.18",
+  "task_id": "task-1-rag-qa",
+  "run_at": "2026-09-03T00:13:58+08:00",
+  "success": true,
+  "output": "navigate 的核心技术栈是 TypeScript，基于 LangGraph 双模式执行器构建，支持 MCP 工具集成，并通过 Docker 部署到阿里云。",
+  "metrics": {
+    "wall_time_ms": 1250,
+    "llm_calls": null,
+    "tool_calls": null,
+    "input_tokens": 170,
+    "output_tokens": 35,
+    "code_lines": 253
+  },
+  "trace": [
+    {
+      "step": 1,
+      "kind": "llm",
+      "name": "kickoff(单 agent)",
+      "ms": 1250
+    }
+  ],
+  "notes": "校验: 关键词命中: TypeScript, LangGraph, MCP | 工具经 MCP stdio（TS 侧 benchmark-mcp-server）桥接，与 ts-navigate/MAF 同一份实现 | llm_calls/tokens 来自 CrewAI usage_metrics（框架自带遥测），tool_calls 未直接暴露记 null | task-3 为 CrewAI 原生 context 链（自动注入），trace 分段耗时为墙钟近似 | task-4 replan 由 backstory 指令 + calculator 返回事实驱动，非结构层硬编码 | code_lines 为 run.py 净行数（共享 py-common 与 tools/ 不计入）"
+}
