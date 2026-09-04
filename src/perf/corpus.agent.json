@@ -1,0 +1,42 @@
+[
+  {
+    "id": "agt-01",
+    "category": "tool-read",
+    "task": "列出 src/agent 目录下的所有文件"
+  },
+  {
+    "id": "agt-02",
+    "category": "tool-read",
+    "task": "在项目中搜索所有包含 \"tracer\" 的源文件"
+  },
+  {
+    "id": "agt-03",
+    "category": "tool-read",
+    "task": "读取 src/bootstrap.ts 的完整内容，并说明它对外导出了什么"
+  },
+  {
+    "id": "agt-04",
+    "category": "tool-shell",
+    "task": "查看当前 git 仓库最近 3 条提交记录"
+  },
+  {
+    "id": "agt-05",
+    "category": "tool-shell",
+    "task": "找出 src 目录下最近修改时间最新的一个文件"
+  },
+  {
+    "id": "agt-06",
+    "category": "rag",
+    "task": "从已上传的文档中检索与 PostgreSQL 向量检索（pgvector）相关的段落"
+  },
+  {
+    "id": "agt-07",
+    "category": "multi-step",
+    "task": "先搜索名称里包含 README 的文件，再读取其中第一个，总结它列出的启动命令"
+  },
+  {
+    "id": "agt-08",
+    "category": "multi-step",
+    "task": "读取 package.json 的 scripts 字段，然后列出所有与测试（test）相关的命令"
+  }
+]

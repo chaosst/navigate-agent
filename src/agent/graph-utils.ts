@@ -1,5 +1,6 @@
 import { AgentStep } from "@langchain/core/agents";
 import { AIMessage, BaseMessage } from "langchain";
+import { ToolMessage } from "@langchain/core/messages";
 import { PtcStats } from "../ptc/types.js";
 import type { ToolStatsRegistry } from "../tools/stats-registry.js";
 import type { Tracer } from "./tracer.js";
@@ -64,6 +65,55 @@ export function formatPtcStatsReport(stats: PtcStats): string {    const { runCo
     }
   
     return lines.join("\n");
+}
+
+/** 折叠保留的最近「工具轮」数：AGENT_TOOL_WINDOW_ROUNDS 可调，0 = 禁用折叠 */
+const OLD_TOOL_WINDOW_ROUNDS = (() => {
+  const n = parseInt(process.env.AGENT_TOOL_WINDOW_ROUNDS ?? "4", 10);
+  return Number.isFinite(n) && n >= 0 ? n : 4;
+})();
+
+/** 旧 ToolMessage 折叠后保留的开头字符数 */
+const FOLD_SNIPPET = 300;
+
+/**
+ * 轮内上下文收敛：多步任务随轮次增长，把所有历史工具结果原样带进下一轮 prefill 会让
+ * 输入 token 线性膨胀。本函数把「超过最近 keepRounds 轮」的旧 ToolMessage 内容折叠成
+ * 开头 300 字符 + 标记（只砍载荷、保留消息结构与 tool_call_id/name），供 agentNode 发给
+ * LLM 前对副本调用——不改动 state.messages，不影响 no-progress 检测与最终 stats。
+ */
+export function foldOldToolResults(
+  messages: BaseMessage[],
+  keepRounds: number = OLD_TOOL_WINDOW_ROUNDS,
+): BaseMessage[] {
+  if (keepRounds <= 0 || messages.length === 0) return messages;
+
+  // 标轮次：带 tool_calls 的 AI 消息开新轮；ToolMessage 归属最近一次开轮
+  const roundOf: number[] = new Array(messages.length).fill(-1);
+  let round = -1;
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (m._getType() === "ai" && (m as { tool_calls?: unknown[] }).tool_calls?.length) {
+      round++;
+    } else if (m._getType() === "tool") {
+      roundOf[i] = round;
+    }
+  }
+  const cutoffRound = round - keepRounds;
+  if (cutoffRound < 0) return messages; // 工具轮数没超过窗口，全保留
+
+  return messages.map((m, i) => {
+    if (m._getType() !== "tool" || roundOf[i] > cutoffRound) return m;
+    const content = m.content;
+    if (typeof content !== "string" || content.length <= FOLD_SNIPPET) return m;
+    const tm = m as ToolMessage;
+    return new ToolMessage(
+      content.slice(0, FOLD_SNIPPET) +
+        `\n…[旧工具结果已折叠：原始 ${content.length} 字符，仅保留开头 ${FOLD_SNIPPET}]…`,
+      tm.tool_call_id ?? "",
+      tm.name,
+    );
+  });
 }
 
 export function extractUserText(messages: BaseMessage[]): string {

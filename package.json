@@ -18,7 +18,9 @@
         "test": "vitest run --dir src",
         "test:watch": "vitest --dir src",
         "mytest": "tsx src/test.ts",
-        "eval": "tsx src/eval/index.ts"
+        "eval": "tsx src/eval/index.ts",
+        "perf": "npm run db:ensure && tsx src/perf/run.ts",
+        "perf:mock": "npm run db:ensure && tsx src/perf/run.ts --mock"
     },
     "dependencies": {
         "@langchain/core": "^1.2.5",

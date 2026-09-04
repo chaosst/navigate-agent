@@ -85,6 +85,11 @@ export interface TraceSession {
   /** 总 token 消耗 */
   totalInputTokens: number;
   totalOutputTokens: number;
+
+  /** 性能明细（perf 用，可选出现，缺省即无）：history parse 耗时 */
+  parseMs?: number;
+  /** 性能明细：整个 LangGraph stream/invoke 的围墙耗时（含 LLM+工具+路由） */
+  graphMs?: number;
 }
 
 // ════════════════════════════════════════════
@@ -133,6 +138,21 @@ export class Tracer {
   /** 获取历史 sessions */
   getSessions(): TraceSession[] {
     return [...this.sessions];
+  }
+
+  /**
+   * 记录性能明细（parseMs/graphMs），供 perf 聚合层派生项目自身开销。
+   * 为什么允许回落到最后一条已结束 session：
+   *  GraphAgentExecutor 的 finalize/fallback 节点在**图内**就调用 finishSession()
+   *  结束当前 session，而 graphMs 要在 stream() 消费完所有 chunk 后才能测得——
+   *  此时 currentSession 已为 null，必须落到刚结束的那条。
+   *  （perf runner 顺序执行，recordTiming 落在下一条 session 开始之前，无串账。）
+   */
+  recordTiming(timing: { parseMs?: number; graphMs?: number }): void {
+    const session = this.currentSession ?? this.sessions[this.sessions.length - 1];
+    if (!session) return;
+    if (timing.parseMs !== undefined) session.parseMs = timing.parseMs;
+    if (timing.graphMs !== undefined) session.graphMs = timing.graphMs;
   }
 
   /** 添加一条 LLM 调用记录 */

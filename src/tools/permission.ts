@@ -49,7 +49,12 @@ export interface ToolCallStats {
   totalDurationMs: number;
   lastCallAt: number | null;
   errors: number;
+  /** 逐次调用窗口（start: performance.now()，dur ms），供 perf 算并发感知的工具墙钟。环形上限 CALL_WINDOW_CAP */
+  calls: { start: number; dur: number }[];
 }
+
+/** 每个 wrapper 保留的最近调用窗口条数（够单次长任务用；超出丢最旧） */
+export const CALL_WINDOW_CAP = 2000;
 
 /**
  * PermissionWrapper — 权限包装器
@@ -77,6 +82,7 @@ export class PermissionWrapper extends StructuredTool {
     totalDurationMs: 0,
     lastCallAt: null,
     errors: 0,
+    calls: [],
   };
 
   // ——— 限流/熔断内部状态 ———
@@ -168,6 +174,10 @@ export class PermissionWrapper extends StructuredTool {
 
       const duration = performance.now() - startTime;
       this.stats.totalDurationMs += duration;
+      this.stats.calls.push({ start: startTime, dur: duration });
+      if (this.stats.calls.length > CALL_WINDOW_CAP) {
+        this.stats.calls.splice(0, this.stats.calls.length - CALL_WINDOW_CAP);
+      }
 
       // 成功 → 重置熔断计数
       this.consecutiveFailures = 0;

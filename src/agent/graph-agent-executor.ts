@@ -9,7 +9,7 @@ import { Tracer } from "./tracer.js";
 import { PermissionWrapper } from "../tools/permission.js";
 import { logAgent } from "./logger.js";
 import { AgentState, PtcStateType } from './types.js';
-import { buildIterationExhaustedSummary, buildStatsFooter, extractText, extractUserText } from './graph-utils.js';
+import { buildIterationExhaustedSummary, buildStatsFooter, extractText, extractUserText, foldOldToolResults } from './graph-utils.js';
 import { TrackingToolNode } from './tracking-tool-node.js';
 
 type AgentStateType = typeof AgentState.State
@@ -317,7 +317,9 @@ export class GraphAgentExecutorBase {
         const llmStart = performance.now()
         try {
             // replan 提示一次性注入本轮输入（不进 state，避免污染历史与 streak 检测）
-            const llmMessages = replanHint ? [...state.messages, replanHint] : state.messages;
+            // 轮内上下文收敛：对发给 LLM 的副本折叠超窗旧工具结果（不改 state.messages）
+            const folded = foldOldToolResults(state.messages);
+            const llmMessages = replanHint ? [...folded, replanHint] : folded;
             response = await modelWithTools.invoke(llmMessages, {
                 signal: AbortSignal.timeout(this.llmTimeoutMs)
             })
@@ -515,7 +517,7 @@ export class GraphAgentExecutor extends GraphAgentExecutorBase {
     }
 
     private createGraph(){
-        const toolNode = new TrackingToolNode(this.tools)
+        const toolNode = new TrackingToolNode(this.tools, { tracer: this.tracer })
 
         const workflow = new StateGraph(AgentState)
         // 注意：不能直接传 this.agentNode —— LangGraph 会把裸方法包装成 RunnableCallable
@@ -552,10 +554,15 @@ export class GraphAgentExecutor extends GraphAgentExecutorBase {
         // recursionLimit 只是兜底（防止 conditionalRoute 有 bug 时无限循环）。
         // 注意：这是 1:1 映射，并不是把 25 次放宽成 50 次。
         const recursionLimit = Math.max(this.maxIterations * 2 + 2, 26);
+        // perf 埋点：graph 围墙耗时（LLM + 工具 + 路由全在里）。
+        // 必须在 try/finally 记录——finalize/fallback 节点在图内就 finishSession()，
+        // recordTiming 会落到刚结束的那条 session（见 Tracer.recordTiming）。
+        const graphStart = performance.now();
         const streams = await graph.stream(input, {
             streamMode: ["updates", "messages"],
             recursionLimit: recursionLimit
         })
+        try {
         for await (const chunk of streams) {
             // 多 streamMode 时每个 chunk 是 [mode, value] 元组，先解构再按mode分流
             const [mode, value] = chunk as [string, any]
@@ -602,6 +609,10 @@ export class GraphAgentExecutor extends GraphAgentExecutorBase {
                 }
             }
 
+        }
+        } finally {
+            const graphMs = performance.now() - graphStart;
+            this.tracer?.recordTiming?.({ graphMs });
         }
     }
 

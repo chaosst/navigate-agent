@@ -80,7 +80,7 @@ export class PtcAgentLangGraph extends GraphAgentExecutorBase {
     }
 
     private createGraph() {
-        const toolNode = new TrackingToolNode(this.tools)
+        const toolNode = new TrackingToolNode(this.tools, { tracer: this.tracer })
         return new StateGraph(PtcState)
             .addNode("agent", (s) => this.agentNode(s))
             .addNode("tools", toolNode)

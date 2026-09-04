@@ -154,9 +154,13 @@ export async function runAgent(
   timeoutMs = 30_000,
 ): Promise<string> {
   logAgent({ type: "info", message: `User: ${input.slice(0, 200)}` });
+  // perf 埋点：history parse 成本（上下文越大越明显；主路径只有 perf runner 走 runAgent）
+  const parseStart = performance.now();
   const messageHistory: BaseMessage[] = history
     ? parseHistory(history)
     : [];
+  const parseMs = performance.now() - parseStart;
+  executor.tracer?.recordTiming({ parseMs });
   messageHistory.push(new HumanMessage(input));
   return runAgentMessages(executor, messageHistory, events, timeoutMs)
 }

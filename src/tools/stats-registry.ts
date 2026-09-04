@@ -73,6 +73,21 @@ export class ToolStatsRegistry {
     ].join("\n");
   }
 
+  /**
+   * 收集 sinceMs（performance.now() 单调钟）之后发生的所有工具调用窗口。
+   * perf 用：任务开始前记下 taskStartWall，结束后据此取本任务内各工具的调用窗口，
+   * 再在聚合层做「区间并集」求真实工具墙钟——解决并行 tool_call 各自累加导致的重复计耗时。
+   * （--concurrency 模式多任务共享 registry 时会串进并发任务；聚合层另有钳制兜底，见 run.ts）
+   */
+  collectCallsSince(sinceMs: number): Map<string, { start: number; dur: number }[]> {
+    const m = new Map<string, { start: number; dur: number }[]>();
+    for (const w of this.wrappers) {
+      const calls = w.stats.calls.filter((c) => c.start >= sinceMs);
+      if (calls.length > 0) m.set(w.name, calls);
+    }
+    return m;
+  }
+
   /** 重置所有工具的统计和熔断状态 */
   reset(): void {
     for (const w of this.wrappers) {

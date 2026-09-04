@@ -19,6 +19,7 @@ import { createRequireTokenOrApiKey } from "./rest-auth.js";
 import { getToken, stripTokenQuery } from "./auth-helpers.js";
 import { mountLoginRoutes } from "./login.js";
 import { startWikiProxy } from "./wiki-proxy.js";
+import { ContextManager } from "../memory/context-manager.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -437,7 +438,13 @@ export function createRagServer(
     let fullAnswer = "";
     try {
       const { HumanMessage, AIMessage } = await import("@langchain/core/messages");
-      const messages = session.messages.map((m: { role: string; content: string }) =>
+      // 与 TUI 的 prepareTurn 对齐：全量重放前先用 token 预算截断历史，避免无限增长
+      const contextMgr = new ContextManager();
+      const recent = contextMgr.truncate(
+        session.messages as Array<{ role: "user" | "assistant" | "system"; content: string }>,
+        question,
+      );
+      const messages = recent.map((m) =>
         m.role === "user" ? new HumanMessage(m.content) : new AIMessage(m.content)
       );
 
