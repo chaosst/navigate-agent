@@ -2,26 +2,19 @@ import "dotenv/config";
 import assert from "node:assert/strict";
 import { loadConfig } from "../src/config/index.js";
 import { getPool, closePool } from "../src/storage/pool.js";
-import { createEmbeddings } from "../src/agent/langchain.js";
+import { createChatModel, createEmbeddings } from "../src/agent/langchain.js";
 import { AgentMemory } from "../src/memory/index.js";
-import type { ChatOpenAI } from "@langchain/openai";
-
-// stub LLM：返回固定摘要，避免依赖 deepseek 网络/成本，只测记忆管线本身
-const stubLLM = {
-  invoke: async (): Promise<{ content: string }> => ({
-    content: "测试摘要：导航项目用 PostgreSQL+pgvector 存储对话记忆，embedding 用 nomic-embed-text(768维)。",
-  }),
-} as unknown as ChatOpenAI;
 
 async function main() {
   const config = loadConfig();
   const pool = await getPool(config);
   const embeddings = createEmbeddings(config);
+  const llm = createChatModel(config)
 
   // 短窗口：verbatimWindow=2 + summaryBatchSize=2 → 少量消息即可触发滚动摘要
   const memory = await AgentMemory.create(pool, embeddings, undefined,
     { verbatimWindow: 2, summaryBatchSize: 2, recallTopK: 2 },
-    stubLLM);
+    llm);
   // 自建全新 session，避免复用 dev 库里的旧会话
   const fresh = await memory.store.createSession();
   memory.activeSessionId = fresh.id;
