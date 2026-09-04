@@ -7,7 +7,7 @@ const execPromise = promisify(exec);
 
 export class ShellTool extends StructuredTool {
   name = "execute_command";
-  description = "Execute a shell command in the current working directory. Returns stdout, stderr, and exit code.";
+  description = "Execute a shell command in the current working directory. Returns stdout, stderr, and exit code. Use for running builds/tests/git/installs etc. Do NOT use for searching or listing files — use search_files / list_files instead (they are faster and skip node_modules/.venv).";
   schema = z.object({
     command: z.string().describe("The shell command to execute"),
     workdir: z.string().optional().describe("Working directory (defaults to cwd)"),
