@@ -107,6 +107,8 @@ interface RunStats {
     output: string
     wallTimeMs: number
     toolCalls: number
+    /** token 级遥测（来自 executor.getUsage()，非 null：executor 自记账下沉后可直接读取） */
+    usage: { llmCalls: number; inputTokens: number; outputTokens: number }
     trace: { step: number; kind: "llm" | "tool" | "handoff" | "checkpoint"; name: string; ms: number }[]
 }
 
@@ -114,7 +116,7 @@ interface RunStats {
  * 跑一次 GraphAgentExecutor（stream），聚合最终输出与工具轨迹。
  *  - output 取最后一次 finalize/fallback 的完整输出（token 级流式 chunk 会被覆盖丢弃）
  *  - tool_calls 以 intermediateSteps 增量精确统计
- *  - llm_calls 返回 null：GraphAgentExecutor 不暴露该计数（metrics 层写 null，不编造）
+ *  - llm_calls/tokens 来自 executor 下沉的遥测（stream() 入口已按 run 重置）
  */
 async function runExecutor(
     executor: GraphAgentExecutor,
@@ -152,7 +154,7 @@ async function runExecutor(
         }
     }
 
-    return { output, wallTimeMs: Date.now() - t0, toolCalls, trace }
+    return { output, wallTimeMs: Date.now() - t0, toolCalls, usage: executor.getUsage(), trace }
 }
 
 /** task-1：RAG 问答（context 内指令跟随，无工具） */
@@ -199,6 +201,8 @@ async function runTask3(llm: ChatOpenAI, task: TaskJson): Promise<RunStats> {
     const researchStart = Date.now()
     const points = await executor.run(researchInput, researchPrompt)
     const researchMs = Date.now() - researchStart
+    // 遥测（改进点 1）：executor.run() 入口按 run 重置计数 → 每次 run 返回后读取即该次 usage
+    const u1 = executor.getUsage()
 
     // ② handoff → writer
     const writerPrompt = [
@@ -209,6 +213,7 @@ async function runTask3(llm: ChatOpenAI, task: TaskJson): Promise<RunStats> {
     const writerStart = Date.now()
     const article = await executor.run(writerInput, writerPrompt)
     const writerMs = Date.now() - writerStart
+    const u2 = executor.getUsage()
 
     // 手动拼 trace（两次独立 worker run，粗粒度只记角色与交接）
     const trace: RunStats["trace"] = [
@@ -216,10 +221,16 @@ async function runTask3(llm: ChatOpenAI, task: TaskJson): Promise<RunStats> {
         { step: 2, kind: "handoff", name: "researcher→writer", ms: 0 },
         { step: 3, kind: "llm", name: "writer", ms: writerMs },
     ]
+    // 两次 worker run 的 usage 加总为该任务全量
     return {
         output: article,
         wallTimeMs: Date.now() - wallStart,
         toolCalls: 0,
+        usage: {
+            llmCalls: u1.llmCalls + u2.llmCalls,
+            inputTokens: u1.inputTokens + u2.inputTokens,
+            outputTokens: u1.outputTokens + u2.outputTokens,
+        },
         trace,
     }
 }
@@ -327,10 +338,10 @@ async function main() {
         output: stats.output,
         metrics: {
             wall_time_ms: stats.wallTimeMs,
-            llm_calls: null, // GraphAgentExecutor 不暴露 LLM 调用计数（拿不到写 null，不编造）
+            llm_calls: stats.usage.llmCalls, // 原写 null：executor 不暴露；改进点 1 下沉遥测后可读
             tool_calls: stats.toolCalls,
-            input_tokens: null,
-            output_tokens: null,
+            input_tokens: stats.usage.inputTokens,
+            output_tokens: stats.usage.outputTokens,
             code_lines: countCodeLines(fileURLToPath(import.meta.url)),
         },
         trace: stats.trace,
@@ -349,6 +360,7 @@ async function main() {
     writeFileSync(outFile, JSON.stringify(contract, null, 2), "utf8")
     console.log(`[navigate] ${shortId} 完成 -> ${outFile}`)
     console.log(`  wall=${contract.metrics.wall_time_ms}ms tool_calls=${contract.metrics.tool_calls} code_lines=${contract.metrics.code_lines}`)
+    console.log(`  llm_calls=${contract.metrics.llm_calls} tokens=${contract.metrics.input_tokens}in/${contract.metrics.output_tokens}out`)
     console.log(`  输出前 300 字: ${stats.output.slice(0, 300).replace(/\n+/g, " ")}`)
 }
 

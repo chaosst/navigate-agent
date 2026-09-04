@@ -22,6 +22,62 @@ export function truncateForLog(v: unknown, maxLen: number = 200): string {
     return s.slice(0, maxLen) + `…(${s.length} chars)`;
 }
 
+/**
+ * 一次 run 的 token 级遥测（benchmark 结果契约 / 成本分析共用）。
+ * - llmCalls：成功取得响应的 LLM 调用次数（正常 / LangGraph recovery / 首轮降级三条路径）
+ * - inputTokens / outputTokens：各次调用 usage_metadata 的累计
+ *
+ * 与 Tracer 的关系：Tracer 是可选的可视化轨迹层；此计数是 executor 一等记账，
+ * 不依赖外部注入，任何消费方（runner / server / TUI）都能在 run 结束后读取。
+ */
+export interface ExecutorUsage {
+    llmCalls: number;
+    inputTokens: number;
+    outputTokens: number;
+}
+
+/** LLM 响应上的 usage 元数据结构（LangChain usage_metadata 子集） */
+interface UsageMeta {
+    input_tokens?: number;
+    output_tokens?: number;
+    total_tokens?: number;
+}
+
+/**
+ * 构造「无进展循环」的结构化重规划提示（replan 出口）。
+ *
+ * 与硬停/强制总结不同，它把「被暂停的重复调用」与「最后一次工具返回的事实」显式喂回模型，
+ * 让模型基于事实修正策略——这正是 MAF 靠 instructions 自觉完成的 replan 在 navigate 侧
+ * 的结构化、显式版本。允许再调工具（可能换参数/换工具），但不允许原样重复。
+ */
+function buildReplanHint(params: {
+    userRequest: string;
+    toolName: string;
+    toolArgs: string;
+    count: number;
+    lastResult: string;
+}): string {
+    return (
+        `[重规划] 系统检测到同一工具调用连续 ${params.count} 次未取得进展，已暂停该调用路径。` +
+        `这是你基于工具事实修正策略的最后一次机会。\n\n` +
+        `**原始请求**: ${params.userRequest}\n\n` +
+        `**被暂停的重复调用**: ${params.toolName} ${params.toolArgs}\n` +
+        `**最后一次工具返回的事实**: ${params.lastResult}\n\n` +
+        `请基于以上工具返回的事实重新规划下一步（必须三选一）：\n` +
+        `1. 修正参数或改用其他可用工具再次尝试（允许继续调用工具）；\n` +
+        `2. 若确认当前工具集无法达成目标，直接输出最终答案，说明已确认的事实与受阻原因；\n` +
+        `3. 严禁再次发起与上面完全相同的调用。`
+    );
+}
+
+/** 读 env 整数（未设/空 → 默认；非法 → 0 即关闭），REPLAN_LIMIT 与 REPETITION_LIMIT 共用 */
+function envInt(name: string, fallback: number): number {
+    const raw = process.env[name];
+    if (raw === undefined || raw === "") return fallback;
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) ? Math.max(n, 0) : 0;
+}
+
 export class GraphAgentExecutorBase {
     llm: ChatOpenAI
     tools: StructuredToolInterface[]
@@ -32,6 +88,14 @@ export class GraphAgentExecutorBase {
     tracer?: Tracer
     /** 工具调用统计注册表（PermissionWrapper 在创建时注册；finalize 时追加报告） */
     protected toolStatsRegistry?: ToolStatsRegistry
+    /**
+     * 循环保护 replan 预算：无进展循环触发后允许的结构化重规划次数。
+     * 来源 REPLAN_LIMIT env（默认 1；0 = 关闭 replan，退化为旧「直接硬停」行为）；
+     * beginRun() 时重置 —— 与遥测同 run 粒度。
+     */
+    protected replansLeft: number
+    /** 本 run 的 token 级遥测记账（每次成功 LLM 调用后累加） */
+    protected runUsage: ExecutorUsage = { llmCalls: 0, inputTokens: 0, outputTokens: 0 }
     
 
     constructor(
@@ -50,6 +114,29 @@ export class GraphAgentExecutorBase {
         this.toolFilter = toolFilter
         this.tracer = tracer
         this.toolStatsRegistry = toolStatsRegistry
+        this.replansLeft = envInt("REPLAN_LIMIT", 1)
+    }
+
+    /**
+     * 开始一次新的 run：重置 replan 预算与 token 遥测。
+     * stream()/run() 入口调用，粒度与 Tracer.startSession 一致（executor 可被 TUI 多轮复用，
+     * 只有按 run 重置才不会跨会话串账）。
+     */
+    protected beginRun(): void {
+        this.replansLeft = envInt("REPLAN_LIMIT", 1);
+        this.runUsage = { llmCalls: 0, inputTokens: 0, outputTokens: 0 };
+    }
+
+    /** 当前 run 的 token 级遥测（llm 调用次数与累计 tokens），返回副本避免外部篡改 */
+    getUsage(): ExecutorUsage {
+        return { ...this.runUsage };
+    }
+
+    /** 每次成功 LLM 调用后统一记账（agentNode 正常 / recovery / 首轮降级三条路径共用同一调用点） */
+    protected recordUsage(usage?: UsageMeta | null): void {
+        this.runUsage.llmCalls += 1;
+        if (typeof usage?.input_tokens === "number") this.runUsage.inputTokens += usage.input_tokens;
+        if (typeof usage?.output_tokens === "number") this.runUsage.outputTokens += usage.output_tokens;
     }
 
     /**
@@ -153,41 +240,68 @@ export class GraphAgentExecutorBase {
             message: `[Loop] iter ${state.iteration + 1}/${this.maxIterations} start | messages=${state.messages.length} | tools=${activeTools.length}`,
         });
 
-        // 检测「无进展循环」：同一 (tool, args) 结果不变达到 limit 次即强制终止。
+        // 检测「无进展循环」：同一 (tool, args) 结果不变达到 limit 次即触发。
         // 阈值可用 REPETITION_LIMIT 环境变量调整（默认 3），越保守可调大。
-        const repetitionLimit = parseInt(process.env.REPETITION_LIMIT ?? "3", 10) || 3;
+        const repetitionLimit = envInt("REPETITION_LIMIT", 3);
         const repetitiveInfo = this.detectNoProgressLoop(state.messages, repetitionLimit);
 
+        /** 结构化 replan 提示（仅命中且预算>0 时设置；注入本轮 LLM 输入，不进 state，一次性生效） */
+        let replanHint: SystemMessage | null = null;
+
         if (repetitiveInfo.count >= repetitionLimit) {
-            // 硬停止：不再调用 LLM（省 token），直接构造总结消息返回给用户。
-            // 经验证：注入 SystemMessage 提示让 LLM 自行改策略对多数模型无效（日志中
-            // 提示被注入 11 次仍继续循环），必须由引擎强制终止。
-            logAgent({
-                type: "error",
-                message: `检测到重复工具调用 ${repetitiveInfo.count} 次 (${repetitiveInfo.toolName} ${repetitiveInfo.toolArgs})，强制中断以避免死循环`
-            });
-            this.tracer?.addError(`重复工具调用中断: ${repetitiveInfo.toolName} ${repetitiveInfo.toolArgs}`);
+            if (this.replansLeft > 0) {
+                // ⭐ replan 出口（benchmark §4 改进点 2）：不直接放弃，先给一次
+                // 「带上次工具事实」的重规划机会。提示注入本轮 invoke 输入 → 模型可修正
+                // 参数/换工具再试（仍绑工具），或确认无出路后直接作答；若它原样重复，
+                // 下轮再次命中时预算已耗尽 → 走下方硬停分支，总 LLM 轮数有界。
+                this.replansLeft -= 1;
+                const userRequest = (userInput || "（无用户输入）").substring(0, 200);
+                const lastResult = repetitiveInfo.lastResult?.substring(0, 300) ?? "（无返回结果）";
+                logAgent({
+                    type: "warning",
+                    message: `检测到无进展重复调用 ${repetitiveInfo.count} 次 (${repetitiveInfo.toolName} ${repetitiveInfo.toolArgs})，注入结构化反馈重规划（剩余 replan 机会 ${this.replansLeft}）`,
+                });
+                replanHint = new SystemMessage(
+                    buildReplanHint({
+                        userRequest,
+                        toolName: repetitiveInfo.toolName ?? "?",
+                        toolArgs: repetitiveInfo.toolArgs ?? "?",
+                        count: repetitiveInfo.count,
+                        lastResult,
+                    }),
+                );
+            } else {
+                // 硬停止：不再调用 LLM（省 token），直接构造总结消息返回给用户。
+                // 经验证：注入 SystemMessage 提示让 LLM 自行改策略对多数模型无效（日志中
+                // 提示被注入 11 次仍继续循环），必须由引擎强制终止。
+                // 注意：replansLeft=0 意味着已给过 replan 机会仍未走出循环，此时硬停是兜底而非首选项。
+                logAgent({
+                    type: "error",
+                    message: `检测到重复工具调用 ${repetitiveInfo.count} 次 (${repetitiveInfo.toolName} ${repetitiveInfo.toolArgs})，replan 预算已耗尽，强制中断以避免死循环`
+                });
+                this.tracer?.addError(`重复工具调用中断(重规划后仍循环): ${repetitiveInfo.toolName} ${repetitiveInfo.toolArgs}`);
 
-            const userRequest = (userInput || "（无用户输入）").substring(0, 200);
-            const lastResult = repetitiveInfo.lastResult?.substring(0, 300) ?? "（无返回结果）";
+                const userRequest = (userInput || "（无用户输入）").substring(0, 200);
+                const lastResult = repetitiveInfo.lastResult?.substring(0, 300) ?? "（无返回结果）";
 
-            const stopMessage = new AIMessage(
-                `[任务中断] 检测到重复的工具调用，为避免死循环已强制停止。\n\n` +
-                `**原始请求**: ${userRequest}\n\n` +
-                `**重复的工具调用**: ${repetitiveInfo.toolName}\n` +
-                `**参数**: ${repetitiveInfo.toolArgs}\n` +
-                `**累计调用次数**: ${repetitiveInfo.count}\n` +
-                `**最后一次返回**: ${lastResult}${repetitiveInfo.lastResult && repetitiveInfo.lastResult.length > 300 ? "..." : ""}\n\n` +
-                `**可能的原因**:\n` +
-                `1. 工具持续返回相同结果，未取得预期进展\n` +
-                `2. 工具参数可能不正确或目标已存在/不存在\n` +
-                `3. 任务可能需要完全不同的方法\n\n` +
-                `**建议**: 请换一种方式描述需求，或检查相关文件/配置后重试。`
-            );
-            return {
-                messages: [stopMessage],
-                iteration: state.iteration + 1,
-            };
+                const stopMessage = new AIMessage(
+                    `[任务中断] 已给过重规划机会但仍检测到重复的工具调用，为避免死循环已强制停止。\n\n` +
+                    `**原始请求**: ${userRequest}\n\n` +
+                    `**重复的工具调用**: ${repetitiveInfo.toolName}\n` +
+                    `**参数**: ${repetitiveInfo.toolArgs}\n` +
+                    `**累计调用次数**: ${repetitiveInfo.count}\n` +
+                    `**最后一次返回**: ${lastResult}${repetitiveInfo.lastResult && repetitiveInfo.lastResult.length > 300 ? "..." : ""}\n\n` +
+                    `**可能的原因**:\n` +
+                    `1. 工具持续返回相同结果，未取得预期进展\n` +
+                    `2. 工具参数可能不正确或目标已存在/不存在\n` +
+                    `3. 任务可能需要完全不同的方法\n\n` +
+                    `**建议**: 请换一种方式描述需求，或检查相关文件/配置后重试。`
+                );
+                return {
+                    messages: [stopMessage],
+                    iteration: state.iteration + 1,
+                };
+            }
         }
 
         const modelWithTools = this.llm.bindTools(activeTools)
@@ -202,7 +316,9 @@ export class GraphAgentExecutorBase {
         let response;
         const llmStart = performance.now()
         try {
-            response = await modelWithTools.invoke(state.messages, {
+            // replan 提示一次性注入本轮输入（不进 state，避免污染历史与 streak 检测）
+            const llmMessages = replanHint ? [...state.messages, replanHint] : state.messages;
+            response = await modelWithTools.invoke(llmMessages, {
                 signal: AbortSignal.timeout(this.llmTimeoutMs)
             })
         } catch (err) {
@@ -277,6 +393,9 @@ export class GraphAgentExecutorBase {
         // 记录 LLM 调用
         const toolCalls = response.tool_calls;
         const usage = (response as any).usage_metadata;
+        // ⭐ token 级遥测（改进点 1）：executor 一等记账，不依赖可选 Tracer。
+        // 正常 / recovery / 首轮降级三条路径都汇聚到此统一记账区，保证计数口径一致。
+        this.recordUsage(usage);
         this.tracer?.addLLMCall(
             state.iteration,
             `messages[${state.messages.length}]`,
@@ -417,6 +536,8 @@ export class GraphAgentExecutor extends GraphAgentExecutorBase {
     }
 
     public async *stream({ messages }:{ messages: BaseMessage[]}) {
+        // run 粒度重置：replan 预算 + token 遥测（TUI 多轮复用 executor 不串账）
+        this.beginRun()
         const graph = this.createGraph()
         const input: AgentStateType = {
             messages: [new SystemMessage(this.systemPrompt), ...messages],
@@ -488,6 +609,8 @@ export class GraphAgentExecutor extends GraphAgentExecutorBase {
      * worker子agent专用
      */
     public async run(input: string, workerPrompt: string): Promise<string>{
+        // run 粒度重置（worker run 也是独立 run，各自记账/replan 预算）
+        this.beginRun()
         this.tracer?.startSession(`[worker] ${input}`)
 
         const graph = this.createGraph()
