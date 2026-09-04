@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Box, Text, Static } from "ink";
 import { Input } from "./input.js";
 import { MessageItem, type OutputMessage } from "./output.js";
@@ -9,8 +9,7 @@ import {
   StreamAccumulator,
 } from "./ptc.js";
 import { handleCommand } from "./commands.js";
-import { createAgentExecutor, createHierarchicalAgent, createPtcAgent, runAgent } from "../agent/loop.js";
-import type { AgentMessage } from "../agent/types.js";
+import { createAgentExecutor, createHierarchicalAgent, createPtcAgent, runAgentMessages } from "../agent/loop.js";
 import type { AgentMemory } from "../memory/index.js";
 import { GraphAgentExecutor } from "../agent/graph-agent-executor.js";
 import { HierarchicalAgentLangGraph } from "../agent/hierarchical-agent-langgraph.js";
@@ -69,7 +68,6 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
   // Ref mirror of dynamicMessages for synchronous access in callbacks
   const dynamicMsgRef = useRef<OutputMessage[]>([]);
 
-  const historyRef = useRef<AgentMessage[]>([]);
   const [running, setRunning] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [streamingTools, setStreamingTools] = useState<string[]>([]);
@@ -190,12 +188,10 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
           setDynamicMessages([]);
           dynamicMsgRef.current = [];
           setStreamingTools([]);
-          historyRef.current = [];
         } else if (parts[1] === "switch" && parts[2]) {
           const s = await memory.switchSession(parts[2]);
           if (s) {
             setSessionName(s.name);
-            historyRef.current = [];
             const msgs = await memory.store.getMessages(s.id);
             setStaticMessages(
               msgs.map((m) => ({
@@ -231,7 +227,6 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
           setDynamicMessages([]);
           dynamicMsgRef.current = [];
           setStreamingTools([]);
-          historyRef.current = [];
           return;
         }
         // /show is not supported with <Static> — static messages can't
@@ -263,16 +258,12 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
         if (!exec) {
           throw new Error("Agent executor not initialized yet");
         }
+        const turn = await memory.prepareTurn(value)
         if (exec instanceof PtcAgentLangGraph) {
           // ---- PTC Mode: programmatic tool calling ----
           const streamAcc = new StreamAccumulator();
-          const { parseHistory: parseHist } = await import("../agent/loop.js");
-          const messageHistory = parseHist([
-            ...historyRef.current,
-            { role: "user", content: value } as AgentMessage,
-          ]);
 
-          const stream = exec.stream({ messages: messageHistory });
+          const stream = exec.stream({ messages: turn.messages });
           for await (const rawChunk of stream) {
             const chunk = rawChunk as StreamChunk;
             // 中间叙述 → 仅动态预览；finalize 输出 → 进入最终回答（见 StreamAccumulator）
@@ -330,13 +321,8 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
           // ---- Plan Mode: use HierarchicalAgentLangGraph ----
           const planExecutor = exec;
           const streamAcc = new StreamAccumulator();
-          const { parseHistory: parseHist } = await import("../agent/loop.js");
-          const messageHistory = parseHist([
-            ...historyRef.current,
-            { role: "user", content: value } as AgentMessage,
-          ]);
 
-          const stream = planExecutor.stream({ messages: messageHistory });
+          const stream = planExecutor.stream({ messages: turn.messages });
           for await (const rawChunk of stream) {
             const chunk = rawChunk as StreamChunk;
             // 中间叙述 → 仅动态预览；finalize 输出 → 进入最终回答
@@ -406,7 +392,7 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
           output = streamAcc.output;
         } else {
           // ---- Normal Mode: use GraphAgentExecutor ----
-          output = await runAgent(exec as GraphAgentExecutor, value, historyRef.current, {
+          output = await runAgentMessages(exec as GraphAgentExecutor, turn.messages, {
             onToolStart(tool, input) {
               const msg: OutputMessage = {
                 role: "tool",
@@ -452,18 +438,11 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
           ...prev,
           { role: "assistant", content: output, timestamp: new Date() },
         ]);
-        historyRef.current.push({
-          role: "user",
-          content: value,
-        } as AgentMessage);
-        historyRef.current.push({
-          role: "assistant",
-          content: output,
-        } as AgentMessage);
         await memory.addAssistantMessage(output);
-        try {
-          await memory.summarizeAndStore(`User: ${value}\nAssistant: ${output}`);
-        } catch {}
+        // 摘要后台生成，不阻塞回合收尾；顶层 .catch 兜住 DB/未预期异常
+        void memory.rememberAfterTurn().catch((err) =>
+          console.error(`[AgentMemory] rememberAfterTurn failed:`, err),
+        );
         streamingBufferRef.current = "";
         setStreamingText("");
         setStreamingTools([]);

@@ -4,7 +4,7 @@ import {
   AIMessage,
   SystemMessage,
   ToolMessage,
-  type BaseMessage,
+  BaseMessage,
 } from "@langchain/core/messages";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import type { ChatOpenAI } from "@langchain/openai";
@@ -158,11 +158,20 @@ export async function runAgent(
     ? parseHistory(history)
     : [];
   messageHistory.push(new HumanMessage(input));
+  return runAgentMessages(executor, messageHistory, events, timeoutMs)
+}
+
+export async function runAgentMessages(
+  executor: GraphAgentExecutor,
+  messages: BaseMessage[],
+  events?: AgentEvents,
+  timeoutMs = 30_000,
+) {
   let output = "";
   let previousStepCount = 0;
   try {
     // 整体流超时包装（单次 LLM 调用超时由 executor 内部 llmTimeoutMs 控制）
-    const streamPromise = executor.stream({ messages: messageHistory });
+    const streamPromise = executor.stream({ messages });
     const timeoutPromise = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error(`Agent execution timeout (${timeoutMs}ms)`)), timeoutMs)
     );

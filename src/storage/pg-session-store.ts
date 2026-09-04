@@ -97,39 +97,49 @@ export class PgSessionStore {
   async addMessage(sessionId: string, role: string, content: string): Promise<MemoryMessage> {
     this.cache.invalidateSession(sessionId);
     const now = new Date();
-    await this.pool.query(
-      `INSERT INTO messages (session_id, role, content, created_at) VALUES ($1, $2, $3, $4)`,
+    const { rows } = await this.pool.query(
+      `INSERT INTO messages (session_id, role, content, created_at) VALUES ($1, $2, $3, $4) RETURNING id`,
       [sessionId, role, content, now.toISOString()],
     );
+    const id = rows?.[0]?.id ?? -1
     await this.pool.query(
       `UPDATE sessions SET updated_at = $1 WHERE id = $2`,
       [now.toISOString(), sessionId],
     );
-    return { role: role as MemoryMessage["role"], content, createdAt: now };
+    return { role: role as MemoryMessage["role"], content, createdAt: now, id };
   }
 
   async getMessages(sessionId: string, limit?: number): Promise<MemoryMessage[]> {
     // created_at 仅毫秒精度（now().toISOString()），同一毫秒插入的多条消息排序不确定，
-    // 追加 BIGSERIAL id 作第二排序键，保证消息按实际插入顺序稳定返回（重启加载不乱序）。
-    let sql = `SELECT role, content, created_at FROM messages WHERE session_id = $1 ORDER BY created_at ASC, id ASC`;
-    const params: any[] = [sessionId];
-    if (limit !== undefined) {
-      sql += ` LIMIT $2`;
-      params.push(limit);
-    }
+    // BIGSERIAL id 作第二排序键，保证消息按实际插入顺序稳定返回（重启加载不乱序）。
+    // 注意 limit 语义：返回「最近」N 条（时间正序）——先按 id 降序取最新 N，外层再升序还原；
+    // 直接 ORDER BY ... ASC LIMIT n 会误取最旧 n 条（prepareTurn 的 recent 窗口依赖此正确语义）。
+    const sql = limit !== undefined
+      ? `SELECT * FROM (
+           SELECT role, content, created_at, id FROM messages
+           WHERE session_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2
+         ) sub ORDER BY created_at ASC, id ASC`
+      : `SELECT role, content, created_at, id FROM messages
+         WHERE session_id = $1 ORDER BY created_at ASC, id ASC`;
+    const params: any[] = limit !== undefined ? [sessionId, limit] : [sessionId];
     const { rows } = await this.pool.query(sql, params);
     return rows.map((r) => ({
       role: r.role as MemoryMessage["role"],
       content: r.content,
       createdAt: r.created_at,
+      id: r.id
     }));
+  }
+
+  private formatTranscript(msgs: MemoryMessage[]){
+    return msgs
+    .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+    .join("\n");
   }
 
   async getRecentContext(sessionId: string, limit?: number): Promise<string> {
     const msgs = await this.getMessages(sessionId, limit);
-    return msgs
-      .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
-      .join("\n");
+    return this.formatTranscript(msgs)
   }
 
   /** 限制 session 的摘要数量，超出上限的删除（供 SummaryManager 使用） */

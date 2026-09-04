@@ -14,6 +14,7 @@ export interface MemoryMessage {
   role: "user" | "assistant" | "system";
   content: string;
   createdAt: Date;
+  id: number;
 }
 
 export interface MemoryConfig {
@@ -24,6 +25,9 @@ export interface MemoryConfig {
   maxContextTokens?: number;
   /** 为 LLM 回复预留的 token 数（默认 2000） */
   responseReserve?: number;
+  verbatimWindow?: number
+  summaryBatchSize?: number
+  recallTopK?: number
 }
 
 export interface SearchResult {

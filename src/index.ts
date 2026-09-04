@@ -32,7 +32,7 @@ async function main() {
   // 连接池（被 AgentMemory 和 PgVectorStore 共享）
   const pool = await getPool(config);
 
-  const memory = await AgentMemory.create(pool, embeddings);
+  const memory = await AgentMemory.create(pool, embeddings, undefined, undefined, llm);
 
   // RAG setup
   const ragStore = new PgVectorStore(pool, embeddings);

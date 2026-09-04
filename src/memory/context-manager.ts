@@ -28,7 +28,7 @@ export class ContextManager {
    *   - 非 ASCII 字符（中文、日文等）：约 1.5 字符/token
    *   - 空格和换行：不计
    */
-  estimateTokens(text: string): number {
+  static estimateTokens(text: string): number {
     let count = 0;
     for (const ch of text) {
       const code = ch.charCodeAt(0);
@@ -45,17 +45,18 @@ export class ContextManager {
   /**
    * 截断消息列表到 token 预算内
    *
-   * @param messages  原始消息列表（从旧到新）
-   * @param input     当前用户输入（不计入预算，但估算时要做减法）
+   * @param messages      原始消息列表（从旧到新）
+   * @param input         当前用户输入（不计入预算，但估算时要做减法）
+   * @param extraReserve  追加预留的 token 数 (用于从可用预算中再扣除记忆块占用的 token)
    * @returns         截断后的消息列表
    */
-  truncate(messages: AgentMessage[], input: string): AgentMessage[] {
+  truncate(messages: AgentMessage[], input: string, extraReserve = 0): AgentMessage[] {
     if (messages.length === 0) return [];
 
     // 计算可用预算
-    const inputTokens = this.estimateTokens(input);
+    const inputTokens = ContextManager.estimateTokens(input);
     // 还为 system prompt + tool definitions 预留
-    const available = this.maxBudget - this.responseReserve - inputTokens - 500;
+    const available = this.maxBudget - this.responseReserve - inputTokens - 500 - extraReserve;
 
     if (available <= 0) {
       // 极端情况：输入太长，只保留最后一条
@@ -73,7 +74,7 @@ export class ContextManager {
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
       const tokens =
-        this.estimateTokens(msg.content) +
+        ContextManager.estimateTokens(msg.content) +
         (msg.role === "assistant" ? 10 : 5); // 角色标签的开销
 
       if (tokenCount + tokens > available && i < messages.length - minKeep) {
