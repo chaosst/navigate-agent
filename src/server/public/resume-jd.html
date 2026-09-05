@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="rLvt16xoIpXmwMBut4qPll">
+<head data-page-node-id="dDii2YrMBHLKtM1URlRZUa">
+<meta charset="UTF-8" data-page-node-id="daSAqQOUhpAaBZplIDV2jY">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="RZvFAAk7VQeBZOEgs03Xse">
+<title>JD 匹配诊断</title>
+<style>
+  :root {
+    --bg: #f8f9fa;
+    --surface: #ffffff;
+    --text: #1a1a2e;
+    --text-muted: #6b7280;
+    --primary: #2563eb;
+    --primary-light: #eff6ff;
+    --border: #e5e7eb;
+    --ok: #10b981;
+    --warn: #f59e0b;
+    --danger: #dc2626;
+    --radius: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --primary: #60a5fa;
+      --primary-light: #1e3a5f;
+      --border: #334155;
+      --ok: #34d399;
+      --warn: #fbbf24;
+      --danger: #f87171;
+    }
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    padding: 24px;
+  }
+  .container { max-width: 860px; margin: 0 auto; }
+  .nav-bar {
+    display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap;
+    justify-content: center; font-size: 0.9rem;
+  }
+  .nav-bar a {
+    color: var(--text-muted); text-decoration: none; padding: 6px 16px;
+    border-radius: 8px; white-space: nowrap;
+  }
+  .nav-bar a:hover, .nav-bar a.active { background: var(--primary-light); color: var(--primary); }
+  .card {
+    background: var(--surface); border-radius: var(--radius);
+    padding: 28px; margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    border: 1px solid var(--border);
+  }
+  h1 { font-size: 1.4rem; margin-bottom: 6px; text-align: center; }
+  .subtitle { text-align: center; color: var(--text-muted); font-size: 0.9rem; margin-bottom: 18px; }
+  textarea {
+    width: 100%; min-height: 180px; padding: 12px 14px;
+    border: 1px solid var(--border); border-radius: 8px;
+    font-size: 0.9rem; font-family: inherit; line-height: 1.7;
+    background: var(--bg); color: var(--text); resize: vertical;
+    outline: none;
+  }
+  textarea:focus { border-color: var(--primary); }
+  textarea:disabled { opacity: 0.5; }
+  .actions { display: flex; gap: 10px; margin-top: 12px; align-items: center; flex-wrap: wrap; }
+  button {
+    padding: 10px 26px; border-radius: 8px; border: none;
+    background: var(--primary); color: #fff; font-size: 0.95rem;
+    cursor: pointer; font-weight: 500; transition: opacity 0.15s;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button:hover:not(:disabled) { opacity: 0.9; }
+  .hint { color: var(--text-muted); font-size: 0.8rem; }
+  .error-msg { color: var(--danger); margin-top: 10px; font-size: 0.88rem; }
+
+  /* 结果区 */
+  #result { display: none; }
+  .score-row { display: flex; align-items: center; gap: 16px; margin-bottom: 8px; }
+  .score-num { font-size: 2.6rem; font-weight: 700; color: var(--primary); line-height: 1; }
+  .score-bar-wrap { flex: 1; background: var(--bg); border-radius: 99px; height: 14px; overflow: hidden; border: 1px solid var(--border); }
+  .score-bar { height: 100%; background: linear-gradient(90deg, var(--warn), var(--primary)); border-radius: 99px; width: 0; transition: width 0.6s ease; }
+  .summary {
+    margin: 8px 0 20px; padding: 12px 16px;
+    background: var(--primary-light); border-radius: 8px;
+    border-left: 4px solid var(--primary); font-size: 0.95rem;
+  }
+  .block { margin-bottom: 18px; }
+  .block h3 { font-size: 1rem; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+  .block ul { list-style: none; }
+  .block li {
+    padding: 8px 12px; margin-bottom: 8px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--bg); font-size: 0.9rem;
+  }
+  .ok { color: var(--ok); }
+  .warn { color: var(--warn); }
+  .idea { color: var(--primary); }
+  .loading-block { text-align: center; padding: 28px; color: var(--text-muted); }
+  .spinner {
+    display: inline-block; width: 22px; height: 22px;
+    border: 3px solid var(--border); border-top-color: var(--primary);
+    border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 8px;
+    vertical-align: -5px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body data-page-node-id="rWur2E99KTgQkoaZFvouVo">
+<div class="container" data-page-node-id="C3eE9C6xWZyuYd8XnQwq9L">
+  <div class="nav-bar" data-page-node-id="Hg8MrBmRhS2qGIKuEHn9EK">
+    <a href="/" data-page-node-id="9Jin0d7LMut9jexLXf4UD2">📄 文档管理</a>
+    <a href="__WIKI_URL__" target="_blank" data-page-node-id="p9UBTSaRKk1DTbtShwVFn8">📚 Wiki ↗</a>
+    <a href="/resume" data-page-node-id="AfqvrwXzsFr0HTH7EqW48L">👤 简历</a>
+    <a href="/resume/chat" data-page-node-id="SvvMEhxbzkGXhcp0JfW7ms">💬 简历问答</a>
+    <a href="/resume/jd" class="active" data-page-node-id="ad2k5RMpXFSRBaeKIVEnp6">🎯 JD匹配</a>
+  </div>
+
+  <div class="card" data-page-node-id="AQAQ9WTtMfTrD8xcVHlzYX">
+    <h1 data-page-node-id="ZtatdFN0sjg67W2UiYDzlK">🎯 JD 匹配诊断</h1>
+    <p class="subtitle" data-page-node-id="613CNcT3JUub9wjPTsA6N5">粘贴目标岗位描述，AI 对照简历给出匹配分、优势、差距与修改建议</p>
+    <textarea id="jd-input" placeholder="粘贴岗位描述（JD）…&#10;&#10;例如：负责 RAG 系统的架构与优化，要求熟悉 TypeScript、LangChain、向量数据库、docker 部署…"></textarea>
+    <div class="actions" data-page-node-id="BZeKlmzhjBwk6axDcQGCEX">
+      <button id="analyze-btn" data-page-node-id="Gj3UuSS4a4VOtLSmEdW28H">开始诊断 🔍</button>
+      <span class="hint" data-page-node-id="sAWVpRJj1Ef0AbENFfOk3U">分析基于简历全文，单次调用，约 10~30 秒</span>
+    </div>
+    <div class="error-msg" id="error" data-page-node-id="TnXTAurrNX4PSWiW7N0EBV"></div>
+  </div>
+
+  <div class="card" id="result" data-page-node-id="Dye01sQWic0WUq2ZlKaxNj">
+    <div id="result-body" data-page-node-id="MNvpOwOsSWrENg7Yq9WGdF"></div>
+  </div>
+</div>
+
+<script>
+// —— token 恢复（与其它 H5 页面一致）——
+const urlToken = new URLSearchParams(location.search).get("token");
+if (urlToken) sessionStorage.setItem("navigate_token", urlToken);
+const TOKEN = sessionStorage.getItem("navigate_token");
+if (!TOKEN) { location.href = "/login?next=" + encodeURIComponent(location.pathname); throw new Error("no token"); }
+document.querySelectorAll(".nav-bar a").forEach(function (a) {
+  const href = a.getAttribute("href");
+  if (href && href.indexOf("token=") === -1 && href.indexOf("http") !== 0) a.setAttribute("href", href + "?token=" + TOKEN);
+});
+
+const input = document.getElementById("jd-input");
+const btn = document.getElementById("analyze-btn");
+const errEl = document.getElementById("error");
+const resultCard = document.getElementById("result");
+const resultBody = document.getElementById("result-body");
+
+btn.addEventListener("click", analyze);
+
+async function analyze() {
+  const jd = input.value.trim();
+  if (!jd) { errEl.textContent = "请先粘贴岗位描述。"; return; }
+  if (jd.length > 4000) { errEl.textContent = "岗位描述过长（>4000 字符），请精简后重试。"; return; }
+
+  errEl.textContent = "";
+  btn.disabled = true;
+  input.disabled = true;
+  resultCard.style.display = "none";
+
+  const loadingCard = document.createElement("div");
+  loadingCard.className = "card loading-block";
+  loadingCard.innerHTML = '<span class="spinner"></span>AI 正在比对简历与 JD，请稍候…';
+  resultCard.parentElement.insertBefore(loadingCard, resultCard);
+
+  try {
+    const res = await fetch(`/api/resume/jd-match?token=${TOKEN}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jd }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(data.error || "请求失败");
+    }
+    const data = await res.json();
+    renderResult(data);
+    resultCard.style.display = "block";
+  } catch (e) {
+    errEl.textContent = `❌ ${e.message}`;
+  } finally {
+    loadingCard.remove();
+    btn.disabled = false;
+    input.disabled = false;
+  }
+}
+
+function esc(s) {
+  const d = document.createElement("div");
+  d.textContent = String(s ?? "");
+  return d.innerHTML;
+}
+
+function renderResult(r) {
+  const score = Math.max(0, Math.min(100, Number(r.score) || 0));
+  resultBody.innerHTML = `
+    <div class="score-row">
+      <div class="score-num">${score}</div>
+      <div style="flex:1">
+        <div style="font-size:0.85rem;color:var(--text-muted);margin-bottom:6px;">匹配度（0-100）</div>
+        <div class="score-bar-wrap"><div class="score-bar" style="width:${score}%"></div></div>
+      </div>
+    </div>
+    <div class="summary">📌 ${esc(r.summary)}</div>
+    <div class="block">
+      <h3><span class="ok">✅</span> 优势</h3>
+      <ul>${(r.strengths || []).map(s => `<li>${esc(s)}</li>`).join("") || "<li>无</li>"}</ul>
+    </div>
+    <div class="block">
+      <h3><span class="warn">⚠️</span> 差距</h3>
+      <ul>${(r.gaps || []).map(s => `<li>${esc(s)}</li>`).join("") || "<li>无</li>"}</ul>
+    </div>
+    <div class="block">
+      <h3><span class="idea">💡</span> 简历修改建议</h3>
+      <ul>${(r.suggestions || []).map(s => `<li>${esc(s)}</li>`).join("") || "<li>无</li>"}</ul>
+    </div>
+  `;
+}
+</script>
+</body>
+</html>

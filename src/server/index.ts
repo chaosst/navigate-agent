@@ -20,6 +20,8 @@ import { getToken, stripTokenQuery } from "./auth-helpers.js";
 import { mountLoginRoutes } from "./login.js";
 import { startWikiProxy } from "./wiki-proxy.js";
 import { ContextManager } from "../memory/context-manager.js";
+import { sourcesFromChunk } from "./sse-sources.js";
+import { ResumeTooLongError, type JdMatchResult } from "../resume/jd-analyzer.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -80,6 +82,8 @@ export function createRagServer(
   resumeStore?: ResumeStore,
   resumeData?: ResumeData,
   apiAuth?: ApiKeyAuthConfig,
+  resumeExecutor?: AgentExecutor,
+  jdAnalyzer?: { analyze(jd: string): Promise<JdMatchResult> },
 ) {
   const app = express();
   const upload = multer({ dest: "rag_uploads/" });
@@ -413,7 +417,10 @@ export function createRagServer(
   }
 
   app.post("/api/resume/chat", requireToken, async (req, res) => {
-    if (!executor) {
+    // 简历问答优先使用专用 sub-agent（最小工具集 = search_resume）；
+    // 未装配时回退主 executor（旧部署兼容，正常不会发生）
+    const chatExecutor = resumeExecutor ?? executor;
+    if (!chatExecutor) {
       return res.status(503).json({ error: "Agent executor not available" });
     }
 
@@ -436,6 +443,8 @@ export function createRagServer(
     session.messages.push({ role: "user", content: question });
 
     let fullAnswer = "";
+    // 引用溯源：收集本轮所有 search_resume 调用返回的来源（去重保序）
+    const sources: string[] = [];
     try {
       const { HumanMessage, AIMessage } = await import("@langchain/core/messages");
       // 与 TUI 的 prepareTurn 对齐：全量重放前先用 token 预算截断历史，避免无限增长
@@ -448,8 +457,10 @@ export function createRagServer(
         m.role === "user" ? new HumanMessage(m.content) : new AIMessage(m.content)
       );
 
-      const stream = await executor.stream({ messages });
+      const stream = await chatExecutor.stream({ messages });
       for await (const chunk of stream) {
+        // 工具调用记录 → 抽引用来源（search_resume 的 observation）
+        sources.push(...sourcesFromChunk(chunk));
         if (chunk.output !== undefined && chunk.output !== null) {
           const text = String(chunk.output);
           fullAnswer += text;
@@ -463,6 +474,10 @@ export function createRagServer(
       }
       session.messages.push({ role: "assistant", content: fullAnswer });
 
+      // 引用来源在最终答案之后、done 之前发出（前端缓存至本轮结束再渲染）
+      if (sources.length > 0) {
+        res.write(`event: sources\ndata: ${JSON.stringify(sources)}\n\n`);
+      }
       res.write(`event: done\ndata: __DONE__\n\n`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
@@ -482,9 +497,40 @@ export function createRagServer(
     });
   });
 
+  // === JD 匹配诊断 ===
+  app.get("/resume/jd", requireLoginPage, (_req, res) => {
+    sendHtml(res, "resume-jd.html", { WIKI_URL: wikiPublicUrl });
+  });
+
+  app.post("/api/resume/jd-match", requireToken, async (req, res) => {
+    const { jd } = (req.body ?? {}) as { jd?: unknown };
+    if (typeof jd !== "string" || !jd.trim()) {
+      return res.status(400).json({ error: "Missing jd" });
+    }
+    if (jd.length > 4000) {
+      return res.status(400).json({ error: "JD too long (>4000 chars)" });
+    }
+    if (!jdAnalyzer) {
+      return res.status(503).json({ error: "Resume JD analyzer not available" });
+    }
+    try {
+      const result = await jdAnalyzer.analyze(jd.trim());
+      res.json(result);
+    } catch (err) {
+      // 简历超诊断预算 → 客户端可读的 400（改简历即可重试），其余失败 → 502
+      if (err instanceof ResumeTooLongError) {
+        return res.status(400).json({ error: err.message });
+      }
+      res.status(502).json({ error: (err as Error).message || "JD analysis failed" });
+    }
+  });
+
   // 防止经 /index.html 等静态路径绕过登录门槛 → 重定向到带门槛的规范路由
-  app.get(["/index.html", "/resume.html", "/resume/chat.html"], (req, res) => {
-    const map: Record<string, string> = { "/index.html": "/", "/resume.html": "/resume", "/resume/chat.html": "/resume/chat" };
+  app.get(["/index.html", "/resume.html", "/resume/chat.html", "/resume/jd.html"], (req, res) => {
+    const map: Record<string, string> = {
+      "/index.html": "/", "/resume.html": "/resume",
+      "/resume/chat.html": "/resume/chat", "/resume/jd.html": "/resume/jd",
+    };
     res.redirect(302, map[req.path] || "/");
   });
 

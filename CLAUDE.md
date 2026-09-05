@@ -93,12 +93,19 @@ Express server (port 3001) with endpoints:
 - `POST /api/upload` — Upload documents → RAG indexing (token-protected)
 - `GET/DELETE /api/documents` — Document management
 - `POST /api/query` — RAG search API
-- `POST /api/resume/chat` — SSE streaming chat
-- `GET /resume` — Resume display
+- `POST /api/resume/chat` — SSE streaming chat（简历专用 sub-agent；流内 `event: sources` 携带引用来源）
+- `POST /api/resume/jd-match` — 贴 JD → 匹配诊断 JSON（需 token）
+- `GET /resume` — Resume display（公开）
+- `GET /resume/chat`、`GET /resume/jd` — 需登录的 H5 页面
 - Token management endpoints in `token.ts` (30 min TTL, 12-char hex)
 
 ### Resume (`src/resume/`)
-Parses `resume.md` into structured data with SQLite-backed vector embeddings. `ResumeSearchTool` (tool: `search_resume`) provides section-filtered semantic search with cosine similarity and keyword fallback.
+Resume 入口归一化：`loader.ts`（`loadResumeSource`）探测 `resume.md`（优先）→ `resume.docx`（mammoth 本地转 md，不调云端，敏感数据不出进程）；`.doc` 老格式不支持（仅告警）。下游只消费归一化后的 markdown 单一事实源：`parser.ts`（`parseResumeText` 文本入口，`parseResume(filePath)` 为其薄封装）→ SQLite-backed vector embeddings。`ResumeSearchTool` (tool: `search_resume`) provides section-filtered semantic search with cosine similarity and keyword fallback.
+
+- **v3 简历问答专用 sub-agent**：`server-entry.ts` 为 `/api/resume/chat` 单独构造 `resumeExecutor`（`GraphAgentExecutor`，tools 仅 `[resumeTool]` + `buildResumeSystemPrompt`，不注册 toolStatsRegistry/tracer）。最小权限面：LLM 无 shell/文件/web 工具可越界；finalize 也不带「工具统计/Tokens」脚注。
+- **主 agent 条件构造**：web 进程完整能力主 agent（rag/skill/核心工具 + 统计）只在 resume 未装配（resumeExecutor 缺失）时按需构造作 chat 兜底；resume 装配成功时进程 agent 面 = resumeExecutor，完整能力入口在 TUI（`src/bootstrap.ts`）——避免空转构造永不调用的 executor + 工具面。
+- **引用溯源**：`sse-sources.ts` 从 stream 的 `intermediateSteps` 抽取 `search_resume` observation 中的 `简历 / section / item` 来源，SSE `event: sources` 回传，`resume-chat.html` 渲染为引用 chip。
+- **JD 匹配**：`jd-analyzer.ts`（`analyzeJdMatch`）输入为 `serializeResumeForJd(resumeData)`（结构化紧凑序列化，去 frontmatter/装饰噪音），超 `MAX_JD_RESUME_CHARS`(12000) 抛 `ResumeTooLongError` → 路由 400 可读错误（非 502）。一次 LLM 调用输出结构化 JSON（score/summary/strengths/gaps/suggestions），`resume-jd.html` 展示诊断卡。
 
 ### Skills (`src/skills/`)
 YAML or Markdown-defined tools with four action types: `template`, `shell`, `http`, `code`.

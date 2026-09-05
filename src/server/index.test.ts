@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { AddressInfo } from "node:net";
 import { createRagServer } from "./index.js";
+import { ResumeTooLongError } from "../resume/jd-analyzer.js";
 import type { PgVectorStore } from "../storage/pg-vector-store.js";
 
 // mock store 避开 Postgres/OpenAI 依赖，专注验证登录门槛与路由装配
@@ -52,6 +53,61 @@ describe("createRagServer login gating (e2e)", () => {
     const res = await fetch(base + "/resume/chat", { redirect: "manual" });
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toContain("/login?next=");
+  });
+
+  it("redirects unauthenticated /resume/jd to login", async () => {
+    const res = await fetch(base + "/resume/jd", { redirect: "manual" });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toContain("/login?next=");
+  });
+
+  it("rejects anonymous /api/resume/jd-match with 401", async () => {
+    const res = await fetch(base + "/api/resume/jd-match", { method: "POST" });
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 503 for jd-match when no jdAnalyzer wired (valid token)", async () => {
+    // 先登录拿 token + cookie
+    const good = await fetch(base + "/api/login", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "admin", password: "secret", next: "/" }),
+    });
+    const data = await good.json();
+    const res = await fetch(base + "/api/resume/jd-match", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", cookie: (good.headers.get("set-cookie") || "").split(";")[0] },
+      body: JSON.stringify({ jd: "招 Node 工程师，要求 TypeScript / RAG / Docker" }),
+    });
+    // 本测试未装配 jdAnalyzer → 503（页面可达性由 login gating 覆盖）
+    expect(res.status).toBe(503);
+    expect(data.token).toBeTruthy();
+  });
+
+  it("rejects empty /api/resume/jd-match body", async () => {
+    const good = await fetch(base + "/api/login", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "admin", password: "secret", next: "/" }),
+    });
+    const cookie = (good.headers.get("set-cookie") || "").split(";")[0];
+    const res = await fetch(base + "/api/resume/jd-match", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", cookie },
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("serves /resume/jd page to an authenticated user", async () => {
+    const good = await fetch(base + "/api/login", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "admin", password: "secret", next: "/" }),
+    });
+    const cookie = (good.headers.get("set-cookie") || "").split(";")[0];
+    const res = await fetch(base + "/resume/jd", { headers: { cookie } });
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("JD 匹配诊断");
+    expect(html).not.toContain("__WIKI_URL__");
   });
 
   it("serves /resume publicly (no login)", async () => {
@@ -110,6 +166,52 @@ describe("createRagServer login gating (e2e)", () => {
     const res = await fetch(base + "/login");
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("Navigate 登录");
+  });
+});
+
+describe("jd-match ResumeTooLongError budget mapping (e2e)", () => {
+  let server: import("node:http").Server;
+  let base: string;
+
+  beforeAll(async () => {
+    process.env.H5_LOGIN_USERNAME = "admin";
+    process.env.H5_LOGIN_PASSWORD = "secret";
+    process.env.H5_LOGIN_USERS = "";
+    process.env.H5_WIKI_PROXY_PORT = "0";
+    // 注入抛 ResumeTooLongError 的假 analyzer → 路由应映射为可读 400（而非 502）
+    const app = createRagServer(
+      mockStore, 0,
+      undefined, undefined, undefined, undefined, undefined,
+      { analyze: async () => { throw new ResumeTooLongError(99999); } },
+    );
+    server = (app as unknown as { httpServer: import("node:http").Server }).httpServer;
+    await new Promise<void>((r) => server.once("listening", () => r()));
+    base = `http://localhost:${(server.address() as AddressInfo).port}`;
+  });
+  afterAll(() => {
+    server?.closeAllConnections?.();
+    server?.close();
+    delete process.env.H5_WIKI_PROXY_PORT;
+    delete process.env.H5_LOGIN_USERNAME;
+    delete process.env.H5_LOGIN_PASSWORD;
+    delete process.env.H5_LOGIN_USERS;
+  });
+
+  it("returns a readable 400 with char count when resume exceeds budget", async () => {
+    const good = await fetch(base + "/api/login", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "admin", password: "secret", next: "/" }),
+    });
+    const cookie = (good.headers.get("set-cookie") || "").split(";")[0];
+    const res = await fetch(base + "/api/resume/jd-match", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", cookie },
+      body: JSON.stringify({ jd: "招 Node 工程师" }),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("简历过长");
+    expect(body.error).toContain("99999");
   });
 });
 

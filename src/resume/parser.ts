@@ -173,7 +173,11 @@ function finalizeItem(item: ResumeItem, descLines: string[], highlights: string[
 }
 
 export function parseResume(filePath: string): ResumeData {
-  const content = readFileSync(filePath, "utf-8");
+  return parseResumeText(readFileSync(filePath, "utf-8"));
+}
+
+/** 从 markdown 文本解析结构化简历（loader 归一化后 docx 也是 markdown，入口统一走这里） */
+export function parseResumeText(content: string): ResumeData {
   const lines = content.split("\n");
 
   const { meta, rest } = parseFrontmatter(lines);

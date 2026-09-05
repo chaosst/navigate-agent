@@ -91,6 +91,21 @@
   }
   .suggestion-btn:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-light); }
 
+  /* 引用来源 chips */
+  .refs {
+    margin-top: 8px; padding-top: 8px;
+    border-top: 1px dashed var(--border);
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  }
+  .refs-label { font-size: 0.75rem; color: var(--text-muted); margin-right: 2px; }
+  .ref-chip {
+    font-size: 0.72rem; padding: 3px 10px; border-radius: 20px;
+    background: var(--primary-light); color: var(--primary);
+    border: 1px solid var(--border); cursor: help;
+    white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis;
+  }
+  .ref-chip:hover { border-color: var(--primary); }
+
   .input-area {
     display: flex; gap: 8px; padding: 16px 24px;
     border-top: 1px solid var(--border); background: var(--surface);
@@ -183,6 +198,7 @@
   <a href="__WIKI_URL__" target="_blank">📚 Wiki ↗</a>
   <a href="/resume">👤 简历</a>
   <a href="/resume/chat" class="active">💬 问答</a>
+  <a href="/resume/jd">🎯 JD匹配</a>
   <a href="/api/logout?next=/login" onclick="sessionStorage.removeItem('navigate_token')">🚪 退出</a>
 </div>
 
@@ -308,6 +324,8 @@ async function ask(question) {
     const decoder = new TextDecoder();
     let buffer = "";
     let fullAnswer = "";
+    let currentEvent = "";      // 最近一条 event: 的类型（token / sources / done）
+    let pendingSources = null;  // 本轮 search_resume 引用来源（string[]），done 时渲染
 
     while (true) {
       const { done, value } = await reader.read();
@@ -319,18 +337,25 @@ async function ask(question) {
 
       for (const line of lines) {
         if (line.startsWith("event: ")) {
-          // event type line — skip, we handle by data
-        } else if (line.startsWith("data: ")) {
-          try {
-            const payload = JSON.parse(line.slice(6));
-            if (typeof payload === "string") {
-              fullAnswer += payload;
-              const mdEl = aiMsgEl.querySelector(".md");
-              if (mdEl) mdEl.innerHTML = renderMarkdown(fullAnswer);
-              chatArea.scrollTop = chatArea.scrollHeight;
-            }
-          } catch { /* ignore parse errors */ }
+          currentEvent = line.slice(7).trim();
+          continue;
         }
+        if (!line.startsWith("data: ")) continue;
+        const raw = line.slice(6);
+        try {
+          const payload = JSON.parse(raw);
+          if (currentEvent === "sources" && Array.isArray(payload)) {
+            // 引用来源缓存到本轮结束再展示（正文渲染不被打断）
+            pendingSources = payload.filter(x => typeof x === "string");
+            continue;
+          }
+          if (typeof payload !== "string") continue;
+          if (payload === "__DONE__" || payload === "[DONE]") continue;
+          fullAnswer += payload;
+          const mdEl = aiMsgEl.querySelector(".md");
+          if (mdEl) mdEl.innerHTML = renderMarkdown(fullAnswer);
+          chatArea.scrollTop = chatArea.scrollHeight;
+        } catch { /* ignore parse errors */ }
       }
     }
 
@@ -338,7 +363,7 @@ async function ask(question) {
     if (buffer.startsWith("data: ")) {
       try {
         const payload = JSON.parse(buffer.slice(6));
-        if (typeof payload === "string") {
+        if (typeof payload === "string" && payload !== "__DONE__" && payload !== "[DONE]") {
           fullAnswer += payload;
           const mdEl = aiMsgEl.querySelector(".md");
           if (mdEl) mdEl.innerHTML = renderMarkdown(fullAnswer);
@@ -347,6 +372,15 @@ async function ask(question) {
     }
 
     aiMsgEl.classList.remove("streaming");
+
+    // 本轮结束：把缓存的引用来源渲染到该条 AI 气泡下方
+    if (pendingSources && pendingSources.length > 0) {
+      renderSources(aiMsgEl, pendingSources);
+    }
+    if (fullAnswer.trim() === "" && pendingSources && pendingSources.length > 0) {
+      const mdEl = aiMsgEl.querySelector(".md");
+      if (mdEl) mdEl.textContent = "⚠️ 未能生成回答，但检索到了以下简历内容：";
+    }
 
   } catch (err) {
     aiMsgEl.classList.remove("streaming");
@@ -370,9 +404,36 @@ function appendMessage(role, content, streaming = false) {
   md.className = "md";
   md.innerHTML = content ? renderMarkdown(content) : "";
   el.appendChild(md);
+  // AI 消息预留引用来源容器（空容器不占位，有内容才显示）
+  if (role === "ai" || role === "assistant") {
+    const refs = document.createElement("div");
+    refs.className = "refs";
+    refs.hidden = true;
+    el.appendChild(refs);
+  }
   chatArea.appendChild(el);
   chatArea.scrollTop = chatArea.scrollHeight;
   return el;
+}
+
+/** 渲染引用来源 chips 到 AI 气泡下方 */
+function renderSources(aiMsgEl, sources) {
+  const refsEl = aiMsgEl.querySelector(".refs");
+  if (!refsEl) return;
+  refsEl.hidden = false;
+  refsEl.innerHTML = "";
+  const label = document.createElement("span");
+  label.className = "refs-label";
+  label.textContent = "📎 参考来源";
+  refsEl.appendChild(label);
+  for (const src of sources) {
+    const chip = document.createElement("span");
+    chip.className = "ref-chip";
+    // 去掉公共前缀「简历 / 」，展示 section / 条目
+    chip.textContent = src.replace(/^简历\s*\/\s*/, "");
+    chip.title = src;
+    refsEl.appendChild(chip);
+  }
 }
 </script>
 </body>
