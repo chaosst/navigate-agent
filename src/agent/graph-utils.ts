@@ -116,6 +116,26 @@ export function foldOldToolResults(
   });
 }
 
+/**
+ * 统计消息链「末尾连续 search_documents 空命中」的次数（中间有其它工具结果即停止）。
+ * RAG 空检索常每轮换关键词（args 变化），detectNoProgressLoop 抓不到；
+ * 用连续空命中次数做收敛判定。与检索工具的空命中措辞耦合（/No relevant documents found/i）。
+ */
+export function countFutileRagSearch(messages: BaseMessage[]): number {
+  const EMPTY_RE = /No relevant documents found/i;
+  let empty = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]._getType() !== "tool") continue; // AI/Human/System 跳过
+    const tm = messages[i] as unknown as { name?: string; content: unknown };
+    if (tm.name === "search_documents" && typeof tm.content === "string" && EMPTY_RE.test(tm.content)) {
+      empty += 1;
+      continue;
+    }
+    return empty; // 非空 search_documents 命中或其它工具介入 → 结束累计
+  }
+  return empty;
+}
+
 export function extractUserText(messages: BaseMessage[]): string {
     return messages
         .filter((m) => m._getType() === "human")

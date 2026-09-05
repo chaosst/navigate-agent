@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AIMessage, HumanMessage, SystemMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages";
-import { foldOldToolResults } from "../graph-utils.js";
+import { foldOldToolResults, countFutileRagSearch } from "../graph-utils.js";
 
 /** 造一轮：AI 决策(工具) + Tool 结果 */
 function round(name: string, content: string, id: number): BaseMessage[] {
@@ -25,6 +25,48 @@ function build(): BaseMessage[] {
     ...round("echo", big("d"), 4),       // round 3
   ];
 }
+
+const EMPTY_HIT = "No relevant documents found in the uploaded document library. Stop retrieving unless ...";
+
+function ragRound(content: string, id: number): BaseMessage[] {
+  return [
+    new AIMessage({
+      content: "",
+      tool_calls: [{ id: `c${id}`, name: "search_documents", args: { query: `q${id}` }, type: "tool_call" }],
+    }),
+    new ToolMessage(content, `c${id}`, "search_documents"),
+  ];
+}
+
+describe("countFutileRagSearch", () => {
+  it("末尾连续 N 次空命中（期间无其它工具介入）计数 N", () => {
+    const msgs = [
+      new SystemMessage("sys"),
+      ...ragRound(EMPTY_HIT, 1),
+      ...ragRound(EMPTY_HIT, 2),
+      ...ragRound(EMPTY_HIT, 3),
+    ];
+    expect(countFutileRagSearch(msgs)).toBe(3);
+  });
+
+  it("最近一次 search_documents 有命中 → 计数 0", () => {
+    const msgs = [...ragRound(EMPTY_HIT, 1), ...ragRound("real content", 2)];
+    expect(countFutileRagSearch(msgs)).toBe(0);
+  });
+
+  it("空检索尾部前有非 search_documents 工具结果 → 只计尾部", () => {
+    const msgs = [
+      ...round("list_files", "files", 100), // 其它工具（name list_files）
+      ...ragRound(EMPTY_HIT, 2),
+      ...ragRound(EMPTY_HIT, 3),
+    ];
+    expect(countFutileRagSearch(msgs)).toBe(2);
+  });
+
+  it("无工具消息 → 0", () => {
+    expect(countFutileRagSearch([new SystemMessage("s"), new HumanMessage("hi")])).toBe(0);
+  });
+});
 
 describe("foldOldToolResults", () => {
   it("超过 keepRounds 的旧轮 ToolMessage 折叠为开头+标记，近窗轮原样保留", () => {

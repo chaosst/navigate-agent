@@ -9,7 +9,7 @@ import { Tracer } from "./tracer.js";
 import { PermissionWrapper } from "../tools/permission.js";
 import { logAgent } from "./logger.js";
 import { AgentState, PtcStateType } from './types.js';
-import { buildIterationExhaustedSummary, buildStatsFooter, extractText, extractUserText, foldOldToolResults } from './graph-utils.js';
+import { buildIterationExhaustedSummary, buildStatsFooter, countFutileRagSearch, extractText, extractUserText, foldOldToolResults } from './graph-utils.js';
 import { TrackingToolNode } from './tracking-tool-node.js';
 
 type AgentStateType = typeof AgentState.State
@@ -94,6 +94,11 @@ export class GraphAgentExecutorBase {
      * beginRun() 时重置 —— 与遥测同 run 粒度。
      */
     protected replansLeft: number
+    /**
+     * RAG 空检索收敛的提示预算：连续 RAG_FUTILE_LIMIT 次 search_documents 空命中后，
+     * 先注入一次「停止空转」提示；预算耗尽仍空检索 → 强制收敛（与 replan 同 run 粒度）。
+     */
+    protected ragWarnsLeft: number
     /** 本 run 的 token 级遥测记账（每次成功 LLM 调用后累加） */
     protected runUsage: ExecutorUsage = { llmCalls: 0, inputTokens: 0, outputTokens: 0 }
     
@@ -115,6 +120,7 @@ export class GraphAgentExecutorBase {
         this.tracer = tracer
         this.toolStatsRegistry = toolStatsRegistry
         this.replansLeft = envInt("REPLAN_LIMIT", 1)
+        this.ragWarnsLeft = envInt("RAG_WARN_LIMIT", 1)
     }
 
     /**
@@ -124,6 +130,7 @@ export class GraphAgentExecutorBase {
      */
     protected beginRun(): void {
         this.replansLeft = envInt("REPLAN_LIMIT", 1);
+        this.ragWarnsLeft = envInt("RAG_WARN_LIMIT", 1);
         this.runUsage = { llmCalls: 0, inputTokens: 0, outputTokens: 0 };
     }
 
@@ -304,6 +311,41 @@ export class GraphAgentExecutorBase {
             }
         }
 
+        // RAG 空检索收敛：连续空命中达阈值先注入一次「停止空转」提示；预算耗尽仍空检索 → 强制收敛
+        const ragFutileLimit = envInt("RAG_FUTILE_LIMIT", 3);
+        const ragFutile = countFutileRagSearch(state.messages);
+        let ragHint: SystemMessage | null = null;
+        if (ragFutile >= ragFutileLimit) {
+            if (this.ragWarnsLeft > 0) {
+                this.ragWarnsLeft -= 1;
+                const userRequest = (userInput || "（无用户输入）").substring(0, 200);
+                logAgent({
+                    type: "warning",
+                    message: `RAG 空检索 ${ragFutile} 次，注入收敛提示（剩余提示预算 ${this.ragWarnsLeft}）`,
+                });
+                ragHint = new SystemMessage(
+                    `[检索收敛] 你已连续 ${ragFutile} 次调用 search_documents，均未在文档库中找到相关内容。` +
+                    `文档库中很可能没有与「${userRequest}」匹配的已上传内容。` +
+                    `请停止再次调用 search_documents：若能用自身知识回答就直接作答；` +
+                    `否则明确告诉用户文档库中未找到相关内容，并建议其确认上传或换更具体的关键词。`
+                );
+            } else {
+                logAgent({
+                    type: "error",
+                    message: `RAG 空检索 ${ragFutile} 次且收敛提示已给过，强制中断`,
+                });
+                this.tracer?.addError(`RAG 空检索中断: search_documents 连续 ${ragFutile} 次无命中`);
+                const stopMessage = new AIMessage(
+                    `[检索收敛] 文档库中未找到与请求匹配的已上传内容（连续 ${ragFutile} 次检索均无命中），已停止继续检索。\n\n` +
+                    `请向用户说明文档库中不存在相关内容；若用户确认文档已上传，可请其确认文件名/关键词或重新上传。`
+                );
+                return {
+                    messages: [stopMessage],
+                    iteration: state.iteration + 1,
+                };
+            }
+        }
+
         const modelWithTools = this.llm.bindTools(activeTools)
 
         // LLM 请求日志：当前轮绑定的工具集
@@ -316,10 +358,11 @@ export class GraphAgentExecutorBase {
         let response;
         const llmStart = performance.now()
         try {
-            // replan 提示一次性注入本轮输入（不进 state，避免污染历史与 streak 检测）
+            // replan / RAG 收敛提示一次性注入本轮输入（不进 state，避免污染历史与 streak 检测）
             // 轮内上下文收敛：对发给 LLM 的副本折叠超窗旧工具结果（不改 state.messages）
             const folded = foldOldToolResults(state.messages);
-            const llmMessages = replanHint ? [...folded, replanHint] : folded;
+            const hints = [replanHint, ragHint].filter((h): h is SystemMessage => h !== null);
+            const llmMessages = hints.length > 0 ? [...folded, ...hints] : folded;
             response = await modelWithTools.invoke(llmMessages, {
                 signal: AbortSignal.timeout(this.llmTimeoutMs)
             })

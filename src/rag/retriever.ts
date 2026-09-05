@@ -36,7 +36,10 @@ export class RagSearchTool extends StructuredTool {
     const results = mode === "keyword"
       ? await this.store.searchKeyword(query, k || 5)
       : await this.store.search(query, k || 5);
-    if (results.length === 0) return "No relevant documents found.";
+    if (results.length === 0) {
+      // 空命中措辞刻意带方向性：让模型尽早收敛，避免反复换词空检索（agt-06 曾 8 轮/54k token 空转）
+      return "No relevant documents found in the uploaded document library. Stop retrieving unless you have a clearly different keyword or reason to believe content exists — answer from your own knowledge or tell the user the library lacks matching content.";
+    }
 
     const parts: string[] = [];
     let total = 0;
