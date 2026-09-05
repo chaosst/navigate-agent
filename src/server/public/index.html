@@ -222,7 +222,7 @@
         document.getElementById("statCache").querySelector(".stat-number").textContent = s.cacheEntries ?? 0;
         const detail = s.cacheDetail;
         if (detail) {
-          document.getElementById("statCache").title = `文档元数据: ${detail.docMeta || 0} | 会话: ${detail.sessions || 0}`;
+          document.getElementById("statCache").title = `查询缓存: ${detail.queryResults || 0} | embedding 记忆: ${detail.embedMemo || 0}`;
         }
       }
     } catch { /* server 未重启时 endpoint 不存在，静默忽略 */ }

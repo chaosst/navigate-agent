@@ -2,20 +2,22 @@ import { Pool } from "pg";
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { randomUUID } from "node:crypto";
 import type { RagDocument, RagResult } from "../rag/types.js";
-import type { DocMeta } from "./types.js";
 import { HotCache } from "./cache.js";
 
 export class PgVectorStore {
-  private cache: HotCache;
+  private queryCache: HotCache;
   private listDocsCache: { data: RagDocument[]; timestamp: number } | null = null;
   private readonly LIST_DOCS_CACHE_TTL = 5000; // 5 seconds
+  /** embedding 记忆化：同文本只调一次 embedding 端点（有界，Map 头 = 最旧） */
+  private embedMemo = new Map<string, number[]>();
+  private readonly EMBED_MEMO_MAX = 512;
 
   constructor(
     private pool: Pool,
     private embeddings: OpenAIEmbeddings,
-    cache?: HotCache,
+    queryCache?: HotCache,
   ) {
-    this.cache = cache ?? new HotCache({ maxChunks: 5000 });
+    this.queryCache = queryCache ?? new HotCache({ maxEntries: 200, ttlMs: 10 * 60 * 1000 });
   }
 
   async addChunks(
@@ -71,6 +73,8 @@ export class PgVectorStore {
       }
 
       await client.query("COMMIT");
+      // 语料新增/追加 → 查询级 L1 缓存失效
+      this.invalidateCaches();
     } catch (e) {
       await client.query("ROLLBACK");
       throw e;
@@ -80,41 +84,9 @@ export class PgVectorStore {
   }
 
   async deleteDoc(docId: string): Promise<void> {
-    this.cache.invalidateDoc(docId);
+    this.invalidateCaches();
     // CASCADE 会自动删除关联的 doc_chunks
     await this.pool.query("DELETE FROM documents WHERE id = $1", [docId]);
-  }
-
-  async getDocMeta(docId: string): Promise<DocMeta | null> {
-    // L1: 尝试缓存命中
-    const cached = this.cache.getDocMeta(docId);
-    if (cached) return cached as DocMeta;
-
-    // L2: 数据库查询
-    const { rows } = await this.pool.query(
-      `SELECT filename, stored_filename, chunk_count, indexed_at,
-              wiki_page_id, owner, project, tags, visibility, permissions, metadata
-       FROM documents WHERE id = $1`,
-      [docId],
-    );
-    if (rows.length === 0) return null;
-    const r = rows[0];
-    const meta: DocMeta = {
-      filename: r.filename,
-      storedFilename: r.stored_filename,
-      chunkCount: r.chunk_count,
-      indexedAt: r.indexed_at,
-      wikiPageId: r.wiki_page_id,
-      owner: r.owner,
-      project: r.project,
-      tags: r.tags,
-      visibility: r.visibility,
-      permissions: r.permissions,
-      metadata: r.metadata,
-    };
-    // 回填 L1 缓存
-    this.cache.setDocMeta(docId, meta);
-    return meta;
   }
 
   async listDocs(): Promise<RagDocument[]> {
@@ -133,53 +105,7 @@ export class PgVectorStore {
       indexedAt: r.indexed_at,
     }));
     this.listDocsCache = { data: result, timestamp: Date.now() };
-    // 预热 L1 缓存：列表查询后把每个文档的元数据写入 HotCache
-    for (const r of rows) {
-      if (!this.cache.getDocMeta(r.id)) {
-        this.cache.setDocMeta(r.id, {
-          filename: r.filename,
-          chunkCount: r.chunk_count,
-          indexedAt: r.indexed_at,
-        });
-      }
-    }
     return result;
-  }
-
-  async saveDocMeta(docId: string, meta: DocMeta): Promise<void> {
-    await this.pool.query(
-      `INSERT INTO documents (id, filename, stored_filename, chunk_count, owner, project, tags, visibility, permissions, metadata, indexed_at, wiki_page_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12)
-       ON CONFLICT (id) DO UPDATE SET
-         filename = EXCLUDED.filename,
-         stored_filename = EXCLUDED.stored_filename,
-         chunk_count = EXCLUDED.chunk_count,
-         owner = EXCLUDED.owner,
-         project = EXCLUDED.project,
-         tags = EXCLUDED.tags,
-         visibility = EXCLUDED.visibility,
-         permissions = EXCLUDED.permissions,
-         metadata = EXCLUDED.metadata,
-         wiki_page_id = EXCLUDED.wiki_page_id`,
-      [
-        docId,
-        meta.filename,
-        meta.storedFilename ?? null,
-        meta.chunkCount,
-        meta.owner ?? "admin",
-        meta.project ?? "",
-        meta.tags ?? [],
-        meta.visibility ?? "private",
-        JSON.stringify(meta.permissions ?? []),
-        JSON.stringify(meta.metadata ?? {}),
-        meta.indexedAt.toISOString(),
-        meta.wikiPageId ?? null,
-      ],
-    );
-  }
-
-  async deleteDocMeta(docId: string): Promise<void> {
-    return this.deleteDoc(docId);
   }
 
   async getChunkCount(): Promise<number> {
@@ -187,14 +113,43 @@ export class PgVectorStore {
     return rows[0]?.cnt ?? 0;
   }
 
+  /** 语料变化（增/删 chunks）→ 查询结果缓存 + listDocs 短缓存一起失效 */
+  private invalidateCaches(): void {
+    this.queryCache.clear();
+    this.listDocsCache = null;
+  }
+
+  /** embedding 记忆化：同文本只调一次 embedding 端点。有界 LRU（Map 头 = 最旧）。 */
+  private async memoizedEmbed(text: string): Promise<number[]> {
+    const hit = this.embedMemo.get(text);
+    if (hit) {
+      this.embedMemo.delete(text);
+      this.embedMemo.set(text, hit);
+      return hit;
+    }
+    const vec = await this.embeddings.embedQuery(text);
+    if (vec && vec.length > 0) {
+      this.embedMemo.set(text, vec);
+      if (this.embedMemo.size > this.EMBED_MEMO_MAX) {
+        const oldest = this.embedMemo.keys().next().value;
+        if (oldest !== undefined) this.embedMemo.delete(oldest);
+      }
+    }
+    return vec;
+  }
+
   async listDocIds(): Promise<string[]> {
     const { rows } = await this.pool.query("SELECT id FROM documents");
     return rows.map((r) => r.id);
   }
 
-  /** 获取 L1 缓存统计 */
+  /** L1 缓存统计：查询结果缓存 + embedding 记忆化 */
   getCacheStats() {
-    return this.cache.stats;
+    return {
+      queryResults: this.queryCache.size,
+      embedMemo: this.embedMemo.size,
+      total: this.queryCache.size,
+    };
   }
 
   // ═══════════════════════════════════════════════
@@ -202,12 +157,19 @@ export class PgVectorStore {
   // ═══════════════════════════════════════════════
 
   async search(query: string, k: number = 5): Promise<RagResult[]> {
+    const q = query.trim();
+    if (q.length === 0) return [];
+
+    const cacheKey = `hybrid:${k}:${q}`;
+    const cached = this.queryCache.get<RagResult[]>(cacheKey);
+    if (cached) return [...cached];
+
     const vectorResults: RagResult[] = [];
     const ftsResults: RagResult[] = [];
 
     // 1. 向量检索
     try {
-      const embedding = await this.embeddings.embedQuery(query);
+      const embedding = await this.memoizedEmbed(q);
       if (!embedding || embedding.length === 0) {
         console.warn("[pgvector] Empty embedding from query, skipping vector search");
       } else {
@@ -245,7 +207,7 @@ export class PgVectorStore {
          WHERE c.fts_vector @@ plainto_tsquery('chinese_zh', $1)
          ORDER BY score DESC
          LIMIT $2`,
-        [query, k * 2],
+        [q, k * 2],
       );
       for (const r of rows) {
         ftsResults.push({
@@ -272,7 +234,7 @@ export class PgVectorStore {
               OR c.content ILIKE $2
            ORDER BY score DESC
            LIMIT $3`,
-          [query, `%${query}%`, k * 2],
+          [q, `%${q}%`, k * 2],
         );
         for (const r of rows) {
           ftsResults.push({
@@ -293,8 +255,10 @@ export class PgVectorStore {
       console.warn("[pgvector] Both vector and FTS searches returned zero results");
     }
 
-    // 4. RRF 融合
-    return this.rrfMerge(vectorResults, ftsResults, k);
+    // 5. RRF 融合 → 回填 L1 缓存
+    const merged = this.rrfMerge(vectorResults, ftsResults, k);
+    this.queryCache.set(cacheKey, merged);
+    return merged;
   }
 
   /**
@@ -305,6 +269,10 @@ export class PgVectorStore {
   async searchKeyword(query: string, k: number = 5): Promise<RagResult[]> {
     const q = query.trim();
     if (q.length < 2) return [];
+
+    const cacheKey = `keyword:${k}:${q}`;
+    const cached = this.queryCache.get<RagResult[]>(cacheKey);
+    if (cached) return [...cached];
 
     try {
       const { rows } = await this.pool.query(
@@ -320,13 +288,15 @@ export class PgVectorStore {
          LIMIT $2`,
         [q, k],
       );
-      return rows.map((r) => ({
+      const results = rows.map((r) => ({
         content: r.content,
         score: Number(r.score),
         source: r.filename || "",
         docId: r.doc_id,
         chunkIndex: r.chunk_index,
       }));
+      this.queryCache.set(cacheKey, results);
+      return results;
     } catch (e) {
       // 单路检索,无其他腿兜底:让错误上抛,由端点返回 500 而非静默空结果
       console.warn("[pgvector] Keyword search failed:", (e as Error).message);
