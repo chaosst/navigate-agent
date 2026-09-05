@@ -82,7 +82,8 @@ All tools are `StructuredTool` subclasses wrapped in `PermissionWrapper` (rate l
 - **`migrate.ts`** + **`migrations/`** — 轻量迁移器，按文件名顺序执行 `.sql`（进程内幂等）。001：`documents`/`doc_chunks` + zhparser 中文 FTS 配置；002：`sessions`/`messages`/`summaries`；003：pg_trgm 索引
 - **`pg-session-store.ts`** — `PgSessionStore`：对话记忆落点（sessions/messages/summaries CRUD，摘要自动向量化，见 Memory）
 - **`pg-vector-store.ts`** — `PgVectorStore`：RAG 落点。混合检索 = pgvector 余弦 + zhparser 中文 FTS + pg_trgm 兜底 + RRF 融合；另有 `searchKeyword()`（ILIKE 子串）
-- **`cache.ts`** — `HotCache`：L1 LRU cache-aside（TTL 30min），只缓存文档元数据与会话
+- **`cache.ts`** — `HotCache`：通用有界 LRU + TTL 内存缓存（cache-aside，O(1) 淘汰：Map 迭代序 = 最近访问序）。key 命名空间由调用方拼接；TTL 默认 30min。`PgSessionStore` 用它缓存 session 行；`PgVectorStore` 用它缓存 **查询结果**（见下）。
+- **`PgVectorStore` L1**：`search`/`searchKeyword` 的 `RagResult[]` 按 `mode:k:query` 缓存（`addChunks`/`deleteDoc` 语料写入口统一 `clear()`），query embedding 文本→向量有界记忆化（`embedMemo`，上限 512）。doc-meta 内存缓存已移除——文档元数据一律读 PG（`listDocs` 自带 5s 短缓存）。
 - **`types.ts`** — 存储层共享类型（`DocMeta`/`ChunkRecord`/`SessionRecord`/`MessageRecord`）
 
 > **embedding 维度写死为 `vector(768)`**（跟随当前 nomic-embed-text）。换 embedding 模型需 ALTER 表 + 重建 ivfflat 索引（迁移 SQL 注释已标注）。
