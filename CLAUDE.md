@@ -119,6 +119,21 @@ YAML or Markdown-defined tools with four action types: `template`, `shell`, `htt
 - `.env.example` — Environment variable template
 - `docs/architecture-uml.md` — Mermaid architecture diagrams
 
+## Agent 性能基准结论（2026-09 实测 · DeepSeek）
+
+> 完整方案/报告在 gitignore 的 `docs/agent-perf-testing.md`、`docs/agent-perf-report-2026-09-05.md`（不入库）。复测：`npm run perf`（需 Docker Desktop 起 PG）或 `npm run perf -- --mock`（0 成本）。
+
+- **框架自身开销 ≈ 0，别在上面花时间**：24 条真实语料每任务 overhead（parse/路由/状态/流式）仅 4–29ms、0%；mock（瞬时 LLM）下同样极小。
+- **耗时 = DeepSeek 推理 + 模型迭代方差**：同一简单任务（如找文件）模型可能过度思考到 8 轮（工具 0 耗时）——跨 run 波动大，对比请取多次中位数。
+- **内置关键防护（勿回退）**：
+  - 工具结果进上下文前截断（`tracking-tool-node.ts`，默认 20k，`MAX_TOOL_RESULT_CHARS`）——曾致 search 命中 10MB → 1.4M token → DeepSeek 400。
+  - `search_files` 在 git 工作树内走 `git grep`（全仓库 ~100ms），非 git 回退 findstr；都跳过噪音/junction 目录（`tools/search.ts`）。`list_files` 同防护。
+  - 系统提示引导优先用 `search_files`/`list_files` 而非手写递归 shell（`agent/prompt.ts`、`tools/shell.ts`）。
+  - 轮内上下文收敛 `foldOldToolResults`（`graph-utils.ts`，`AGENT_TOOL_WINDOW_ROUNDS` 默认 4）：超窗旧工具结果折叠成开头 300 字符，多步任务 token 已降约 3×。
+  - RAG 空检索收敛守卫 `countFutileRagSearch`：连续 `RAG_FUTILE_LIMIT`(3) 次空命中 → 注入一次提示 → 仍空转则强制收尾（预算 `RAG_WARN_LIMIT`）。
+  - `Tracer` 可选 `parseMs/graphMs` + `recordTiming`；工具轨迹由 `TrackingToolNode` 写入 Tracer（LangGraph/PTC 路径此前从不记录，`npm run eval -- agent` 工具统计曾恒空）。
+- 工具耗时口径：perf 用 `PermissionWrapper` 逐调用窗口做**区间并集**算真实墙钟（并行 tool_call 若按各工具累计求合计会重复计耗时）。
+
 ## Key Patterns
 
 - **PermissionWrapper** — All tools wrapped with rate limiting and circuit breakers. Never use tools raw.
