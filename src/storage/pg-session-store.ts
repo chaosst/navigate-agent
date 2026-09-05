@@ -12,7 +12,7 @@ export class PgSessionStore {
   constructor(pool: Pool, embeddings?: OpenAIEmbeddings, cache?: HotCache) {
     this.pool = pool;
     this.embeddings = embeddings;
-    this.cache = cache ?? new HotCache({ maxSessions: 50 });
+    this.cache = cache ?? new HotCache({ maxEntries: 50 });
   }
 
   /** 注入 embedding 模型（也可以在构造时传入） */
@@ -56,8 +56,8 @@ export class PgSessionStore {
 
   async getSession(id: string): Promise<Session | null> {
     // L1: 尝试缓存命中
-    const cached = this.cache.getSession(id);
-    if (cached) return cached as Session;
+    const cached = this.cache.get<Session>(`session:${id}`);
+    if (cached) return cached;
 
     // L2: 数据库查询
     const { rows } = await this.pool.query(
@@ -73,7 +73,7 @@ export class PgSessionStore {
       permissions: r.permissions ?? [],
     };
     // 回填 L1 缓存
-    this.cache.setSession(id, session);
+    this.cache.set(`session:${id}`, session);
     return session;
   }
 
@@ -90,12 +90,12 @@ export class PgSessionStore {
   }
 
   async deleteSession(id: string): Promise<void> {
-    this.cache.invalidateSession(id);
+    this.cache.remove(`session:${id}`);
     await this.pool.query("DELETE FROM sessions WHERE id = $1", [id]);
   }
 
   async addMessage(sessionId: string, role: string, content: string): Promise<MemoryMessage> {
-    this.cache.invalidateSession(sessionId);
+    this.cache.remove(`session:${sessionId}`);
     const now = new Date();
     const { rows } = await this.pool.query(
       `INSERT INTO messages (session_id, role, content, created_at) VALUES ($1, $2, $3, $4) RETURNING id`,
