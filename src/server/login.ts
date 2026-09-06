@@ -108,6 +108,17 @@ export function mountLoginRoutes(app: express.Express, opts: { proxyOrigin?: str
   // 条件式校验码：GET 挑战 / GET 图片（见 login-challenge.ts，答案不下发）
   mountChallengeRoutes(app);
 
+  // 校验码状态探测（免登录、无副作用）：登录页加载/输入用户名时预判该会话是否已处于
+  // "需校验码"状态。服务端失败计数在内存——用户失败 2 次后即使刷新/重开登录页，
+  // 提交仍会被强制校验码；此接口让前端提前展示输入区，避免"看不到校验码"的错位体验。
+  // 仅返回布尔，不泄露账号是否存在；与 /api/login 的 needChallenge 判定完全同源。
+  app.get("/api/login/challenge-needed", (req, res) => {
+    const ip = req.ip ?? req.socket?.remoteAddress ?? "unknown";
+    const username = typeof req.query.username === "string" ? req.query.username.trim() : "";
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ needChallenge: needsChallenge(ip, username) });
+  });
+
   // 登录：校验账号 → 发携带身份（username/role）的 token + 种 httpOnly cookie
   // 防爆破顺序：① 双维锁定(429) → ② 可疑流量需条件式校验码 → ③ 账号校验 → ④ 成功清计数
   app.post("/api/login", (req, res) => {

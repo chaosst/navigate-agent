@@ -109,6 +109,30 @@
     }
   }
 
+  // 预判探测：该 IP/账号已处于"需校验码"状态（如先前失败过、刷新页面后状态仍在）→
+  // 直接展示校验码区并自动领题，不必等下一次提交被服务端强制才看到
+  async function probeChallenge(username) {
+    try {
+      const q = username ? `?username=${encodeURIComponent(username)}` : "";
+      const res = await fetch(`/api/login/challenge-needed${q}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data.needChallenge) return;
+      // 已显示且已有题目：保留当前图（避免换题打断正在输入的字符）
+      if (!challengeBox.classList.contains("hidden") && challengeId) return;
+      showChallenge();
+      await refreshChallenge().catch(() => {});
+    } catch { /* 探测失败静默，不影响登录 */ }
+  }
+
+  // 页面加载即按 IP 探测；输入用户名时带账号维度补充探测（防抖，避免每次敲键都请求）
+  probeChallenge();
+  let usernameProbeTimer = null;
+  document.getElementById("username").addEventListener("input", (e) => {
+    clearTimeout(usernameProbeTimer);
+    usernameProbeTimer = setTimeout(() => probeChallenge(e.target.value.trim()), 300);
+  });
+
   document.getElementById("challenge-refresh").addEventListener("click", async () => {
     await refreshChallenge();
   });
@@ -150,7 +174,10 @@
           await refreshChallenge().catch(() => {});
         }
         const suffix = data.retryAfterSec ? `（${data.retryAfterSec} 秒后可重试）` : "";
-        throw new Error((data.error || "登录失败") + suffix);
+        const challengeHint = data.needChallenge && data.error === "用户名或密码错误"
+          ? "——已要求校验码，请先填写下方图片中的 4 位字符再重试"
+          : "";
+        throw new Error((data.error || "登录失败") + challengeHint + suffix);
       }
       sessionStorage.setItem("navigate_token", data.token);
       location.href = data.next || cleanNext(next);

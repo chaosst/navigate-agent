@@ -301,4 +301,26 @@ describe("POST /api/login (ephemeral express server)", () => {
     expect(data.retryAfterSec).toBeGreaterThan(0);
     expect(checkAccountRate("admin").locked).toBe(true);
   });
+
+  it("GET /api/login/challenge-needed reflects ip-level escalation (no username)", async () => {
+    const p1 = await fetch(`${base}/api/login/challenge-needed`);
+    expect((await p1.json()).needChallenge).toBe(false); // 初始无失败
+
+    await postLogin({ username: "admin", password: "x1" });
+    await postLogin({ username: "admin", password: "x2" }); // 本 IP fails=2 → 激活
+
+    const p2 = await fetch(`${base}/api/login/challenge-needed`);
+    expect((await p2.json()).needChallenge).toBe(true);
+  });
+
+  it("GET /api/login/challenge-needed?username= honors account dimension", async () => {
+    // 账号维度（模拟分布式换 IP 撞库）：victim 失败 2 次，但本 IP 无失败
+    recordUserLoginFailure("victim");
+    recordUserLoginFailure("victim");
+
+    const withUser = await fetch(`${base}/api/login/challenge-needed?username=victim`);
+    expect((await withUser.json()).needChallenge).toBe(true);
+    const byIp = await fetch(`${base}/api/login/challenge-needed`);
+    expect((await byIp.json()).needChallenge).toBe(false);
+  });
 });
