@@ -1,43 +1,17 @@
-import crypto from "node:crypto";
 import express from "express";
 import path from "node:path";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tokenManager, TOKEN_TTL_MS } from "./token.js";
-import { AUTH_COOKIE, serializeCookie, getToken, deriveCookieDomain, stripTokenQuery } from "./auth-helpers.js";
+import { AUTH_COOKIE, getCookie, serializeCookie, getToken, deriveCookieDomain, stripTokenQuery } from "./auth-helpers.js";
+import { authenticate, type H5User } from "./users.js";
+import { challengeStore, mountChallengeRoutes, SID_COOKIE } from "./login-challenge.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-interface Credential { username: string; password: string; }
-
-/** 每次调用读取 env，便于测试切换账号 */
-function loadCredentials(): Credential[] {
-  const raw = process.env.H5_LOGIN_USERS;
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw) as Credential[];
-      if (Array.isArray(parsed) && parsed.length > 0 &&
-          parsed.every((c) => c && typeof c.username === "string" && typeof c.password === "string")) {
-        return parsed;
-      }
-    } catch { /* 格式错误则忽略，回退单账号 */ }
-  }
-  const u = process.env.H5_LOGIN_USERNAME;
-  const p = process.env.H5_LOGIN_PASSWORD;
-  return u && p ? [{ username: u, password: p }] : [];
-}
-
-/** timing-safe 字符串比较 */
-function safeEqual(a: string, b: string): boolean {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  if (ab.length !== bb.length) return false;
-  return crypto.timingSafeEqual(ab, bb);
-}
-
+/** 账号校验委托 users.ts（env 种子 / rag_data/h5-users.json 文件，详见该文件头注释） */
 export function validateCredentials(username: unknown, password: unknown): boolean {
-  if (typeof username !== "string" || typeof password !== "string") return false;
-  return loadCredentials().some((c) => safeEqual(c.username, username) && safeEqual(c.password, password));
+  return authenticate(username, password) !== undefined;
 }
 
 // 防爆破：每 IP 5 次失败锁 60s
@@ -60,6 +34,50 @@ export function recordLoginFailure(ip: string): void {
   rec.fails += 1;
   if (rec.fails >= FAIL_LIMIT) { rec.fails = 0; rec.lockedUntil = now + LOCK_MS; }
   attempts.set(ip, rec);
+}
+
+// ── 账号维度防撞库（与 IP 维度并行）：防分布式代理换 IP 对单账号撞库 ──────
+// 校验码触发阈值：IP 或账号任一方累计失败 ≥2 后，登录需先通过条件式校验码
+// （正常用户无感；脚本每次还要 OCR 图像，成本显著抬高）
+const CHALLENGE_THRESHOLD = 2;
+const userAttempts = new Map<string, { fails: number; lockedUntil: number }>();
+
+export function checkAccountRate(username: string): { locked: boolean; retryAfterSec: number } {
+  const rec = userAttempts.get(username);
+  if (!rec) return { locked: false, retryAfterSec: 0 };
+  if (Date.now() < rec.lockedUntil) return { locked: true, retryAfterSec: Math.ceil((rec.lockedUntil - Date.now()) / 1000) };
+  if (rec.fails >= FAIL_LIMIT) userAttempts.delete(username); // 锁已过，重置
+  return { locked: false, retryAfterSec: 0 };
+}
+
+export function recordUserLoginFailure(username: string): void {
+  if (!username) return; // 空用户名无账号可锁，交给 IP 维度
+  const now = Date.now();
+  const rec = userAttempts.get(username) ?? { fails: 0, lockedUntil: 0 };
+  if (now < rec.lockedUntil) return;
+  rec.fails += 1;
+  if (rec.fails >= FAIL_LIMIT) { rec.fails = 0; rec.lockedUntil = now + LOCK_MS; }
+  userAttempts.set(username, rec);
+}
+
+/** 本次登录是否要求条件式校验码：IP 或账号任一方累计失败 ≥ 阈值 */
+export function needsChallenge(ip: string, username: string): boolean {
+  const ipHits = attempts.get(ip)?.fails ?? 0;
+  const userHits = username ? userAttempts.get(username)?.fails ?? 0 : 0;
+  return ipHits >= CHALLENGE_THRESHOLD || userHits >= CHALLENGE_THRESHOLD;
+}
+
+/** 登录成功：清双维失败计数 */
+function clearAttempts(ip: string, username: string): void {
+  attempts.delete(ip);
+  if (username) userAttempts.delete(username);
+}
+
+/** 测试隔离：清空全部内存防护状态（防 127.0.0.1 等共享 key 跨用例污染） */
+export function resetLoginProtectionForTests(): void {
+  attempts.clear();
+  userAttempts.clear();
+  challengeStore.clear();
 }
 
 /**
@@ -87,21 +105,50 @@ export function mountLoginRoutes(app: express.Express, opts: { proxyOrigin?: str
     res.sendFile(path.join(__dirname, "public", "login.html"));
   });
 
-  // 登录：校验账号 → 发 token + 种 httpOnly cookie
+  // 条件式校验码：GET 挑战 / GET 图片（见 login-challenge.ts，答案不下发）
+  mountChallengeRoutes(app);
+
+  // 登录：校验账号 → 发携带身份（username/role）的 token + 种 httpOnly cookie
+  // 防爆破顺序：① 双维锁定(429) → ② 可疑流量需条件式校验码 → ③ 账号校验 → ④ 成功清计数
   app.post("/api/login", (req, res) => {
     const ip = req.ip ?? req.socket?.remoteAddress ?? "unknown";
+    const { username, password, next, challengeId, code } = (req.body ?? {}) as {
+      username?: unknown; password?: unknown; next?: unknown; challengeId?: unknown; code?: unknown;
+    };
+    const userKey = typeof username === "string" ? username.trim() : "";
+
+    // ① IP / 账号双维锁定（429 + Retry-After）
     const rate = checkLoginRate(ip);
-    if (rate.locked) {
-      res.setHeader("Retry-After", String(rate.retryAfterSec));
-      return res.status(429).json({ error: "尝试过于频繁，请稍后再试" });
+    const acct = userKey ? checkAccountRate(userKey) : { locked: false, retryAfterSec: 0 };
+    const lock = rate.locked ? rate : acct;
+    if (lock.locked) {
+      res.setHeader("Retry-After", String(lock.retryAfterSec));
+      return res.status(429).json({ error: "尝试过于频繁，请稍后再试", needChallenge: false, retryAfterSec: lock.retryAfterSec });
     }
-    const { username, password, next } = (req.body ?? {}) as { username?: unknown; password?: unknown; next?: unknown };
-    if (!validateCredentials(username, password)) {
+
+    // ② 条件式校验码（仅可疑流量触发；一次性消费，答案在服务端）
+    if (needsChallenge(ip, userKey)) {
+      const verdict = challengeStore.consume(getCookie(req.headers, SID_COOKIE), challengeId, code);
+      if (verdict !== "ok") {
+        if (verdict === "wrong") recordLoginFailure(ip); // 校验码答错按失败重权计 IP
+        return res.status(401).json({
+          error: verdict === "wrong" ? "校验码错误，请重新输入" : "校验码缺失或已失效，请刷新重试",
+          needChallenge: true,
+        });
+      }
+    }
+
+    // ③ 账号校验
+    const user: H5User | undefined = authenticate(username, password);
+    if (!user) {
       recordLoginFailure(ip);
-      return res.status(401).json({ error: "用户名或密码错误" });
+      if (userKey) recordUserLoginFailure(userKey);
+      return res.status(401).json({ error: "用户名或密码错误", needChallenge: needsChallenge(ip, userKey) });
     }
-    attempts.delete(ip); // 登录成功，清失败计数
-    const token = tokenManager.generate();
+
+    // ④ 成功：清双维失败计数 + 发 token + cookie
+    clearAttempts(ip, userKey);
+    const token = tokenManager.generate({ username: user.username, role: user.role });
     const domain = deriveCookieDomain(req.hostname);
     res.setHeader("Set-Cookie", serializeCookie(AUTH_COOKIE, token, {
       maxAgeSec: TOKEN_TTL_MS / 1000,
@@ -110,7 +157,7 @@ export function mountLoginRoutes(app: express.Express, opts: { proxyOrigin?: str
       secure: process.env.H5_COOKIE_SECURE === "true",
       domain,
     }));
-    res.json({ token, expiresIn: Math.floor(TOKEN_TTL_MS / 1000), next: allowNext(next, proxyOrigins) });
+    res.json({ token, role: user.role, expiresIn: Math.floor(TOKEN_TTL_MS / 1000), next: allowNext(next, proxyOrigins) });
   });
 
   // 登出：吊销 token + 清 cookie（带相同 domain 才能清掉跨子域 cookie）

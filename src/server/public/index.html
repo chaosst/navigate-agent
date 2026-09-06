@@ -174,6 +174,38 @@
     if (href && !href.includes("token=") && href.startsWith("/")) a.setAttribute("href", href + "?token=" + TOKEN);
   });
 
+  // —— 角色感知：默认按只读（isAdmin=false）处理，/api/me 确认管理员后才放开写操作
+  let isAdmin = false;
+  function ensureWritePerm() {
+    if (isAdmin) return true;
+    setStatus("无权限：仅管理员可执行此操作", true);
+    return false;
+  }
+  async function detectRole() {
+    try {
+      const me = await (await fetch(`/api/me?token=${TOKEN}`)).json();
+      isAdmin = !!me.isAdmin;
+    } catch { isAdmin = false; }
+    const zone = document.getElementById("uploadZone");
+    if (isAdmin) {
+      // 管理员：导航注入「账号管理」入口（体验账号不可见）
+      const nav = document.querySelector(".nav-bar");
+      const logout = nav && nav.querySelector('a[href^="/api/logout"]');
+      const link = document.createElement("a");
+      link.href = "/admin";
+      link.textContent = "⚙️ 账号管理";
+      link.style.cssText = "color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;";
+      nav.insertBefore(link, logout);
+    } else if (zone) {
+      // 体验账号：上传区只读化（按钮仍需显示，点击给出无权限提示）
+      zone.style.opacity = "0.55";
+      zone.style.cursor = "not-allowed";
+      const p = zone.querySelector("p");
+      if (p) p.textContent = "🔒 仅管理员可上传文档";
+    }
+  }
+  detectRole();
+
   const zone = document.getElementById("uploadZone");
   const input = document.getElementById("fileInput");
   const status = document.getElementById("status");
@@ -182,15 +214,15 @@
   const queryBtn = document.getElementById("queryBtn");
   const results = document.getElementById("results");
 
-  zone.addEventListener("click", () => input.click());
+  zone.addEventListener("click", () => { if (ensureWritePerm()) input.click(); });
   zone.addEventListener("dragover", e => { e.preventDefault(); zone.classList.add("drag-over"); });
   zone.addEventListener("dragleave", () => zone.classList.remove("drag-over"));
   zone.addEventListener("drop", e => {
     e.preventDefault();
     zone.classList.remove("drag-over");
-    uploadFiles(e.dataTransfer.files);
+    if (ensureWritePerm()) uploadFiles(e.dataTransfer.files);
   });
-  input.addEventListener("change", () => { uploadFiles(input.files); input.value = ""; });
+  input.addEventListener("change", () => { if (ensureWritePerm()) { uploadFiles(input.files); input.value = ""; } });
 
   async function uploadFiles(files) {
     for (const f of files) {
@@ -250,10 +282,10 @@
             </td>
           </tr>`).join("");
       tbody.querySelectorAll("button.danger").forEach(btn => {
-        btn.addEventListener("click", () => deleteDoc(btn.dataset.id));
+        btn.addEventListener("click", () => { if (ensureWritePerm()) deleteDoc(btn.dataset.id); });
       });
       tbody.querySelectorAll("button.reindex-btn").forEach(btn => {
-        btn.addEventListener("click", () => reindexDoc(btn.dataset.id));
+        btn.addEventListener("click", () => { if (ensureWritePerm()) reindexDoc(btn.dataset.id); });
       });
       // 从已有文档数据计算统计
       updateStatsFromDocs(docs);

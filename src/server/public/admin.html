@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>账号管理 · Navigate</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #fff; --border: #e5e7eb; --text: #111827;
+    --muted: #6b7280; --primary: #2563eb; --danger: #dc2626; --ok: #059669;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.6; min-height: 100vh;
+  }
+  .nav-bar {
+    display: flex; gap: 4px; align-items: center; background: var(--card);
+    border-bottom: 1px solid var(--border); padding: 10px 20px; flex-wrap: wrap;
+  }
+  .nav-bar a { color: var(--muted); text-decoration: none; padding: 6px 14px; border-radius: 8px; font-size: 0.9rem; white-space: nowrap; }
+  .nav-bar a:hover { background: #eef2ff; color: var(--primary); }
+  .nav-bar a.active { background: #eff6ff; color: var(--primary); font-weight: 600; }
+  .nav-bar .spacer { margin-left: auto; }
+  .container { max-width: 660px; margin: 32px auto; padding: 0 16px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 16px; }
+  h1 { font-size: 1.25rem; margin-bottom: 4px; }
+  h2 { font-size: 1.05rem; margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 14px; }
+  .me { font-size: 0.9rem; color: var(--muted); }
+  table.perm { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin: 6px 0 4px; }
+  table.perm th, table.perm td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; vertical-align: top; }
+  table.perm th { background: #f9fafb; width: 72px; white-space: nowrap; }
+  label { display: block; font-size: 0.85rem; color: #374151; margin: 12px 0 4px; }
+  input { width: 100%; padding: 9px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 0.9rem; background: #fff; }
+  input:focus { outline: none; border-color: var(--primary); }
+  button {
+    margin-top: 16px; padding: 10px 22px; border: none; border-radius: 8px;
+    background: var(--primary); color: #fff; font-size: 0.9rem; cursor: pointer;
+  }
+  button:hover { background: #1d4ed8; }
+  button:disabled { opacity: 0.6; cursor: not-allowed; }
+  .msg { margin-top: 12px; font-size: 0.85rem; min-height: 20px; }
+  .msg.ok { color: var(--ok); }
+  .msg.err { color: var(--danger); }
+  .hint { font-size: 0.8rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="nav-bar">
+  <a href="/">📄 文档管理</a>
+  <a href="__WIKI_URL__" target="_blank">📚 Wiki ↗</a>
+  <a href="/resume">👤 简历</a>
+  <a href="/resume/chat">💬 简历问答</a>
+  <a href="/resume/jd">🎯 JD匹配</a>
+  <span class="spacer"></span>
+  <a href="/admin" class="active">⚙️ 账号管理</a>
+  <a href="/api/logout?next=/login" onclick="sessionStorage.removeItem('navigate_token')">🚪 退出</a>
+</div>
+
+<div class="container">
+  <div class="card">
+    <h1>⚙️ 账号管理</h1>
+    <div class="sub">管理员专属 · 体验账号（给 HR / 面试官）密码重置</div>
+    <div class="me" id="meInfo">身份加载中…</div>
+  </div>
+
+  <div class="card" id="guestCard">
+    <h2>🔑 体验账号</h2>
+    <div class="sub" id="guestMeta">加载中…</div>
+    <table class="perm">
+      <tr><th>可访问</th><td>文档管理（浏览 / 查询）· 简历 · 简历问答 · JD 匹配</td></tr>
+      <tr><th>受限</th><td>上传 / 重新索引 / 删除文档（按钮可见，点击提示无权限）· 本管理页不可进入</td></tr>
+    </table>
+    <label for="pw">新密码（≥6 位）</label>
+    <input type="password" id="pw" autocomplete="new-password">
+    <label for="pw2">确认新密码</label>
+    <input type="password" id="pw2" autocomplete="new-password">
+    <button id="saveBtn">保存新密码</button>
+    <div class="msg" id="msg"></div>
+    <div class="hint">重置后即时生效；已登录的体验账号会话最长 30 分钟后过期。持久化于 rag_data/h5-users.json（环境变量仅在文件缺失时生效）。</div>
+  </div>
+</div>
+
+<script>
+  // Token from URL → sessionStorage; fallback to stored token
+  const urlToken = new URLSearchParams(location.search).get("token");
+  if (urlToken) sessionStorage.setItem("navigate_token", urlToken);
+  const TOKEN = sessionStorage.getItem("navigate_token");
+  if (!TOKEN) {
+    location.href = "/login?next=" + encodeURIComponent(location.pathname + location.search);
+    throw new Error("no token");
+  }
+  // Rewrite nav links to include token
+  document.querySelectorAll(".nav-bar a").forEach(a => {
+    const href = a.getAttribute("href");
+    if (href && !href.includes("token=") && href.startsWith("/")) a.setAttribute("href", href + "?token=" + TOKEN);
+  });
+
+  const meInfo = document.getElementById("meInfo");
+  const guestMeta = document.getElementById("guestMeta");
+  const msg = document.getElementById("msg");
+  const saveBtn = document.getElementById("saveBtn");
+
+  function show(text, ok) { msg.textContent = text; msg.className = "msg " + (ok ? "ok" : "err"); }
+  function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
+
+  async function loadGuest() {
+    const res = await fetch(`/api/admin/guest?token=${TOKEN}`);
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      guestMeta.textContent = "";
+      guestMeta.innerHTML = `体验账号用户名：<b>${esc(data.username)}</b>（分享给 HR/面试官登录用）`;
+      saveBtn.disabled = false;
+    } else {
+      guestMeta.textContent = "";
+      guestMeta.innerHTML = `<span style="color:var(--danger)">⚠ ${esc(data.error || "未配置体验账号")}</span>`;
+      saveBtn.disabled = true;
+    }
+  }
+
+  (async () => {
+    try {
+      const res = await fetch(`/api/me?token=${TOKEN}`);
+      const me = await res.json();
+      if (res.ok) {
+        meInfo.innerHTML = `当前登录：<b>${esc(me.username || "(运维 token)")}</b> · 角色：${me.isAdmin ? "管理员 ✅" : "体验账号"}`;
+        if (!me.isAdmin) {
+          document.getElementById("guestCard").style.display = "none";
+          meInfo.innerHTML += " — 体验账号无权限访问本页，即将返回…";
+          setTimeout(() => { location.href = "/"; }, 1500);
+        }
+      } else {
+        meInfo.textContent = "身份获取失败，请重新登录";
+      }
+    } catch { /* 静默：服务端门槛已保证身份 */ }
+  })();
+
+  loadGuest();
+
+  saveBtn.addEventListener("click", async () => {
+    const pw = document.getElementById("pw").value;
+    const pw2 = document.getElementById("pw2").value;
+    if (!pw || pw.length < 6) return show("新密码至少 6 位", false);
+    if (pw !== pw2) return show("两次输入的密码不一致", false);
+    saveBtn.disabled = true;
+    try {
+      const res = await fetch(`/api/admin/guest-password?token=${TOKEN}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: pw }),
+      });
+      const data = await res.json();
+      if (!res.ok) return show(data.error || "保存失败", false);
+      show(`✅ 体验账号「${data.username}」的新密码已生效（已登录会话最长 30 分钟后过期）`, true);
+      document.getElementById("pw").value = "";
+      document.getElementById("pw2").value = "";
+    } catch (e) {
+      show("网络错误：" + (e.message || "未知"), false);
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>

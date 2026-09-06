@@ -11,6 +11,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSy
 import type { ResumeStore } from "../resume/store.js";
 import type { ResumeData } from "../resume/types.js";
 import { tokenManager } from "./token.js";
+import { findGuest, updateUserPassword } from "./users.js";
 import { ZyplayerDocAdapter } from "../wiki-sync/zyplayer-doc-adapter.js";
 import { ContentPoller } from "../wiki-sync/poller.js";
 import { mountMcpRoutes } from "./mcp-http.js";
@@ -64,15 +65,44 @@ function requireToken(req: express.Request, res: express.Response, next: express
   deny(res);
 }
 
-/** 页面门槛：无有效 token/cookie 则 302 到登录页（next 剥离 token，防死循环） */
-function requireLoginPage(req: express.Request, res: express.Response, next: express.NextFunction): void {
+/** 页面角色：体验账号可访问的页面集合 / 仅管理员的页面集合 */
+const ALL_ROLES = ["admin", "guest"] as const;
+const ADMIN_ROLES = ["admin"] as const;
+type PageRole = "admin" | "guest";
+
+/**
+ * 页面门槛 + 角色白名单：
+ * - 无有效 token/cookie → 302 到登录页（next 剥离 token，防死循环）
+ * - token 有效但角色不在白名单（如体验账号访问 /admin）→ 403 denied.html「无权限」
+ */
+function requirePage(allowed: readonly PageRole[]) {
+  return (req: express.Request, res: express.Response, next: express.NextFunction): void => {
+    const token = getToken(req);
+    const identity = tokenManager.identityOf(token);
+    if (!identity) {
+      res.redirect(`/login?next=${encodeURIComponent(stripTokenQuery(req.originalUrl || "/"))}`);
+      return;
+    }
+    if (!allowed.includes(identity.role)) {
+      res.status(403).sendFile(path.join(__dirname, "public", "denied.html"));
+      return;
+    }
+    (req as any).validToken = token;
+    (req as any).identity = identity;
+    next();
+  };
+}
+
+/** 写操作 API：仅管理员（动态 token 校验 + role=admin；api-key 客户端不经此中间件） */
+function requireAdminApi(req: express.Request, res: express.Response, next: express.NextFunction): void {
   const token = getToken(req);
-  if (tokenManager.validate(token)) {
+  const identity = tokenManager.identityOf(token);
+  if (identity && identity.role === "admin") {
     (req as any).validToken = token;
     next();
     return;
   }
-  res.redirect(`/login?next=${encodeURIComponent(stripTokenQuery(req.originalUrl || "/"))}`);
+  res.status(403).json({ error: "无权限：仅管理员可执行此操作" });
 }
 
 export function createRagServer(
@@ -194,31 +224,39 @@ export function createRagServer(
     }
   });
 
-  // Generate a new token（需已登录，防止匿名铸造 token 绕过登录门槛）
-  app.post("/api/token/new", requireToken, (_req, res) => {
-    const newToken = tokenManager.generate();
-    res.json({ token: newToken, expiresIn: 30 * 60 });
+  // 当前登录身份（前端据此渲染角色相关按钮/入口：上传区、操作按钮、账号管理入口）
+  app.get("/api/me", requireToken, (req, res) => {
+    const identity = tokenManager.identityOf((req as any).validToken)!;
+    res.json({ username: identity.username ?? null, role: identity.role, isAdmin: identity.role === "admin" });
   });
 
-  // Renew using existing valid token
-  app.post("/api/token/renew", requireToken, (_req, res) => {
-    const newToken = tokenManager.generate();
-    res.json({ token: newToken, expiresIn: 30 * 60 });
+  // Generate a new token（需已登录）。继承调用者身份——防止体验账号自铸 admin token 绕过权限
+  app.post("/api/token/new", requireToken, (req, res) => {
+    const identity = tokenManager.identityOf((req as any).validToken)!;
+    const newToken = tokenManager.generate({ username: identity.username, role: identity.role });
+    res.json({ token: newToken, role: identity.role, expiresIn: 30 * 60 });
+  });
+
+  // Renew using existing valid token（同样继承身份）
+  app.post("/api/token/renew", requireToken, (req, res) => {
+    const identity = tokenManager.identityOf((req as any).validToken)!;
+    const newToken = tokenManager.generate({ username: identity.username, role: identity.role });
+    res.json({ token: newToken, role: identity.role, expiresIn: 30 * 60 });
   });
 
   // === Protected routes (require ?token=xxx) ===
 
   // 页面路由：需要登录（服务端校验 cookie/token，未登录 302 到 /login）
-  app.get("/", requireLoginPage, (_req, res) => {
+  app.get("/", requirePage(ALL_ROLES), (_req, res) => {
     sendHtml(res, "index.html", { WIKI_URL: wikiPublicUrl });
   });
 
-  app.get("/resume/chat", requireLoginPage, (_req, res) => {
+  app.get("/resume/chat", requirePage(ALL_ROLES), (_req, res) => {
     sendHtml(res, "resume-chat.html", { WIKI_URL: wikiPublicUrl });
   });
 
-  // Protect RAG API endpoints
-  app.post("/api/upload", requireToken, upload.single("file"), async (req, res) => {
+  // 写操作（上传/重新索引/删除）仅管理员：体验账号点按钮前端提示，服务端同样 403 兜底
+  app.post("/api/upload", requireAdminApi, upload.single("file"), async (req, res) => {
     try {
       if (!req.file) return res.status(400).json({ error: "No file uploaded" });
       const docId = randomUUID();
@@ -263,7 +301,7 @@ export function createRagServer(
     }
   });
 
-  app.delete("/api/documents/:id", requireToken, async (req, res) => {
+  app.delete("/api/documents/:id", requireAdminApi, async (req, res) => {
     const id = req.params.id as string;
     try {
       await store.deleteDoc(id) // 1. 删 PostgreSQL（doc_chunks 由 CASCADE 级联删除）
@@ -309,7 +347,7 @@ export function createRagServer(
    * 重新索引：删除旧 chunk → 重新分块 → 重新写入 PostgreSQL。
    * 用于把旧系统（JSON/MemoryVectorStore）的文档迁移到新存储。
    */
-  app.post("/api/reindex/:id", requireToken, async (req, res) => {
+  app.post("/api/reindex/:id", requireAdminApi, async (req, res) => {
     const id = req.params.id as string;
     const meta = docMeta.get(id);
     if (!meta) return res.status(404).json({ error: "Document not found" });
@@ -379,13 +417,13 @@ export function createRagServer(
 
   // === Public routes (no token needed) ===
 
-  // Resume display page — public
-  app.get("/resume", (_req, res) => {
+  // Resume display page — 需登录（体验账号与管理员均可；给 HR/面试官演示用）
+  app.get("/resume", requirePage(ALL_ROLES), (_req, res) => {
     sendHtml(res, "resume.html", { WIKI_URL: wikiPublicUrl });
   });
 
-  // Resume data API — public
-  app.get("/api/resume", async (_req, res) => {
+  // Resume data API — 与页面同门槛（防绕页面直连 API 取简历数据）
+  app.get("/api/resume", requireToken, async (_req, res) => {
     if (!resumeStore) return res.status(404).json({ error: "Resume not available" });
     const data = await resumeStore.getResumeData();
     if (!data) return res.status(404).json({ error: "No resume data found" });
@@ -498,8 +536,41 @@ export function createRagServer(
   });
 
   // === JD 匹配诊断 ===
-  app.get("/resume/jd", requireLoginPage, (_req, res) => {
+  app.get("/resume/jd", requirePage(ALL_ROLES), (_req, res) => {
     sendHtml(res, "resume-jd.html", { WIKI_URL: wikiPublicUrl });
+  });
+
+  // === 账号管理（仅管理员；体验账号访问 → 403 denied.html）===
+  app.get("/admin", requirePage(ADMIN_ROLES), (_req, res) => {
+    sendHtml(res, "admin.html", { WIKI_URL: wikiPublicUrl });
+  });
+
+  // 管理员查询体验账号信息（admin.html 首屏展示用户名；未配置 → 404 提示）
+  app.get("/api/admin/guest", requireAdminApi, (_req, res) => {
+    const guest = findGuest();
+    if (!guest) {
+      return res.status(404).json({
+        error: "未配置体验账号：请在 H5_LOGIN_USERS 中添加 role=guest 的账号，或设置 H5_GUEST_USERNAME/H5_GUEST_PASSWORD",
+      });
+    }
+    res.json({ username: guest.username });
+  });
+
+  // 管理员重置体验账号密码（持久化 rag_data/h5-users.json；env 仅在文件缺失时生效）
+  app.post("/api/admin/guest-password", requireAdminApi, (req, res) => {
+    const { password } = (req.body ?? {}) as { password?: unknown };
+    if (typeof password !== "string" || password.length < 6) {
+      return res.status(400).json({ error: "新密码至少 6 位" });
+    }
+    const guest = findGuest();
+    if (!guest) {
+      return res.status(404).json({
+        error: "未配置体验账号：请在 H5_LOGIN_USERS 中添加 role=guest 的账号，或设置 H5_GUEST_USERNAME/H5_GUEST_PASSWORD",
+      });
+    }
+    updateUserPassword(guest.username, password);
+    console.log(`[users] 体验账号 "${guest.username}" 密码已由管理员重置`);
+    res.json({ ok: true, username: guest.username });
   });
 
   app.post("/api/resume/jd-match", requireToken, async (req, res) => {
@@ -526,10 +597,11 @@ export function createRagServer(
   });
 
   // 防止经 /index.html 等静态路径绕过登录门槛 → 重定向到带门槛的规范路由
-  app.get(["/index.html", "/resume.html", "/resume/chat.html", "/resume/jd.html"], (req, res) => {
+  app.get(["/index.html", "/resume.html", "/resume/chat.html", "/resume/jd.html", "/admin.html"], (req, res) => {
     const map: Record<string, string> = {
       "/index.html": "/", "/resume.html": "/resume",
       "/resume/chat.html": "/resume/chat", "/resume/jd.html": "/resume/jd",
+      "/admin.html": "/admin",
     };
     res.redirect(302, map[req.path] || "/");
   });

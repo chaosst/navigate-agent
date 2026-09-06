@@ -95,9 +95,10 @@ Express server (port 3001) with endpoints:
 - `POST /api/query` — RAG search API
 - `POST /api/resume/chat` — SSE streaming chat（简历专用 sub-agent；流内 `event: sources` 携带引用来源）
 - `POST /api/resume/jd-match` — 贴 JD → 匹配诊断 JSON（需 token）
-- `GET /resume` — Resume display（公开）
-- `GET /resume/chat`、`GET /resume/jd` — 需登录的 H5 页面
-- Token management endpoints in `token.ts` (30 min TTL, 12-char hex)
+- `GET /resume`、`GET /resume/chat`、`GET /resume/jd` — 需登录的 H5 页面（简历页现同样要求登录）
+- **H5 角色**：登录账号分 `admin` / `guest`（体验账号，给 HR/面试官）。体验账号可访问 文档管理(只读)/简历/简历问答/JD匹配；`POST /api/upload`、`/api/reindex/:id`、`DELETE /api/documents/:id` 与 `/admin` 账号管理页仅 admin（服务端 403 兜底，前端按钮保留但点击提示无权限）。`GET /api/me` 返回当前身份；管理员可在 `/admin` 重置体验账号密码（持久化 `rag_data/h5-users.json`，env 仅在文件缺失时生效；配置见 `.env.example` 的 `H5_GUEST_*` / `H5_LOGIN_USERS[].role`）。token 绑定身份，`/api/token/new` 与 `/renew` 继承调用者角色，防 guest 自铸 admin token
+- **登录防爆破**：`POST /api/login` = IP 与账号双维失败计数（各 5 次/60s → 429 + `Retry-After`，`checkAccountRate`/`needsChallenge`）；任一维度累计失败 ≥2 后触发**条件式校验码**（`login-challenge.ts`：GET `/api/login/challenge` 领题并种匿名 `navigate_sid` cookie，GET `/api/login/challenge/:id/image` 返回 5x7 点阵手写 24bit BMP —— 答案只存服务端、挑战一次性、TTL 5min、答错按 IP 失败重权计）。401 响应统一带 `needChallenge`，前端仅在可疑时展示校验码输入（正常登录无感）
+- Token management endpoints in `token.ts` (30 min TTL, 12-char hex; `identityOf(token)` 取身份)
 
 ### Resume (`src/resume/`)
 Resume 入口归一化：`loader.ts`（`loadResumeSource`）探测 `resume.md`（优先）→ `resume.docx`（mammoth 本地转 md，不调云端，敏感数据不出进程）；`.doc` 老格式不支持（仅告警）。下游只消费归一化后的 markdown 单一事实源：`parser.ts`（`parseResumeText` 文本入口，`parseResume(filePath)` 为其薄封装）→ SQLite-backed vector embeddings。`ResumeSearchTool` (tool: `search_resume`) provides section-filtered semantic search with cosine similarity and keyword fallback.

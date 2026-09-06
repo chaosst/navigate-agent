@@ -29,18 +29,40 @@
   }
   button:hover { background: #1d4ed8; }
   button:disabled { opacity: 0.6; cursor: not-allowed; }
+  .hidden { display: none; }
+  .challenge { margin-top: 4px; }
+  .challenge-row { display: flex; align-items: center; gap: 10px; margin: 8px 0 2px; }
+  #challenge-img {
+    width: 150px; height: 50px; border: 1px solid #e0e0e0; border-radius: 6px;
+    background: #fff; object-fit: cover; image-rendering: pixelated; flex: none;
+  }
+  #challenge-refresh {
+    width: auto; margin: 0; padding: 5px 12px; font-size: 0.9rem;
+    background: #eef2ff; color: #2563eb; border-radius: 6px;
+  }
+  #challenge-refresh:hover { background: #e0e7ff; }
+  .hint { font-size: 0.75rem; color: #999; margin-top: 4px; }
   .error { margin-top: 14px; font-size: 0.85rem; color: #dc2626; text-align: center; min-height: 18px; }
 </style>
 </head>
 <body>
 <div class="card">
   <h1>🔐 Navigate 登录</h1>
-  <div class="sub">登录后访问文档管理 / 简历问答 / Wiki</div>
+  <div class="sub">登录后访问 简历 / 简历问答 / JD匹配 / 文档管理</div>
   <form id="login-form">
     <label for="username">用户名</label>
     <input type="text" id="username" name="username" autocomplete="username" required autofocus>
     <label for="password">密码</label>
     <input type="password" id="password" name="password" autocomplete="current-password" required>
+    <div class="challenge hidden" id="challenge-box">
+      <label for="code">校验码</label>
+      <div class="challenge-row">
+        <img id="challenge-img" alt="校验码图片" title="如看不清可点击右侧按钮刷新">
+        <button type="button" id="challenge-refresh" title="看不清？换一张">↻</button>
+      </div>
+      <input type="text" id="code" name="code" autocomplete="off" maxlength="4" placeholder="输入图中的 4 位字符">
+      <div class="hint">连续登录失败触发，请完成校验后再试</div>
+    </div>
     <button type="submit" id="submit-btn">登 录</button>
     <div class="error" id="error"></div>
   </form>
@@ -62,6 +84,34 @@
   const form = document.getElementById("login-form");
   const errorEl = document.getElementById("error");
   const submitBtn = document.getElementById("submit-btn");
+  const challengeBox = document.getElementById("challenge-box");
+  const challengeImg = document.getElementById("challenge-img");
+  const codeInput = document.getElementById("code");
+
+  let challengeId = null; // 触发条件式校验码后由 /api/login/challenge 下发
+
+  // 拉取一张新校验码（服务端种 httpOnly sid cookie，答案只在服务端图片里）
+  async function refreshChallenge() {
+    const res = await fetch("/api/login/challenge");
+    if (!res.ok) return false;
+    const data = await res.json();
+    challengeId = data.challengeId;
+    challengeImg.src = `/api/login/challenge/${encodeURIComponent(challengeId)}/image?t=${Date.now()}`;
+    codeInput.value = "";
+    return true;
+  }
+
+  function showChallenge() {
+    challengeBox.classList.remove("hidden");
+    if (challengeId) {
+      // 已有旧题：服务器可能已消费，强制刷新一张
+      challengeImg.src = `/api/login/challenge/${encodeURIComponent(challengeId)}/image?t=${Date.now()}`;
+    }
+  }
+
+  document.getElementById("challenge-refresh").addEventListener("click", async () => {
+    await refreshChallenge();
+  });
 
   // 若已有有效登录 cookie，直接用服务端回显的 token 恢复会话并跳转
   (async () => {
@@ -79,6 +129,11 @@
     e.preventDefault();
     const username = document.getElementById("username").value.trim();
     const password = document.getElementById("password").value;
+    const body = { username, password, next };
+    if (challengeId) {
+      body.challengeId = challengeId;
+      body.code = codeInput.value.trim();
+    }
     errorEl.textContent = "";
     submitBtn.disabled = true;
     submitBtn.textContent = "登录中...";
@@ -86,16 +141,24 @@
       const res = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password, next }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "登录失败");
+      if (!res.ok) {
+        if (data.needChallenge) {
+          showChallenge();
+          await refreshChallenge().catch(() => {});
+        }
+        const suffix = data.retryAfterSec ? `（${data.retryAfterSec} 秒后可重试）` : "";
+        throw new Error((data.error || "登录失败") + suffix);
+      }
       sessionStorage.setItem("navigate_token", data.token);
       location.href = data.next || cleanNext(next);
     } catch (err) {
       errorEl.textContent = err.message || "登录失败";
       submitBtn.disabled = false;
       submitBtn.textContent = "登 录";
+      if (challengeId) codeInput.focus();
     }
   });
 </script>

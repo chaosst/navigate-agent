@@ -109,6 +109,7 @@ vi .env.prod        # 或 nano .env.prod
 - `OPENAI_API_KEY` —— 你的真实 key
 - `POSTGRES_PASSWORD` —— 强密码（≥16 位混合字符）
 - `H5_LOGIN_PASSWORD` —— 登录页密码（不要用默认值）
+- `H5_GUEST_PASSWORD`（可选）—— 体验账号密码（给 HR/面试官演示用；不配则不启用体验登录）。体验账号仅可访问 简历 / 简历问答 / JD匹配 / 文档管理（只读），上传/重新索引/删除与 `/admin` 账号管理页均无权限；管理员登录后在 `/admin` 页可随时重置该密码（持久化 `rag_data/h5-users.json`，此后 env 修改需删该文件重启才生效）
 - `API_KEYS`（强烈建议）—— 如 `sk-xxx:2026-12-31T00:00:00Z`，给 API 加固定 key
 - `DOMAIN` —— **先留空**，没域名时跳过 Caddy（见第五步）
 

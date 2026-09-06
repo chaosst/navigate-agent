@@ -136,6 +136,7 @@
     <a href="/resume" class="active">👤 简历</a>
     <a href="/resume/chat">💬 简历问答</a>
     <a href="/resume/jd">🎯 JD匹配</a>
+    <a href="/api/logout?next=/login" onclick="sessionStorage.removeItem('navigate_token')">🚪 退出</a>
   </div>
 
   <div id="app">
@@ -150,9 +151,23 @@
 </div>
 
 <script>
+  // Token from URL → sessionStorage; fallback to stored token（简历页现需登录）
+  const urlToken = new URLSearchParams(location.search).get("token");
+  if (urlToken) sessionStorage.setItem("navigate_token", urlToken);
+  const TOKEN = sessionStorage.getItem("navigate_token");
+  if (!TOKEN) {
+    location.href = "/login?next=" + encodeURIComponent(location.pathname + location.search);
+    throw new Error("no token");
+  }
+  // Rewrite nav links to include token
+  document.querySelectorAll(".nav-bar a").forEach(function (a) {
+    const href = a.getAttribute("href");
+    if (href && !href.includes("token=") && href.startsWith("/")) a.setAttribute("href", href + "?token=" + TOKEN);
+  });
+
 async function loadResume() {
   try {
-    const res = await fetch("/api/resume");
+    const res = await fetch(`/api/resume?token=${TOKEN}`);
     const data = await res.json();
     renderResume(data);
   } catch (err) {
