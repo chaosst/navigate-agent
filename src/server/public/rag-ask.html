@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>跨文档问答</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+<style>
+  :root {
+    --bg:#f8f9fa; --surface:#fff; --text:#1a1a2e; --text-muted:#6b7280;
+    --primary:#2563eb; --primary-light:#eff6ff; --border:#e5e7eb;
+    --ok:#059669; --warn:#d97706; --err:#dc2626; --radius:12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#0f172a; --surface:#1e293b; --text:#f1f5f9; --text-muted:#94a3b8;
+      --primary:#60a5fa; --primary-light:#1e3a5f; --border:#334155;
+      --ok:#34d399; --warn:#fbbf24; --err:#f87171;
+    }
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         background:var(--bg); color:var(--text); line-height:1.6; min-height:100vh; }
+  .nav-bar { display:flex; gap:16px; padding:12px 24px; background:var(--surface);
+             border-bottom:1px solid var(--border); font-size:.9rem; align-items:center; flex-wrap:wrap; }
+  .nav-bar a { color:var(--text-muted); text-decoration:none; padding:6px 16px; border-radius:8px; }
+  .nav-bar a:hover, .nav-bar a.active { background:var(--primary-light); color:var(--primary); }
+  .nav-bar .title { font-weight:600; margin-right:auto; }
+  .wrap { max-width:960px; margin:0 auto; padding:20px; display:flex; flex-direction:column; gap:16px; }
+  .panel { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px; }
+  .panel h2 { font-size:.95rem; margin-bottom:12px; color:var(--text-muted); font-weight:600; }
+  #doc-list { display:flex; flex-direction:column; gap:8px; max-height:220px; overflow-y:auto; }
+  .doc-item { display:flex; align-items:center; gap:10px; padding:8px 10px; border:1px solid var(--border);
+              border-radius:8px; font-size:.88rem; cursor:pointer; }
+  .doc-item:hover { border-color:var(--primary); }
+  .doc-item input { accent-color:var(--primary); }
+  .doc-item .fname { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .doc-item .cnt { color:var(--text-muted); font-size:.78rem; }
+  .empty-tip { color:var(--text-muted); font-size:.85rem; }
+  .input-row { display:flex; gap:8px; }
+  .input-row input { flex:1; padding:10px 14px; border:1px solid var(--border); border-radius:8px;
+                     font-size:.92rem; outline:none; background:var(--bg); color:var(--text); }
+  .input-row input:focus { border-color:var(--primary); }
+  .input-row button { padding:10px 22px; border:none; border-radius:8px; background:var(--primary);
+                      color:#fff; font-size:.92rem; cursor:pointer; font-weight:500; }
+  .input-row button:disabled { opacity:.5; cursor:not-allowed; }
+  #progress { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .worker-chip { font-size:.8rem; padding:4px 12px; border-radius:20px; border:1px solid var(--border);
+                 background:var(--bg); color:var(--text-muted); max-width:280px;
+                 overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .worker-chip.done { color:var(--ok); border-color:var(--ok); }
+  .worker-chip.empty { color:var(--warn); border-color:var(--warn); }
+  .worker-chip.error { color:var(--err); border-color:var(--err); }
+  #answer-box { white-space:pre-wrap; word-wrap:break-word; }
+  #answer-box.streaming::after { content:"▊"; animation:blink .8s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  .refs { margin-top:10px; padding-top:10px; border-top:1px dashed var(--border);
+          display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+  .refs-label { font-size:.75rem; color:var(--text-muted); }
+  .ref-chip { font-size:.72rem; padding:3px 10px; border-radius:20px; background:var(--primary-light);
+              color:var(--primary); border:1px solid var(--border); max-width:260px;
+              overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .error-msg { color:var(--err); font-size:.85rem; }
+  @media (max-width:600px){ .wrap{padding:12px} }
+</style>
+</head>
+<body>
+<div class="nav-bar">
+  <span class="title">🧠 跨文档并行问答</span>
+  <a href="/">📄 文档</a>
+  <a href="/rag/ask" class="active">📑 多文档问答</a>
+  <a href="/resume/chat">💬 简历问答</a>
+  <a href="/resume/jd">🎯 JD匹配</a>
+  <a href="/api/logout?next=/login" onclick="sessionStorage.removeItem('navigate_token')">🚪 退出</a>
+</div>
+
+<div class="wrap">
+  <div class="panel">
+    <h2>① 勾选要一起提问的文档</h2>
+    <div id="doc-list"><div class="empty-tip">加载中…</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>② 提问（将按文档并行检索并汇总回答）</h2>
+    <div class="input-row">
+      <input type="text" id="question" placeholder="例如：这几份文档里对 xxx 分别怎么描述的？" autofocus>
+      <button id="ask-btn">并行问答 🚀</button>
+    </div>
+  </div>
+
+  <div class="panel" id="progress-panel" hidden>
+    <h2>并行进度</h2>
+    <div id="progress"></div>
+  </div>
+
+  <div class="panel" id="answer-panel" hidden>
+    <h2>统一答案</h2>
+    <div id="answer-box"></div>
+  </div>
+</div>
+
+<script>
+const urlToken = new URLSearchParams(location.search).get("token");
+if (urlToken) sessionStorage.setItem("navigate_token", urlToken);
+const TOKEN = sessionStorage.getItem("navigate_token");
+if (!TOKEN) { location.href = "/login?next=" + encodeURIComponent(location.pathname + location.search); throw new Error("no token"); }
+document.querySelectorAll(".nav-bar a").forEach(function(a) {
+  const href = a.getAttribute("href");
+  if (href && href.indexOf("token=") === -1 && href.indexOf("http") !== 0) a.setAttribute("href", href + "?token=" + TOKEN);
+});
+
+const docsEl = document.getElementById("doc-list");
+const questionEl = document.getElementById("question");
+const askBtn = document.getElementById("ask-btn");
+const progressPanel = document.getElementById("progress-panel");
+const progressEl = document.getElementById("progress");
+const answerPanel = document.getElementById("answer-panel");
+const answerBox = document.getElementById("answer-box");
+
+const state = new Map(); // docId -> chip element
+
+function renderMarkdown(text) {
+  if (!text) return "";
+  try { return DOMPurify.sanitize(marked.parse(text)); } catch { return text; }
+}
+
+async function loadDocs() {
+  try {
+    const res = await fetch(`/api/documents?token=${TOKEN}`);
+    const docs = await res.json();
+    if (!Array.isArray(docs) || docs.length === 0) {
+      docsEl.innerHTML = '<div class="empty-tip">暂无已上传文档。请先在“文档”页上传。</div>';
+      return;
+    }
+    docsEl.innerHTML = "";
+    for (const d of docs) {
+      const label = document.createElement("label");
+      label.className = "doc-item";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.value = d.id;
+      const fname = document.createElement("span");
+      fname.className = "fname";
+      fname.textContent = d.filename;
+      const cnt = document.createElement("span");
+      cnt.className = "cnt";
+      cnt.textContent = `${d.chunks ?? 0} 块`;
+      label.append(cb, fname, cnt);
+      docsEl.appendChild(label);
+    }
+  } catch (e) {
+    docsEl.innerHTML = `<div class="error-msg">加载文档失败：${e.message}</div>`;
+  }
+}
+
+function resetResults() {
+  state.clear();
+  progressPanel.hidden = true;
+  answerPanel.hidden = true;
+  progressEl.innerHTML = "";
+  answerBox.innerHTML = "";
+}
+
+async function ask() {
+  const question = questionEl.value.trim();
+  const docIds = Array.from(docsEl.querySelectorAll("input[type=checkbox]:checked")).map((c) => c.value);
+  if (!question) { alert("请先输入问题"); return; }
+  if (docIds.length === 0) { alert("请先勾选至少一份文档"); return; }
+
+  askBtn.disabled = true;
+  resetResults();
+  progressPanel.hidden = false;
+  answerPanel.hidden = false;
+  docIds.forEach((id) => addChip(id));
+
+  try {
+    const res = await fetch(`/api/rag/ask?token=${TOKEN}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, docIds }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || "请求失败");
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          let ev;
+          try { ev = JSON.parse(line.slice(6)); } catch { continue; }
+          if (!ev || typeof ev !== "object") continue;
+          if (ev.type === "worker") {
+            const chip = state.get(ev.docId);
+            if (chip) {
+              chip.classList.add(ev.status);
+              const tag = ev.status === "done" ? "✓" : ev.status === "empty" ? "空" : "✗";
+              chip.textContent = `${tag} ${chip.textContent}`;
+            }
+          } else if (ev.type === "sources") {
+            renderSources(ev.sources || []);
+          } else if (ev.type === "answer") {
+            answerBox.classList.remove("streaming");
+            answerBox.innerHTML = renderMarkdown(ev.text || "");
+          } else if (ev.type === "error") {
+            answerBox.textContent = `❌ ${ev.message}`;
+            answerBox.style.color = "#dc2626";
+          }
+        }
+      }
+    }
+  } catch (e) {
+    answerBox.textContent = `❌ ${e.message}`;
+    answerBox.style.color = "#dc2626";
+  } finally {
+    askBtn.disabled = false;
+    questionEl.focus();
+  }
+}
+
+function addChip(docId) {
+  const chip = document.createElement("span");
+  chip.className = "worker-chip";
+  chip.textContent = `${docId} 检索中…`;
+  chip.title = docId;
+  state.set(docId, chip);
+  progressEl.appendChild(chip);
+}
+
+function renderSources(sources) {
+  const box = document.getElementById("answer-box");
+  const refs = document.createElement("div");
+  refs.className = "refs";
+  const label = document.createElement("span");
+  label.className = "refs-label";
+  label.textContent = "📎 参考来源";
+  refs.appendChild(label);
+  for (const s of sources) {
+    const chip = document.createElement("span");
+    chip.className = "ref-chip";
+    chip.textContent = `${s.filename} #${s.chunkIndex}`;
+    chip.title = `${s.filename} 片段#${s.chunkIndex}`;
+    refs.appendChild(chip);
+  }
+  box.appendChild(refs);
+}
+
+askBtn.addEventListener("click", ask);
+questionEl.addEventListener("keydown", (e) => { if (e.key === "Enter") ask(); });
+loadDocs();
+</script>
+</body>
+</html>
