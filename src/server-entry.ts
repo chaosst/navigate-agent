@@ -22,6 +22,7 @@ import { PgVectorStore } from "./storage/pg-vector-store.js";
 import { getPool } from "./storage/pool.js";
 import { RagSearchTool } from "./rag/retriever.js";
 import { createRagServer } from "./server/index.js";
+import { answerAcrossDocs } from "./rag/parallel-answer.js";
 import { ResumeStore } from "./resume/store.js";
 import { ResumeSearchTool } from "./resume/search-tool.js";
 import { parseResumeText } from "./resume/parser.js";
@@ -159,7 +160,22 @@ async function main() {
     ? undefined
     : await buildFallbackExecutor();
 
-  createRagServer(ragStore, 3001, executor, resumeStore, resumeData, apiAuth, resumeExecutor, jdAnalyzer);
+  // 跨文档并行问答：worker 并发数走环境变量（server-entry 已 import "dotenv/config"）
+  const maxConcurrency = Math.max(1, Number(process.env.MAX_PARALLEL_WORKERS ?? 4));
+  createRagServer(
+    ragStore,
+    3001,
+    executor,
+    resumeStore,
+    resumeData,
+    apiAuth,
+    resumeExecutor,
+    jdAnalyzer,
+    {
+      parallelAsk: (question: string, docIds: string[]) =>
+        answerAcrossDocs({ question, docIds, store: ragStore, llm, maxConcurrency }),
+    },
+  );
 
   console.log("");
   console.log("──────────────────────────────────────────");

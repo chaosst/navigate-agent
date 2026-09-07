@@ -23,6 +23,7 @@ import { startWikiProxy } from "./wiki-proxy.js";
 import { ContextManager } from "../memory/context-manager.js";
 import { sourcesFromChunk } from "./sse-sources.js";
 import { ResumeTooLongError, type JdMatchResult } from "../resume/jd-analyzer.js";
+import { buildRagAskHandler, type AskFn } from "./rag-ask.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -114,6 +115,7 @@ export function createRagServer(
   apiAuth?: ApiKeyAuthConfig,
   resumeExecutor?: AgentExecutor,
   jdAnalyzer?: { analyze(jd: string): Promise<JdMatchResult> },
+  deps?: { parallelAsk?: AskFn },
 ) {
   const app = express();
   const upload = multer({ dest: "rag_uploads/" });
@@ -253,6 +255,11 @@ export function createRagServer(
 
   app.get("/resume/chat", requirePage(ALL_ROLES), (_req, res) => {
     sendHtml(res, "resume-chat.html", { WIKI_URL: wikiPublicUrl });
+  });
+
+  // 跨文档并行问答演示页（guest/admin 可用）
+  app.get("/rag/ask", requirePage(ALL_ROLES), (_req, res) => {
+    sendHtml(res, "rag-ask.html", { WIKI_URL: wikiPublicUrl });
   });
 
   // 写操作（上传/重新索引/删除）仅管理员：体验账号点按钮前端提示，服务端同样 403 兜底
@@ -524,6 +531,15 @@ export function createRagServer(
     res.end();
   });
 
+  // 跨文档并行问答：docIds 内每份文档一个 worker 并行，SSE 边跑边推
+  app.post("/api/rag/ask", requireToken, buildRagAskHandler(async function* (question, docIds) {
+    if (!deps?.parallelAsk) {
+      yield { type: "error", message: "RAG 并行问答未装配" };
+      return;
+    }
+    for await (const ev of deps.parallelAsk(question, docIds)) yield ev;
+  }));
+
   // Chat history endpoint — load past messages by token
   app.get("/api/chat/history", requireToken, (req, res) => {
     const sid = (req as any).validToken;
@@ -597,11 +613,11 @@ export function createRagServer(
   });
 
   // 防止经 /index.html 等静态路径绕过登录门槛 → 重定向到带门槛的规范路由
-  app.get(["/index.html", "/resume.html", "/resume/chat.html", "/resume/jd.html", "/admin.html"], (req, res) => {
+  app.get(["/index.html", "/resume.html", "/resume/chat.html", "/resume/jd.html", "/admin.html", "/rag-ask.html"], (req, res) => {
     const map: Record<string, string> = {
       "/index.html": "/", "/resume.html": "/resume",
       "/resume/chat.html": "/resume/chat", "/resume/jd.html": "/resume/jd",
-      "/admin.html": "/admin",
+      "/admin.html": "/admin", "/rag-ask.html": "/rag/ask",
     };
     res.redirect(302, map[req.path] || "/");
   });
