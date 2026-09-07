@@ -7,8 +7,8 @@ const RESULT_CONTENT_MAX = 4000;
 /** search_documents 整体返回上限（字符） */
 const TOTAL_MAX = 30_000;
 
-/** 单条 chunk 内容截断（保留开头 + 标记） */
-function capChunkContent(content: string): string {
+/** 单条 chunk 内容截断（保留开头 + 标记）。导出供 parallel-answer worker prompt 复用同一口径 */
+export function capChunkContent(content: string): string {
   if (content.length <= RESULT_CONTENT_MAX) return content;
   return (
     content.slice(0, RESULT_CONTENT_MAX) +
