@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tokenManager, TOKEN_TTL_MS } from "./token.js";
 import { AUTH_COOKIE, getCookie, serializeCookie, getToken, deriveCookieDomain, stripTokenQuery } from "./auth-helpers.js";
-import { authenticate, type H5User } from "./users.js";
+import { authenticate, findGuest, type H5User } from "./users.js";
 import { challengeStore, mountChallengeRoutes, SID_COOKIE } from "./login-challenge.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -169,6 +169,36 @@ export function mountLoginRoutes(app: express.Express, opts: { proxyOrigin?: str
       domain,
     }));
     res.json({ token, role: user.role, expiresIn: Math.floor(TOKEN_TTL_MS / 1000), next: allowNext(next, proxyOrigins) });
+  });
+
+  // 游客/面试官一键体验：服务端按 guest 账号直接发会话（免密码）。
+  // 设计取舍：① 凭据不落前端源码（管理员在 /admin 改 guest 密码后依然可用）；
+  //           ② 独立于账号/校验码路径，仅走 IP 维度限流（guest 只读，滥用面小）；
+  //           ③ 未配置体验账号时返回 503，错误信息给出配置方式。
+  app.post("/api/login/guest", (req, res) => {
+    const ip = req.ip ?? req.socket?.remoteAddress ?? "unknown";
+    const guest = findGuest();
+    if (!guest) {
+      return res.status(503).json({
+        error: "未配置体验账号：请在 H5_LOGIN_USERS 中添加 role=guest 的账号，或设置 H5_GUEST_USERNAME/H5_GUEST_PASSWORD",
+      });
+    }
+    const rate = checkLoginRate(ip);
+    if (rate.locked) {
+      res.setHeader("Retry-After", String(rate.retryAfterSec));
+      return res.status(429).json({ error: "尝试过于频繁，请稍后再试", retryAfterSec: rate.retryAfterSec });
+    }
+    const { next } = (req.body ?? {}) as { next?: unknown };
+    const token = tokenManager.generate({ username: guest.username, role: guest.role });
+    const domain = deriveCookieDomain(req.hostname);
+    res.setHeader("Set-Cookie", serializeCookie(AUTH_COOKIE, token, {
+      maxAgeSec: TOKEN_TTL_MS / 1000,
+      httpOnly: true,
+      sameSite: "Lax",
+      secure: process.env.H5_COOKIE_SECURE === "true",
+      domain,
+    }));
+    res.json({ token, role: guest.role, expiresIn: Math.floor(TOKEN_TTL_MS / 1000), next: allowNext(next, proxyOrigins) });
   });
 
   // 登出：吊销 token + 清 cookie（带相同 domain 才能清掉跨子域 cookie）

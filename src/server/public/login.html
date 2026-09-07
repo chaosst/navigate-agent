@@ -29,6 +29,13 @@
   }
   button:hover { background: #1d4ed8; }
   button:disabled { opacity: 0.6; cursor: not-allowed; }
+  .divider { display: flex; align-items: center; gap: 10px; margin: 18px 0 2px; color: #bbb; font-size: 0.78rem; }
+  .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: #e5e5e5; }
+  #guest-btn {
+    margin-top: 12px; background: #f0f7ff; color: #2563eb; font-weight: 500;
+  }
+  #guest-btn:hover { background: #dbeafe; }
+  .guest-hint { font-size: 0.75rem; color: #999; text-align: center; margin-top: 8px; line-height: 1.5; }
   .hidden { display: none; }
   .challenge { margin-top: 4px; }
   .challenge-row { display: flex; align-items: center; gap: 10px; margin: 8px 0 2px; }
@@ -66,6 +73,9 @@
     <button type="submit" id="submit-btn">登 录</button>
     <div class="error" id="error"></div>
   </form>
+  <div class="divider">或</div>
+  <button type="button" id="guest-btn">👤 游客体验（免账号）</button>
+  <div class="guest-hint">面试官 / HR 快捷入口：只读浏览简历问答与 JD 匹配，无需注册</div>
 </div>
 
 <script>
@@ -87,6 +97,7 @@
   const challengeBox = document.getElementById("challenge-box");
   const challengeImg = document.getElementById("challenge-img");
   const codeInput = document.getElementById("code");
+  const guestBtn = document.getElementById("guest-btn");
 
   let challengeId = null; // 触发条件式校验码后由 /api/login/challenge 下发
 
@@ -186,6 +197,28 @@
       submitBtn.disabled = false;
       submitBtn.textContent = "登 录";
       if (challengeId) codeInput.focus();
+    }
+  });
+
+  // 游客体验：免账号直达（服务端 /api/login/guest 取 guest 凭据发会话，凭据不落前端）
+  guestBtn.addEventListener("click", async () => {
+    errorEl.textContent = "";
+    guestBtn.disabled = true;
+    guestBtn.textContent = "进入中...";
+    try {
+      const res = await fetch("/api/login/guest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ next }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "游客入口暂不可用");
+      sessionStorage.setItem("navigate_token", data.token);
+      location.href = data.next || cleanNext(next);
+    } catch (err) {
+      errorEl.textContent = err.message || "游客入口暂不可用";
+      guestBtn.disabled = false;
+      guestBtn.textContent = "👤 游客体验（免账号）";
     }
   });
 </script>
