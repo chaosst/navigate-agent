@@ -156,11 +156,13 @@ export class PgVectorStore {
   //  混合检索（向量 + FTS，RRF 融合）
   // ═══════════════════════════════════════════════
 
-  async search(query: string, k: number = 5): Promise<RagResult[]> {
+  async search(query: string, k: number = 5, docIds?: string[]): Promise<RagResult[]> {
     const q = query.trim();
     if (q.length === 0) return [];
 
-    const cacheKey = `hybrid:${k}:${q}`;
+    const hasScope = !!docIds?.length;
+    const scopeKey = hasScope ? [...docIds!].sort().join(",") : "all";
+    const cacheKey = `hybrid:${k}:${scopeKey}:${q}`;
     const cached = this.queryCache.get<RagResult[]>(cacheKey);
     if (cached) return [...cached];
 
@@ -173,15 +175,18 @@ export class PgVectorStore {
       if (!embedding || embedding.length === 0) {
         console.warn("[pgvector] Empty embedding from query, skipping vector search");
       } else {
+        const filter = hasScope ? " AND c.doc_id = ANY($3::uuid[])" : "";
+        const params: unknown[] = [`[${embedding.join(",")}]`, k * 2];
+        if (hasScope) params.push(docIds);
         const { rows } = await this.pool.query(
           `SELECT c.id, c.content, c.doc_id, c.chunk_index, d.filename,
                   1 - (c.embedding <=> $1::vector) AS score
            FROM doc_chunks c
            JOIN documents d ON d.id = c.doc_id
-           WHERE c.embedding IS NOT NULL
+           WHERE c.embedding IS NOT NULL${filter}
            ORDER BY c.embedding <=> $1::vector
            LIMIT $2`,
-          [`[${embedding.join(",")}]`, k * 2],
+          params,
         );
         for (const r of rows) {
           vectorResults.push({
@@ -199,15 +204,18 @@ export class PgVectorStore {
 
     // 2. 中文 FTS 检索（替代 BM25）
     try {
+      const filter = hasScope ? " AND c.doc_id = ANY($3::uuid[])" : "";
+      const params: unknown[] = [q, k * 2];
+      if (hasScope) params.push(docIds);
       const { rows } = await this.pool.query(
         `SELECT c.id, c.content, c.doc_id, c.chunk_index, d.filename,
                 ts_rank(c.fts_vector, plainto_tsquery('chinese_zh', $1), 16) AS score
          FROM doc_chunks c
          JOIN documents d ON d.id = c.doc_id
-         WHERE c.fts_vector @@ plainto_tsquery('chinese_zh', $1)
+         WHERE c.fts_vector @@ plainto_tsquery('chinese_zh', $1)${filter}
          ORDER BY score DESC
          LIMIT $2`,
-        [q, k * 2],
+        params,
       );
       for (const r of rows) {
         ftsResults.push({
@@ -225,16 +233,19 @@ export class PgVectorStore {
     // 3. 中文兜底：pg_trgm 模糊匹配（FTS 不识别中文时的备选）
     if (ftsResults.length === 0) {
       try {
+        const filter = hasScope ? " AND c.doc_id = ANY($4::uuid[])" : "";
+        const params: unknown[] = [q, `%${q}%`, k * 2];
+        if (hasScope) params.push(docIds);
         const { rows } = await this.pool.query(
           `SELECT c.id, c.content, c.doc_id, c.chunk_index, d.filename,
                   similarity(c.content, $1) AS score
            FROM doc_chunks c
            JOIN documents d ON d.id = c.doc_id
            WHERE c.content % $1
-              OR c.content ILIKE $2
+              OR c.content ILIKE $2${filter}
            ORDER BY score DESC
            LIMIT $3`,
-          [q, `%${q}%`, k * 2],
+          params,
         );
         for (const r of rows) {
           ftsResults.push({
@@ -266,15 +277,20 @@ export class PgVectorStore {
    * 与 search() 的混合检索相互独立：无 embedding、无 FTS、无 RRF。
    * 排序：位置优先 → 出现次数次之。
    */
-  async searchKeyword(query: string, k: number = 5): Promise<RagResult[]> {
+  async searchKeyword(query: string, k: number = 5, docIds?: string[]): Promise<RagResult[]> {
     const q = query.trim();
     if (q.length < 2) return [];
 
-    const cacheKey = `keyword:${k}:${q}`;
+    const hasScope = !!docIds?.length;
+    const scopeKey = hasScope ? [...docIds!].sort().join(",") : "all";
+    const cacheKey = `keyword:${k}:${scopeKey}:${q}`;
     const cached = this.queryCache.get<RagResult[]>(cacheKey);
     if (cached) return [...cached];
 
     try {
+      const filter = hasScope ? " AND c.doc_id = ANY($3::uuid[])" : "";
+      const params: unknown[] = [q, k];
+      if (hasScope) params.push(docIds);
       const { rows } = await this.pool.query(
         `SELECT c.id, c.content, c.doc_id, c.chunk_index, d.filename,
                 strpos(LOWER(c.content), LOWER($1)) AS pos,
@@ -283,10 +299,10 @@ export class PgVectorStore {
                    / NULLIF(length($1), 0) AS cnt
          FROM doc_chunks c
          JOIN documents d ON d.id = c.doc_id
-         WHERE c.content ILIKE '%' || $1 || '%'
+         WHERE c.content ILIKE '%' || $1 || '%'${filter}
          ORDER BY pos ASC, cnt DESC
          LIMIT $2`,
-        [q, k],
+        params,
       );
       const results = rows.map((r) => ({
         content: r.content,
@@ -298,7 +314,6 @@ export class PgVectorStore {
       this.queryCache.set(cacheKey, results);
       return results;
     } catch (e) {
-      // 单路检索,无其他腿兜底:让错误上抛,由端点返回 500 而非静默空结果
       console.warn("[pgvector] Keyword search failed:", (e as Error).message);
       throw e;
     }

@@ -103,3 +103,30 @@ describe("PgVectorStore 查询级 L1 缓存", () => {
     expect(Array.isArray(docs)).toBe(true);
   });
 });
+
+describe("PgVectorStore 按文档作用域检索（docIds 第三位置参）", () => {
+  it("docIds 非空时 SQL 追加 doc_id = ANY，并把数组作末位参数", async () => {
+    const { store, pool } = makeStore();
+    await store.search("RAG", 5, ["d1", "d2"]);
+    // mock.calls[0] 形如 [sql, params]——数组下标解构，勿用对象解构
+    const [query, values] = pool.query.mock.calls[0];
+    expect(query).toContain("AND c.doc_id = ANY($3::uuid[])");
+    expect((values as unknown[]).at(-1)).toEqual(["d1", "d2"]);
+  });
+
+  it("同一 query 不同 docIds 不共享缓存（缓存 key 含作用域）", async () => {
+    const { store, pool } = makeStore();
+    await store.search("RAG 是什么", 5);
+    const callsAfterFirst = pool.query.mock.calls.length;
+    await store.search("RAG 是什么", 5, ["d1"]);
+    expect(pool.query.mock.calls.length).toBeGreaterThan(callsAfterFirst);
+  });
+
+  it("searchKeyword 同样接受 docIds", async () => {
+    const { store, pool } = makeStore();
+    await store.searchKeyword("RAG", 5, ["d1"]);
+    const [query, values] = pool.query.mock.calls[0];
+    expect(query).toContain("AND c.doc_id = ANY($3::uuid[])");
+    expect((values as unknown[]).at(-1)).toEqual(["d1"]);
+  });
+});
