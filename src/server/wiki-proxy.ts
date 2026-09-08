@@ -2,6 +2,7 @@ import http from "node:http";
 import crypto from "node:crypto";
 import zlib from "node:zlib";
 import { tokenManager } from "./token.js";
+import type { H5Role } from "./users.js";
 import { AUTH_COOKIE, getCookie } from "./auth-helpers.js";
 import { injectHtml, type WikiInjectOptions } from "./wiki-inject.js";
 
@@ -19,10 +20,40 @@ export interface WikiProxyOptions {
   wikiLoginPath?: string;      // 默认 /login（json/rsa 模式也用；rsa 模式还需 /loginConfig）
   wikiLoginCsrf?: boolean;     // form 模式是否提取 _csrf，默认 true
   wikiSessionTtlSec?: number;  // 会话缓存 TTL，默认 600
+  /**
+   * 允许访问 wiki 的 navigate 角色白名单，默认仅 admin。
+   * 自动登录模式下代理用同一 wiki 账号代持会话，guest 若放行将获得与 admin 完全相同的
+   * wiki 权限（proxy 单身份架构无法按 navigate 角色区分 wiki 侧身份），因此默认拒绝 guest，
+   * 需要给访客开放 wiki 时应另行配置只读 wiki 账号并做角色映射，而非放宽此白名单。
+   */
+  allowRoles?: readonly H5Role[];
   // 品牌名替换注入（方案 A：Navigate Doc）。样式注入已回滚，页面外观保持原生。
   // 传 undefined 表示不注入（纯透传）；index.ts 总在启动时显式传入。
   htmlInject?: WikiInjectOptions;
 }
+
+/** guest 等非授权角色访问 wiki 时返回的提示页（403） */
+const FORBIDDEN_HTML = [
+"<!DOCTYPE html>",
+"<html lang=\"zh-CN\">",
+"<head><meta charset=\"utf-8\"><title>无权限访问</title>",
+"<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">",
+"<style>",
+"body{font-family:-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;",
+"background:#f4f9f6;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}",
+".card{background:#fff;border-radius:14px;box-shadow:0 10px 32px rgba(0,0,0,.08);",
+"padding:44px 40px;max-width:420px;text-align:center}",
+"h1{font-size:44px;margin:0 0 12px}.card h2{margin:0 0 10px;color:#1f2937;font-size:20px}",
+"p{color:#6b7280;font-size:14px;line-height:1.7;margin:0 0 22px}",
+"a{display:inline-block;background:#519670;color:#fff;text-decoration:none;",
+"border-radius:8px;padding:9px 20px;font-size:14px}",
+"</style></head>",
+"<body><div class=\"card\"><h1>🔒</h1>",
+"<h2>无权限访问 Wiki 知识库</h2>",
+"<p>当前为<strong>体验账号</strong>，Wiki 知识库仅限管理员访问。<br>请使用管理员账号登录后重试。</p>",
+"<a href=\"/\">← 返回文档管理</a>",
+"</div></body></html>",
+].join("\n");
 
 const DEFAULT_LOGIN_PATH = "/login";
 const DEFAULT_PASSWORD = "123456";
@@ -331,7 +362,8 @@ function forwardOnce(
 
 /**
  * 独立端口鉴权反向代理：整站转发到 wiki。
- * 1) 校验 navigate_token（cookie 或 ?token=），未登录 302 到 Navigate 登录页。
+ * 1) 校验 navigate_token（cookie 或 ?token=）：无有效 token → 302 到 Navigate 登录页；
+ *    角色不在 allowRoles 白名单（默认仅 admin，guest 体验账号一律拒绝）→ 403 提示页。
  * 2) 默认透传：浏览器携带的 wiki 登录态（cookie / 手动登录过的 localStorage）直接生效，
  *    在 wiki 是前端 SPA + localStorage token 时，用户在 3003 手动登录一次即可长期免登录。
  * 3) 可选自动登录：配置 H5_WIKI_USERNAME 后，代理用该账号登录 wiki 并注入会话 cookie
@@ -341,14 +373,27 @@ export function startWikiProxy(opts: WikiProxyOptions): http.Server {
   const target = new URL(opts.target);
   const loginPath = opts.wikiLoginPath || DEFAULT_LOGIN_PATH;
   const autoLogin = Boolean(opts.wikiUsername);
+  // 角色白名单：未配置时默认仅 admin（guest 体验账号不得访问 wiki）
+  const allowRoles: readonly H5Role[] =
+    opts.allowRoles && opts.allowRoles.length > 0 ? opts.allowRoles : ["admin"];
   const sessionManager = new WikiSessionManager(opts);
 
   const server = http.createServer((req, res) => {
     const token = extractToken(req);
-    if (!token || !tokenManager.validate(token)) {
+    // 角色门控（比仅校验有效性更严）：无效/过期 → 登录页；角色不在白名单 → 403。
+    // guest 的 token 有效但绝不允许进入 wiki——否则 autoLogin 会让游客以 wiki
+    // 管理员身份看到全部内容（同一 cookie 会话，proxy 无法区分 wiki 侧身份）。
+    const identity = token ? tokenManager.identityOf(token) : null;
+    if (!identity) {
       const next = encodeURIComponent(`${opts.proxyOrigin}${req.url ?? "/"}`);
       res.writeHead(302, { Location: `${opts.loginUrl}?next=${next}` });
       res.end();
+      return;
+    }
+    if (!allowRoles.includes(identity.role)) {
+      console.log(`[wiki-proxy] 拒绝 ${identity.role} 角色访问 wiki: username=${identity.username ?? "(运维 token)"}`);
+      res.writeHead(403, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(FORBIDDEN_HTML);
       return;
     }
     handleProxy(req, res, sessionManager, target, loginPath, autoLogin, opts.htmlInject);

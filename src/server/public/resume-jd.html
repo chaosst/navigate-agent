@@ -113,7 +113,7 @@
 <div class="container" data-page-node-id="C3eE9C6xWZyuYd8XnQwq9L">
   <div class="nav-bar" data-page-node-id="Hg8MrBmRhS2qGIKuEHn9EK">
     <a href="/" data-page-node-id="9Jin0d7LMut9jexLXf4UD2">📄 文档管理</a>
-    <a href="__WIKI_URL__" target="_blank" data-page-node-id="p9UBTSaRKk1DTbtShwVFn8">📚 Wiki ↗</a>
+    <a href="__WIKI_URL__" target="_blank" class="nav-wiki" data-page-node-id="p9UBTSaRKk1DTbtShwVFn8">📚 Wiki ↗</a>
     <a href="/resume" data-page-node-id="AfqvrwXzsFr0HTH7EqW48L">👤 简历</a>
     <a href="/resume/chat" data-page-node-id="SvvMEhxbzkGXhcp0JfW7ms">💬 简历问答</a>
     <a href="/resume/jd" class="active" data-page-node-id="ad2k5RMpXFSRBaeKIVEnp6">🎯 JD匹配</a>
@@ -146,6 +146,13 @@ document.querySelectorAll(".nav-bar a").forEach(function (a) {
   const href = a.getAttribute("href");
   if (href && href.indexOf("token=") === -1 && href.indexOf("http") !== 0) a.setAttribute("href", href + "?token=" + TOKEN);
 });
+// 体验账号不展示 Wiki 入口（Wiki 知识库仅管理员可访问，代理侧 403 兜底）
+(async () => {
+  try {
+    const me = await (await fetch(`/api/me?token=${TOKEN}`)).json();
+    if (!me.isAdmin) document.querySelectorAll(".nav-wiki").forEach((el) => { el.style.display = "none"; });
+  } catch { /* 网络异常时保留入口，最终由代理 403 兜底 */ }
+})();
 
 const input = document.getElementById("jd-input");
 const btn = document.getElementById("analyze-btn");

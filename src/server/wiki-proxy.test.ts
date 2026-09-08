@@ -49,4 +49,39 @@ describe("wiki proxy auth", () => {
     const res = await fetch(proxyUrl + "/page/1?token=" + token);
     expect(res.status).toBe(200);
   });
+
+  it("rejects guest token with 403 (wiki is admin-only)", async () => {
+    const guestToken = tokenManager.generate({ username: "guest", role: "guest" });
+    const res = await fetch(proxyUrl + "/", { headers: { cookie: serializeCookie(AUTH_COOKIE, guestToken) } });
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain("无权限访问 Wiki");
+  });
+
+  it("still redirects to login for guest token when allowRoles opens guest", async () => {
+    const upstream2 = http.createServer((_req, res2) => {
+      res2.writeHead(200, { "Content-Type": "text/html" });
+      res2.end("<h1>wiki-open</h1>");
+    });
+    upstream2.listen(0);
+    await new Promise<void>((r) => upstream2.once("listening", () => r()));
+    const port2 = (upstream2.address() as AddressInfo).port;
+    const proxy2 = startWikiProxy({
+      port: 0,
+      target: `http://localhost:${port2}`,
+      loginUrl: "http://localhost:3001/login",
+      proxyOrigin: "http://localhost:3003",
+      allowRoles: ["admin", "guest"],
+    });
+    await new Promise<void>((r) => proxy2.once("listening", () => r()));
+    const url2 = `http://localhost:${(proxy2.address() as AddressInfo).port}`;
+    try {
+      const guestToken = tokenManager.generate({ username: "guest", role: "guest" });
+      const res = await fetch(url2 + "/", { headers: { cookie: serializeCookie(AUTH_COOKIE, guestToken) } });
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain("<h1>wiki-open</h1>");
+    } finally {
+      proxy2?.close();
+      upstream2?.close();
+    }
+  });
 });

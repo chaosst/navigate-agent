@@ -132,7 +132,7 @@
 <div class="container">
   <div class="nav-bar">
     <a href="/">📄 文档管理</a>
-    <a href="__WIKI_URL__" target="_blank">📚 Wiki ↗</a>
+    <a href="__WIKI_URL__" target="_blank" class="nav-wiki">📚 Wiki ↗</a>
     <a href="/resume" class="active">👤 简历</a>
     <a href="/resume/chat">💬 简历问答</a>
     <a href="/resume/jd">🎯 JD匹配</a>
@@ -165,6 +165,14 @@
     const href = a.getAttribute("href");
     if (href && !href.includes("token=") && href.startsWith("/")) a.setAttribute("href", href + "?token=" + TOKEN);
   });
+
+  // 体验账号不展示 Wiki 入口（Wiki 知识库仅管理员可访问，代理侧 403 兜底）
+  (async () => {
+    try {
+      const me = await (await fetch(`/api/me?token=${TOKEN}`)).json();
+      if (!me.isAdmin) document.querySelectorAll(".nav-wiki").forEach((el) => { el.style.display = "none"; });
+    } catch { /* 网络异常时保留入口，最终由代理 403 兜底 */ }
+  })();
 
 async function loadResume() {
   try {

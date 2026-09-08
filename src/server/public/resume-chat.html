@@ -195,7 +195,7 @@
 <div class="nav-bar">
   <span class="title">🤖 简历AI问答</span>
   <a href="/">📄 文档</a>
-  <a href="__WIKI_URL__" target="_blank">📚 Wiki ↗</a>
+  <a href="__WIKI_URL__" target="_blank" class="nav-wiki">📚 Wiki ↗</a>
   <a href="/resume">👤 简历</a>
   <a href="/resume/chat" class="active">💬 问答</a>
   <a href="/resume/jd">🎯 JD匹配</a>
@@ -238,6 +238,13 @@ document.querySelectorAll(".nav-bar a").forEach(function(a) {
   var href = a.getAttribute("href");
   if (href && href.indexOf("token=") === -1 && href.indexOf("http") !== 0) a.setAttribute("href", href + "?token=" + TOKEN);
 });
+// 体验账号不展示 Wiki 入口（Wiki 知识库仅管理员可访问，代理侧 403 兜底）
+(async () => {
+  try {
+    const me = await (await fetch(`/api/me?token=${TOKEN}`)).json();
+    if (!me.isAdmin) document.querySelectorAll(".nav-wiki").forEach((el) => { el.style.display = "none"; });
+  } catch { /* 网络异常时保留入口，最终由代理 403 兜底 */ }
+})();
 let loading = false;
 
 const chatArea = document.getElementById("chat-area");

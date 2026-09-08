@@ -60,6 +60,12 @@
   button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
   button.primary:hover { background: #1d4ed8; }
 
+  /* 只读态（体验账号）：操作按钮视觉置灰、不可点 */
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button:disabled:hover { background: #fff; }
+  button.danger:disabled, button.danger:disabled:hover { background: #fff; color: #dc2626; }
+  button.reindex-btn:disabled, button.reindex-btn:disabled:hover { background: #fff; color: #2563eb; }
+
   .empty { text-align: center; color: #999; padding: 32px 0; font-size: 0.9rem; }
 
   /* Query */
@@ -100,12 +106,12 @@
 <body>
 <div class="nav-bar" style="text-align:center;margin-bottom:24px;font-size:0.9rem;">
   <a href="/" style="color:#2563eb;text-decoration:none;padding:6px 16px;border-radius:8px;font-weight:600;">📄 文档管理</a>
-  <a href="__WIKI_URL__" target="_blank" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">📚 Wiki ↗</a>
+  <a href="__WIKI_URL__" target="_blank" class="nav-wiki" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">📚 Wiki ↗</a>
   <a href="/api/logout?next=/login" onclick="sessionStorage.removeItem('navigate_token')" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">🚪 退出</a>
   <a href="/resume" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">👤 简历</a>
   <a href="/resume/chat" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">💬 简历问答</a>
   <a href="/resume/jd" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">🎯 JD匹配</a>
-  <a href="/rag/ask" style="color:#2563eb;text-decoration:none;padding:6px 16px;border-radius:8px;font-weight:600;">📑 多文档问答</a>
+  <a href="/rag/ask" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">📑 多文档问答</a>
 </div>
 <div class="container">
   <style>
@@ -150,20 +156,6 @@
     </div>
   </div>
 
-  <div class="upload-zone" id="uploadZone">
-    <p>Drop files here or click to upload</p>
-    <span>.txt .pdf .md .docx</span>
-    <input type="file" id="fileInput" accept=".txt,.pdf,.md,.docx" multiple>
-  </div>
-  <div class="status" id="status"></div>
-
-  <table id="docTable">
-    <thead>
-      <tr><th>Filename</th><th>Chunks</th><th>Indexed At</th><th></th></tr>
-    </thead>
-    <tbody></tbody>
-  </table>
-
   <div class="query-section">
     <h2>Query Documents</h2>
     <div class="query-tabs">
@@ -178,6 +170,20 @@
     </div>
     <div class="results" id="results"></div>
   </div>
+
+  <div class="upload-zone" id="uploadZone">
+    <p>Drop files here or click to upload</p>
+    <span>.txt .pdf .md .docx</span>
+    <input type="file" id="fileInput" accept=".txt,.pdf,.md,.docx" multiple>
+  </div>
+  <div class="status" id="status"></div>
+
+  <table id="docTable">
+    <thead>
+      <tr><th>Filename</th><th>Chunks</th><th>Indexed At</th><th></th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
 </div>
 
 <script>
@@ -228,8 +234,24 @@
       const p = zone.querySelector("p");
       if (p) p.textContent = "🔒 仅管理员可上传文档";
     }
+    if (!isAdmin) {
+      // 体验账号：隐藏 Wiki 入口（Wiki 知识库仅管理员可访问，代理侧 403 兜底）
+      document.querySelectorAll(".nav-wiki").forEach((el) => { el.style.display = "none"; });
+    }
+    // 操作列按钮按角色置态：guest → disabled + 悬浮提示，admin → 可点
+    applyWriteButtonsState();
   }
   detectRole();
+
+  /** 表格操作按钮（重新索引 / Delete）的角色态：admin 可点，体验账号 disabled 只读可见 */
+  function applyWriteButtonsState() {
+    const t = document.querySelector("#docTable tbody");
+    if (!t) return;
+    t.querySelectorAll("button.reindex-btn, button.danger").forEach((btn) => {
+      btn.disabled = !isAdmin;
+      btn.title = isAdmin ? "" : "仅管理员可操作";
+    });
+  }
 
   const zone = document.getElementById("uploadZone");
   const input = document.getElementById("fileInput");
@@ -312,6 +334,8 @@
       tbody.querySelectorAll("button.reindex-btn").forEach(btn => {
         btn.addEventListener("click", () => { if (ensureWritePerm()) reindexDoc(btn.dataset.id); });
       });
+      // 渲染后按当前角色刷新按钮态（admin 的 detectRole 可能尚未返回，完成后会再次启用）
+      applyWriteButtonsState();
       // 从已有文档数据计算统计
       updateStatsFromDocs(docs);
     } catch { /* ignore */ }
