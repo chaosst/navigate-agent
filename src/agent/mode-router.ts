@@ -83,3 +83,84 @@ export function applyModeRules(input: string): RouteDecision | null {
 
   return null; // 规则未命中且不短 → 交给 LLM 兜底分类
 }
+
+/** 默认 LLM 分类器提示：存疑一律 normal（宁可不升档） */
+const CLASSIFIER_SYSTEM =
+  `你是 agent 编排模式选择器。判断一条用户请求是否适合 plan 模式（先规划多步骤再执行）。
+
+判 plan：明显多步、跨多个文件/对象、有先后顺序或组织性（重构、迁移、整理并总结、批量处理、多来源调研后报告等）。
+判 normal：单步问答、单一工具调用、寒暄，或不确定。
+
+不确定时一律输出 normal。只输出 JSON，不要输出其它文字：
+{"mode":"normal"|"plan","reason":"一句话中文原因"}`;
+
+const MAX_CLASSIFY_CHARS = 2000;
+
+export interface ModeRouterOptions {
+  llm: ChatOpenAI;
+  /** 单次分类 LLM 调用超时（ms），默认 8000 */
+  classifyTimeoutMs?: number;
+  /** 覆盖内置分类器（测试注入用） */
+  classifier?: (input: string) => Promise<{ mode: RoutableMode; reason: string }>;
+}
+
+async function defaultClassifier(
+  llm: ChatOpenAI,
+  input: string,
+  timeoutMs: number,
+): Promise<{ mode: RoutableMode; reason: string }> {
+  const res = await llm.invoke(
+    [new SystemMessage(CLASSIFIER_SYSTEM), new HumanMessage(input.slice(0, MAX_CLASSIFY_CHARS))],
+    { signal: AbortSignal.timeout(timeoutMs) },
+  );
+  const content = typeof res.content === "string" ? res.content : JSON.stringify(res.content);
+  const m = content.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error("classifier: no json object in response");
+  const parsed = JSON.parse(m[0]) as { mode?: unknown; reason?: unknown };
+  const mode = parsed.mode === "plan" ? "plan" : parsed.mode === "normal" ? "normal" : null;
+  if (!mode) throw new Error(`classifier: bad mode ${String(parsed.mode)}`);
+  return { mode, reason: typeof parsed.reason === "string" ? parsed.reason : "" };
+}
+
+/** 极短消息 + 上轮 plan + 接续词 → 保持 plan */
+const CONTINUE_RE = /继续|下一步|接着|然后|还有呢|再|后续|结果呢|怎么办/;
+
+export class ModeRouter {
+  private readonly llm: ChatOpenAI;
+  private readonly classifyTimeoutMs: number;
+  private readonly classifier: (input: string) => Promise<{ mode: RoutableMode; reason: string }>;
+
+  constructor(opts: ModeRouterOptions) {
+    this.llm = opts.llm;
+    this.classifyTimeoutMs = opts.classifyTimeoutMs ?? 8000;
+    this.classifier = opts.classifier ?? ((input) => defaultClassifier(this.llm, input, this.classifyTimeoutMs));
+  }
+
+  async resolveMode(input: string, ctx: RouteContext = {}): Promise<RouteDecision> {
+    const text = input.trim();
+
+    // 1) 极短接续优先保持 plan（防 churn + 误触）
+    if (text && text.length < CONTINUE_INPUT_NORMAL) {
+      if (ctx.lastMode === "plan" && CONTINUE_RE.test(text)) {
+        return { mode: "plan", reason: "延续上一轮 plan 步骤", source: "rule" };
+      }
+      return { mode: "normal", reason: "极短消息按普通问答处理", source: "rule" };
+    }
+
+    // 2) 硬规则
+    const ruled = applyModeRules(text);
+    if (ruled) return ruled;
+
+    // 3) LLM 兜底（applyModeRules 已挡掉 < SHORT_INPUT_NORMAL，到这里长度够）
+    try {
+      const c = await this.classifier(text);
+      return {
+        mode: c.mode === "plan" ? "plan" : "normal",
+        reason: c.reason || "LLM 语义判定",
+        source: "llm",
+      };
+    } catch {
+      return { mode: "normal", reason: "分类失败，回退 normal", source: "fallback" };
+    }
+  }
+}
