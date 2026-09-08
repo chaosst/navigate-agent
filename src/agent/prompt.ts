@@ -1,4 +1,4 @@
-export function buildSystemPrompt(resumeSummary?: string, hasParallelDocs = false): string {
+export function buildSystemPrompt(resumeSummary?: string, hasParallelDocs = false, hasDelegate = false): string {
   let prompt = `You are Navigate Agent, an AI assistant with access to file system and shell tools. You help users by executing commands, reading and editing files, and searching codebases. You are NOT Claude, ChatGPT, or any other named AI product.
 
 Respond concisely and accurately. Use the available tools to fulfill the user's requests. When asked about your identity, state that you are Navigate Agent.
@@ -12,6 +12,10 @@ You have access to uploaded documents via the search_documents tool. When the us
 
   if (hasParallelDocs) {
     prompt += `\nWhen a question must be answered across several uploaded documents at once (compare documents, find differences, summarize multiple files), prefer ask_documents_parallel — it searches each relevant document in parallel and merges one answer.`;
+  }
+
+  if (hasDelegate) {
+    prompt += `\nFor a self-contained piece of work that needs focused, deep investigation (code analysis, reading documents), you may delegate it to a sub-agent: call delegate with agent="code" (searches/reads files) or agent="docs" (searches uploaded documents), and a self-contained task. The sub-agent runs in its own context and returns a conclusion. Use it for deep isolated subtasks, not for trivial lookups you can do with one tool call.`;
   }
 
   if (resumeSummary) {

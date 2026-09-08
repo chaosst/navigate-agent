@@ -25,6 +25,7 @@ import { PgVectorStore } from "./storage/pg-vector-store.js";
 import { getPool } from "./storage/pool.js";
 import { RagSearchTool } from "./rag/retriever.js";
 import { ParallelDocsTool } from "./rag/parallel-tool.js";
+import { DelegateTool } from "./agent/delegate-tool.js";
 import { ResumeStore } from "./resume/store.js";
 import { ResumeSearchTool } from "./resume/search-tool.js";
 import { parseResume } from "./resume/parser.js";
@@ -58,6 +59,8 @@ export interface BootstrapResult {
   toolFilter: ToolFilter;
   /** 全部可用工具（含 RAG/resume/skills 的 read 包装），已注册统计 */
   tools: StructuredTool[];
+  /** 委派子 agent 工具（normal 主 agent 用；profile 按 name 裁剪 child 工具面） */
+  delegateTool: DelegateTool;
   systemPrompt: string;
 }
 
@@ -131,7 +134,16 @@ export async function bootstrapAgent(
     ...skillTools.map(wrapRead),
   ];
 
-  const systemPrompt = buildSystemPrompt(resumeSummary, true);
+  // 委派子 agent：父工具全集按 name 裁剪给 child；child 不含 delegate → 深度固定两层
+  const delegateTool = new DelegateTool({
+    llm,
+    tools,
+    maxChildIterations: Math.min(config.maxIterations, 8),
+    llmTimeoutMs: config.llmTimeoutMs,
+  });
+  tools.push(delegateTool);
+
+  const systemPrompt = buildSystemPrompt(resumeSummary, true, true);
 
   return {
     config,
@@ -149,6 +161,7 @@ export async function bootstrapAgent(
     toolStatsRegistry,
     toolFilter,
     tools,
+    delegateTool,
     systemPrompt,
   };
 }
