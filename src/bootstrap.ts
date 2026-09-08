@@ -134,14 +134,16 @@ export async function bootstrapAgent(
     ...skillTools.map(wrapRead),
   ];
 
-  // 委派子 agent：父工具全集按 name 裁剪给 child；child 不含 delegate → 深度固定两层
+  // 委派子 agent：父工具全集按 name 裁剪给 child；child 不含 delegate → 深度固定两层。
+  // 注：必须 wrapRead 后再 push —— ToolFilter 只认 PermissionWrapper 的 .permission；
+  // 裸 DelegateTool 无此属性会被动态工具过滤静默滤掉（normal 主场景将不可见）。
   const delegateTool = new DelegateTool({
     llm,
     tools,
     maxChildIterations: Math.min(config.maxIterations, 8),
     llmTimeoutMs: config.llmTimeoutMs,
   });
-  tools.push(delegateTool);
+  tools.push(wrapRead(delegateTool));
 
   const systemPrompt = buildSystemPrompt(resumeSummary, true, true);
 
