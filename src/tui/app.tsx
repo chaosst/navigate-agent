@@ -20,6 +20,7 @@ import type { AgentStep } from "@langchain/core/agents";
 import type { ExecutionPlan } from "../agent/types.js";
 import type { PtcDispatchEvent } from "../ptc/dispatch-bridge.js";
 import { AgentMode, AppConfig } from "../config/index.js";
+import { ModeRouter, type RouteDecision, type RoutableMode } from "../agent/mode-router.js";
 import { Tracer } from "../agent/tracer.js";
 import { ToolStatsRegistry } from "../tools/stats-registry.js"
 import { ToolFilter } from "../tools/tool-filter.js"
@@ -80,6 +81,31 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
   const llmRef = useRef(llm);
   const toolsRef = useRef(tools);
   const executorRef = useRef<PtcAgentLangGraph | HierarchicalAgentLangGraph | GraphAgentExecutor | null>(null);
+
+  // auto 路由所需：mode 状态镜像 + router + 跨轮 lastMode + 懒建 plan executor
+  // （全部经 ref，保证 onSubmit 稳定闭包 [deps: memory] 读到最新值）
+  const agentModeRef = useRef<AgentMode>(agentMode);
+  useEffect(() => { agentModeRef.current = agentMode; }, [agentMode]);
+
+  const routerRef = useRef<ModeRouter | null>(null);
+  useEffect(() => { routerRef.current = new ModeRouter({ llm }); }, [llm]);
+
+  const lastAutoModeRef = useRef<RoutableMode>("normal");
+  const autoPlanExecRef = useRef<HierarchicalAgentLangGraph | null>(null);
+  // ensureAutoPlan 由 effect 按最新 deps 更新，避免 onSubmit 陈旧闭包
+  const ensureAutoPlanRef = useRef<() => HierarchicalAgentLangGraph>(
+    () => { throw new Error("ensureAutoPlan not initialized"); },
+  );
+  useEffect(() => {
+    ensureAutoPlanRef.current = () => {
+      if (!autoPlanExecRef.current) {
+        autoPlanExecRef.current = createHierarchicalAgent(
+          llmRef.current!, toolsRef.current!, tracer, toolStatsRegistry, config.llmTimeoutMs,
+        );
+      }
+      return autoPlanExecRef.current;
+    };
+  }, [tracer, toolStatsRegistry, config]);
 
   // 按当前模式动态创建 executor；切换/卸载时 cleanup 释放旧 PTC 实例（worker runtime）
   useEffect(() => {
@@ -255,11 +281,33 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
       try {
         let output: string;
 
-        const exec = executorRef.current;
+        let exec = executorRef.current;
         if (!exec) {
           throw new Error("Agent executor not initialized yet");
         }
         const turn = await memory.prepareTurn(value)
+
+        // ---- auto：按当前用户输入实时选档（仅 normal↔plan；ptc 仍手动）----
+        let autoChip: string | null = null;
+        if (agentModeRef.current === "auto") {
+          const router = routerRef.current;
+          if (!router) throw new Error("Mode router not initialized yet");
+          const decision: RouteDecision = await router.resolveMode(value, {
+            lastMode: lastAutoModeRef.current,
+          });
+          lastAutoModeRef.current = decision.mode;
+          if (decision.mode === "plan") {
+            exec = ensureAutoPlanRef.current();
+            autoChip = `[auto→🗺️ plan] ${decision.reason}`;
+          }
+          // normal：沿用 executorRef（agentMode=auto 时上方 effect 已构建 normal 实例）
+        }
+        if (autoChip) {
+          setStaticMessages((prev) => [
+            ...prev,
+            { role: "system", content: autoChip, timestamp: new Date() },
+          ]);
+        }
         if (exec instanceof PtcAgentLangGraph) {
           // ---- PTC Mode: programmatic tool calling ----
           const streamAcc = new StreamAccumulator();
