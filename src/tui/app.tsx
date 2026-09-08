@@ -156,10 +156,11 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
 
   const handleToggleAgentMode = useCallback(() => {
     setAgentMode(prev => {
-      const modes: AgentMode[] = ["normal", "plan", "ptc"]
-      const next = modes[(modes.indexOf(prev)+1)%3];
+      const modes: AgentMode[] = ["normal", "auto", "plan", "ptc"]
+      const next = modes[(modes.indexOf(prev)+1)%4];
       const label: Record<AgentMode, string> = {
         normal: "⚡ Standard ReAct mode. (Shift+Tab to toggle)",
+        auto: "🔀 Auto mode: escalates to plan when the task needs it. (Shift+Tab to toggle)",
         plan: "🗺️ Plan mode enabled. Agent will create a step-by-step plan before executing. (Shift+Tab to toggle)",
         ptc: "📦 PTC mode enabled. Agent writes TypeScript programs to batch tool calls. (Shift+Tab to toggle)",
       };
@@ -494,7 +495,9 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
         {/* Status line */}
         <Text dimColor>
           {" "}Navigate Agent | {sessionName}
-          {agentMode === "plan" ? (
+          {agentMode === "auto" ? (
+            <Text color="cyan"> | 🔀 Auto Mode</Text>
+          ) : agentMode === "plan" ? (
             <Text color="magenta"> | 🗺️ Plan Mode</Text>
           ) : agentMode === "ptc" ? (
             <Text color="magenta"> | 📦 PTC Mode</Text>

@@ -10,12 +10,12 @@ interface InputProps {
 }
 
 export function Input({ onSubmit, disabled, agentMode, onToggleAgentMode }: InputProps) {
-  const color = agentMode === 'plan' ? "magenta" : agentMode === 'ptc' ? "yellow" : "cyan"
-  const placeholder = agentMode === 'plan' ? "Plan mode — Shift+Tab to toggle..." : agentMode === 'ptc' ? "PTC mode — Shift+Tab to toggle..." : "Type your message..."
+  const color = agentMode === 'plan' ? "magenta" : agentMode === 'ptc' ? "yellow" : agentMode === 'auto' ? "blue" : "cyan"
+  const placeholder = agentMode === 'plan' ? "Plan mode — Shift+Tab to toggle..." : agentMode === 'ptc' ? "PTC mode — Shift+Tab to toggle..." : agentMode === 'auto' ? "Auto mode — Shift+Tab to toggle..." : "Type your message..."
   return (
     <Box borderStyle="round" borderColor={color} paddingX={1}>
       <Text bold color={color}>
-        {agentMode === 'plan' ? "[Plan] " : agentMode === 'ptc' ? "[PTC] " : "> "}
+        {agentMode === 'plan' ? "[Plan] " : agentMode === 'ptc' ? "[PTC] " : agentMode === 'auto' ? "[Auto] " : "> "}
       </Text>
       <ControlledTextInput
         onSubmit={onSubmit}

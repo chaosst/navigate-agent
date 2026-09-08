@@ -39,7 +39,13 @@ export interface AppConfig {
 
 }
 
-export type AgentMode = "normal" | "plan" | "ptc"
+export type AgentMode = "normal" | "auto" | "plan" | "ptc"
+
+/** AGENT_MODE 解析：严格等值识别 auto/plan/ptc，其余（含 undefined/非法）回退 normal */
+export function parseAgentMode(raw: string | undefined): AgentMode {
+  const v = raw ?? "normal";
+  return v === "auto" || v === "plan" || v === "ptc" ? v : "normal";
+}
 
 export function loadConfig(): AppConfig {
   config();
@@ -74,10 +80,8 @@ export function loadConfig(): AppConfig {
     }
   }
 
-  // 执行模式：normal | plan | ptc（非法值回退 "normal"）
-  const agentModeRaw = process.env.AGENT_MODE ?? "normal";
-  const agentMode: AgentMode =
-    agentModeRaw === "plan" || agentModeRaw === "ptc" ? agentModeRaw : "normal";
+  // 执行模式：normal | auto | plan | ptc（非法值回退 "normal"；auto=默认 normal、可按需升档 plan）
+  const agentMode: AgentMode = parseAgentMode(process.env.AGENT_MODE);
 
   // PTC 预算（均有默认值；数值非法时回退默认）
   const num = (raw: string | undefined, fallback: number): number => {

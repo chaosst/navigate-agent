@@ -79,6 +79,8 @@ async function main() {
       ...skillTools.map(wrapRead),
     ];
     const systemPrompt = buildSystemPrompt(undefined);
+    // server 端只区分 ptc / 其他（auto 落到 createAgentExecutor = normal）。
+    // plan/auto 属 TUI 能力；未来 server 接 plan 需把 Hierarchical 引擎接入 chat 兜底路径。
     return config.agentMode === "ptc"
       ? createPtcAgent(llm, allTools, {
           maxIterations: config.maxIterations,
