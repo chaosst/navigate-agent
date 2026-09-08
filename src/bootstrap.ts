@@ -24,6 +24,7 @@ import { AgentMemory } from "./memory/index.js";
 import { PgVectorStore } from "./storage/pg-vector-store.js";
 import { getPool } from "./storage/pool.js";
 import { RagSearchTool } from "./rag/retriever.js";
+import { ParallelDocsTool } from "./rag/parallel-tool.js";
 import { ResumeStore } from "./resume/store.js";
 import { ResumeSearchTool } from "./resume/search-tool.js";
 import { parseResume } from "./resume/parser.js";
@@ -48,6 +49,7 @@ export interface BootstrapResult {
   memory: AgentMemory;
   ragStore: PgVectorStore;
   ragTool: RagSearchTool;
+  parallelDocsTool: ParallelDocsTool;
   resumeTool: ResumeSearchTool | undefined;
   resumeSummary: string | undefined;
   skillTools: StructuredTool[];
@@ -74,6 +76,10 @@ export async function bootstrapAgent(
   // RAG setup
   const ragStore = new PgVectorStore(pool, embeddings);
   const ragTool = new RagSearchTool(ragStore);
+  const parallelDocsTool = new ParallelDocsTool(ragStore, llm, {
+    maxConcurrency: Math.max(1, Number(process.env.MAX_PARALLEL_WORKERS ?? 4)),
+    llmTimeoutMs: config.llmTimeoutMs,
+  });
 
   // Resume setup
   let resumeSummary: string | undefined;
@@ -120,11 +126,12 @@ export async function bootstrapAgent(
   const tools: StructuredTool[] = [
     ...createTools(toolStatsRegistry),
     wrapRead(ragTool),
+    wrapRead(parallelDocsTool),
     ...(resumeTool ? [wrapRead(resumeTool)] : []),
     ...skillTools.map(wrapRead),
   ];
 
-  const systemPrompt = buildSystemPrompt(resumeSummary);
+  const systemPrompt = buildSystemPrompt(resumeSummary, true);
 
   return {
     config,
@@ -134,6 +141,7 @@ export async function bootstrapAgent(
     memory,
     ragStore,
     ragTool,
+    parallelDocsTool,
     resumeTool,
     resumeSummary,
     skillTools,
