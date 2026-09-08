@@ -84,8 +84,8 @@ export function applyModeRules(input: string): RouteDecision | null {
   return null; // 规则未命中且不短 → 交给 LLM 兜底分类
 }
 
-/** 默认 LLM 分类器提示：存疑一律 normal（宁可不升档） */
-const CLASSIFIER_SYSTEM =
+/** 默认 LLM 分类器提示：存疑一律 normal（宁可不升档）。导出供 scripts/classify-smoke.ts 提示词打表验证 */
+export const CLASSIFIER_SYSTEM =
   `你是 agent 编排模式选择器。判断一条用户请求是否适合 plan 模式（先规划多步骤再执行）。
 
 判 plan：明显多步、跨多个文件/对象、有先后顺序或组织性（重构、迁移、整理并总结、批量处理、多来源调研后报告等）。
