@@ -82,6 +82,19 @@
   .result-item { padding: 10px 12px; border: 1px solid #e5e5e5; border-radius: 4px; margin-bottom: 8px; font-size: 0.85rem; }
   .result-item .meta { color: #888; font-size: 0.75rem; margin-bottom: 4px; }
   .result-item .score { color: #2563eb; }
+
+  /* Demo 入口横幅：跨文档并行问答 */
+  .demo-banner {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    text-decoration: none; margin-bottom: 24px; padding: 16px 22px;
+    border-radius: 12px; background: linear-gradient(135deg, #2563eb, #7c3aed);
+    color: #fff; box-shadow: 0 4px 14px rgba(37, 99, 235, 0.22);
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .demo-banner:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(37, 99, 235, 0.3); }
+  .demo-banner .b-title { font-size: 1.02rem; font-weight: 700; }
+  .demo-banner .b-sub { font-size: 0.8rem; opacity: 0.92; margin-top: 2px; }
+  .demo-banner .b-go { font-size: 0.85rem; font-weight: 600; white-space: nowrap; border: 1px solid rgba(255,255,255,.6); padding: 6px 14px; border-radius: 20px; }
 </style>
 </head>
 <body>
@@ -92,6 +105,7 @@
   <a href="/resume" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">👤 简历</a>
   <a href="/resume/chat" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">💬 简历问答</a>
   <a href="/resume/jd" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">🎯 JD匹配</a>
+  <a href="/rag/ask" style="color:#2563eb;text-decoration:none;padding:6px 16px;border-radius:8px;font-weight:600;">📑 多文档问答</a>
 </div>
 <div class="container">
   <style>
@@ -112,6 +126,14 @@
   </style>
 
   <h1>RAG Document Manager</h1>
+
+  <a class="demo-banner" id="ragAskEntry" href="/rag/ask">
+    <span>
+      <span class="b-title">🚀 跨文档并行问答 Demo</span>
+      <span class="b-sub">勾选多份文档 → 每份一个 worker 并行检索提炼 → 合成统一答案（含引用来源）</span>
+    </span>
+    <span class="b-go">去体验 →</span>
+  </a>
 
   <div class="stats-row" id="statsRow">
     <div class="stat-card" id="statFiles">
@@ -173,6 +195,9 @@
     const href = a.getAttribute("href");
     if (href && !href.includes("token=") && href.startsWith("/")) a.setAttribute("href", href + "?token=" + TOKEN);
   });
+  // Demo 入口横幅同样携带 token（未登录 cookie 时仍可直达）
+  const ragAskEntry = document.getElementById("ragAskEntry");
+  if (ragAskEntry) ragAskEntry.href = "/rag/ask?token=" + TOKEN;
 
   // —— 角色感知：默认按只读（isAdmin=false）处理，/api/me 确认管理员后才放开写操作
   let isAdmin = false;
