@@ -15,7 +15,7 @@ You have access to uploaded documents via the search_documents tool. When the us
   }
 
   if (hasDelegate) {
-    prompt += `\nFor a self-contained piece of work that needs focused, deep investigation (code analysis, reading documents), you may delegate it to a sub-agent: call delegate with agent="code" (searches/reads files) or agent="docs" (searches uploaded documents), and a self-contained task. The sub-agent runs in its own context and returns a conclusion. Use it for deep isolated subtasks, not for trivial lookups you can do with one tool call.`;
+    prompt += `\nFor a self-contained piece of work that needs focused, deep investigation, PREFER delegating it to a sub-agent instead of doing many file reads yourself: call delegate with agent="code" (searches/reads files) or agent="docs" (searches uploaded documents), and a self-contained task. The sub-agent runs in its own context and returns a conclusion. This keeps your own context small. Typical cases: comparing multiple files, deep code analysis, locating an answer across several documents. Do NOT use delegate for trivial lookups you can do with one tool call.`;
   }
 
   if (resumeSummary) {
