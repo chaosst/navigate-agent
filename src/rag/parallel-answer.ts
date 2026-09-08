@@ -37,6 +37,11 @@ export interface ParallelOptions {
   llmTimeoutMs?: number;
 }
 
+/** 自动选档并行问答入参：不要求显式 docIds，多一个候选上限 */
+export interface AutoDocsOptions extends Omit<ParallelOptions, "docIds"> {
+  maxDocs?: number; // 全库检索定位候选文档的最大数量（默认 5）
+}
+
 // ═══════════════════════════════════════════════
 //  worker：scoped 检索 + 单次提炼（恒定 1 次 LLM；绝不 reject）
 // ═══════════════════════════════════════════════
@@ -263,4 +268,54 @@ export async function* answerAcrossDocs(opts: ParallelOptions): AsyncGenerator<P
     timeoutMs,
   );
   yield { type: "answer", text: finalText };
+}
+
+// ═══════════════════════════════════════════════
+//  自动选档入口：全库一次检索 → 挑候选 → 委托 answerAcrossDocs
+// ═══════════════════════════════════════════════
+
+/**
+ * 自动选档并行问答：先全库一次混合检索按相关度挑出 ≤maxDocs 份候选文档，
+ * 再委托 answerAcrossDocs 对候选文档做逐文档并行提炼 + 合成。
+ * 候选为 0 → 直接给"没有检索到"；候选为 1 → 等价单文档（1 worker + 1 合成，即必要成本）。
+ */
+export async function* answerAutoDocs(opts: AutoDocsOptions): AsyncGenerator<ParallelEvent> {
+  const { question, store, maxDocs = 5 } = opts;
+  const q = question.trim();
+
+  // 1) 全库检索定位候选（hybrid 已含向量+FTS+trgm；多取一些避免漏关键文档）
+  let hits: RagResult[] = [];
+  try {
+    hits = await store.search(q, Math.max(maxDocs * 3, 8));
+  } catch (e) {
+    yield { type: "error", message: `文档检索失败：${(e as Error).message}` };
+    return;
+  }
+  const seen = new Set<string>();
+  const chosen: Array<{ id: string; filename: string }> = [];
+  for (const h of hits) {
+    if (h.docId && !seen.has(h.docId)) {
+      seen.add(h.docId);
+      chosen.push({ id: h.docId, filename: h.source || h.docId });
+      if (chosen.length >= maxDocs) break;
+    }
+  }
+  if (chosen.length === 0) {
+    yield {
+      type: "answer",
+      text: "文档库中没有检索到与该问题相关的内容。可尝试：更换措辞，或先上传相关文档。",
+    };
+    return;
+  }
+
+  // 2) 委托既有 fan-out（含空/单文档降级语义、sources 并集、合成终答）
+  yield* answerAcrossDocs({
+    question: q,
+    docIds: chosen.map((c) => c.id),
+    store,
+    llm: opts.llm,
+    topK: opts.topK,
+    maxConcurrency: opts.maxConcurrency,
+    llmTimeoutMs: opts.llmTimeoutMs,
+  });
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { answerAcrossDocs } from "../parallel-answer.js";
+import { answerAutoDocs } from "../parallel-answer.js";
 import { capChunkContent } from "../retriever.js";
 import type { RagStoreLike } from "../parallel-answer.js";
 
@@ -113,5 +114,59 @@ describe("answerAcrossDocs 并行跨文档问答", () => {
     });
     expect(events.some((e) => e.type === "worker" && e.status === "error")).toBe(true);
     expect(events.at(-1)?.type).toBe("answer");
+  });
+});
+
+/** 自动选档用 store：无 docIds = 全库检索返回全部文档 hit；有 docIds = 只回对应文档 */
+function autoStore(docs: Array<{ id: string; filename: string }>, wholeReturnsEmpty = false) {
+  return {
+    listDocs: async () => docs,
+    search: async (_q: string, _k?: number, docIds?: string[]) => {
+      if (wholeReturnsEmpty) return [];
+      if (docIds && docIds.length) {
+        return docs
+          .filter((d) => docIds.includes(d.id))
+          .map((d) => ({ content: `${d.id} 内容`, score: 1, source: d.filename, docId: d.id, chunkIndex: 0 }));
+      }
+      // 全库检索：返回全部文档 hit（顺序即候选优先级）
+      return docs.map((d) => ({ content: `${d.id} 内容`, score: 1, source: d.filename, docId: d.id, chunkIndex: 0 }));
+    },
+  } as RagStoreLike;
+}
+
+describe("answerAutoDocs 自动选档", () => {
+  it("无显式 docIds：全库检索挑出候选文档后 fan-out，plan 列出所选文档", async () => {
+    const store = autoStore([
+      { id: "docA", filename: "a.md" },
+      { id: "docB", filename: "b.md" },
+    ]);
+    const events = [];
+    for await (const ev of answerAutoDocs({ question: "差异是什么", store, llm: fakeLlm(), topK: 6, maxConcurrency: 4, llmTimeoutMs: 1000 })) {
+      events.push(ev);
+    }
+    expect(events.some((e) => e.type === "answer")).toBe(true);
+    const plan = events.find((e) => e.type === "plan");
+    expect(plan && plan.type === "plan" && plan.docs.map((d) => d.filename)).toEqual(["a.md", "b.md"]);
+  });
+
+  it("全库检索无命中：直接给『没有检索到』文案，无 worker 事件", async () => {
+    const store = autoStore([{ id: "docA", filename: "a.md" }], true);
+    const events = [];
+    for await (const ev of answerAutoDocs({ question: "无关", store, llm: fakeLlm() })) events.push(ev);
+    expect(events.some((e) => e.type === "worker")).toBe(false);
+    const last = events.at(-1);
+    expect(last?.type === "answer" && last.text).toContain("没有检索到");
+  });
+
+  it("候选上限 maxDocs 生效：库有 3 份、maxDocs=2 只选 2 份", async () => {
+    const store = autoStore([
+      { id: "d1", filename: "1.md" },
+      { id: "d2", filename: "2.md" },
+      { id: "d3", filename: "3.md" },
+    ]);
+    const events = [];
+    for await (const ev of answerAutoDocs({ question: "q", store, llm: fakeLlm(), maxDocs: 2 })) events.push(ev);
+    const plan = events.find((e) => e.type === "plan");
+    expect(plan && plan.type === "plan" && plan.docs.length).toBe(2);
   });
 });
