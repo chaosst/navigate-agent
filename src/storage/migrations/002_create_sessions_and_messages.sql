@@ -34,6 +34,6 @@ CREATE TABLE IF NOT EXISTS summaries (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_summaries_session ON summaries(session_id, created_at);
+-- 与 001 同理：ivfflat 中心只在建索引时训练一次，增量插入导致 ANN 召回崩塌；hnsw 无需训练。
 CREATE INDEX IF NOT EXISTS idx_summaries_embedding ON summaries
-  USING ivfflat (embedding vector_cosine_ops)
-  WITH (lists = 50);
+  USING hnsw (embedding vector_cosine_ops);
