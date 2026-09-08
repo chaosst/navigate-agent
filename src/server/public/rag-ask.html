@@ -52,7 +52,18 @@
   .worker-chip.done { color:var(--ok); border-color:var(--ok); }
   .worker-chip.empty { color:var(--warn); border-color:var(--warn); }
   .worker-chip.error { color:var(--err); border-color:var(--err); }
-  #answer-box { white-space:pre-wrap; word-wrap:break-word; }
+  #answer-box { white-space:pre-wrap; word-wrap:break-word; font-size:.92rem; line-height:1.7; }
+  /* 全局 reset 清零了 ul/ol 缩进,导致 bullet 顶到容器边缘 → 仅对答案区内列表恢复排版 */
+  #answer-box ul, #answer-box ol { padding-left:1.6em; margin:.4em 0; }
+  #answer-box li { margin:.15em 0; }
+  #answer-box ul { list-style:disc; }
+  #answer-box ol { list-style:decimal; }
+  #answer-box p { margin:.4em 0; }
+  #answer-box h1, #answer-box h2, #answer-box h3 { margin:.7em 0 .35em; line-height:1.3; }
+  #answer-box code { background:var(--primary-light); padding:.1em .35em; border-radius:4px; font-size:.85em; }
+  #answer-box pre { background:var(--primary-light); padding:.7em .9em; border-radius:8px; overflow-x:auto; margin:.5em 0; }
+  #answer-box pre code { background:none; padding:0; }
+  #answer-box blockquote { border-left:3px solid var(--border); padding-left:.8em; margin:.4em 0; color:var(--text-muted); }
   #answer-box.streaming::after { content:"▊"; animation:blink .8s infinite; }
   @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
   .refs { margin-top:10px; padding-top:10px; border-top:1px dashed var(--border);
