@@ -8,6 +8,8 @@ import { logAgent } from "./logger.js";
 import { AgentStep } from "@langchain/core/agents";
 import { buildStatsFooter } from "./graph-utils.js";
 import type { ToolStatsRegistry } from "../tools/stats-registry.js";
+import type { ToolFilter } from "../tools/tool-filter.js";
+import type { PermissionWrapper } from "../tools/permission.js";
 
 const PLANNER_PROMPT = `你是一个任务规划器，采用双层循环架构：
 
@@ -42,11 +44,12 @@ export class HierarchicalAgentLangGraph {
     private plannerLLM: ChatOpenAI;
     private executorLLM: ChatOpenAI;
     private tools: StructuredToolInterface[];
-    private toolMap: Map<string, StructuredToolInterface>;
     private tracer?: Tracer;
     private toolStatsRegistry?: ToolStatsRegistry;
     /** 单次 LLM 调用超时（ms），与 normal/ptc 模式统一（默认 120s） */
     private llmTimeoutMs: number;
+    /** 内层步骤 executor 的动态工具过滤（normal/ptc 同款；仅作用于 executeStep，planner 不绑工具不受影响） */
+    private toolFilter?: ToolFilter;
     private graph: any;
 
     constructor(
@@ -55,14 +58,15 @@ export class HierarchicalAgentLangGraph {
         tracer?: Tracer,
         toolStatsRegistry?: ToolStatsRegistry,
         llmTimeoutMs = 120_000,
+        toolFilter?: ToolFilter,
     ) {
         this.plannerLLM = llm;
         this.executorLLM = llm;
         this.tools = tools;
-        this.toolMap = new Map(tools.map((t) => [t.name, t]));
         this.tracer = tracer;
         this.toolStatsRegistry = toolStatsRegistry;
         this.llmTimeoutMs = llmTimeoutMs;
+        this.toolFilter = toolFilter;
         this.graph = this.createGraph();
         logAgent({
             type: "info",
@@ -436,8 +440,19 @@ export class HierarchicalAgentLangGraph {
             ...contextMessages.slice(-4)
         ]
 
-        // 2、绑定工具
-        const llmWithTools = this.executorLLM.bindTools(this.tools)
+        // 2、动态工具过滤：仅暴露与「用户意图 + 本步骤描述」匹配权限的工具（同 normal 模式 agentNode）
+        let activeTools: StructuredToolInterface[] = this.tools;
+        const filterInput = (this.extractUserInput(contextMessages) + "\n" + step.description).trim();
+        if (this.toolFilter && filterInput) {
+            const filtered = this.toolFilter.filter(this.tools as PermissionWrapper[], filterInput);
+            if (filtered.length > 0) {
+                activeTools = filtered;
+            }
+        }
+        const activeToolMap = new Map(activeTools.map((t) => [t.name, t]));
+
+        // 3、绑定工具（只绑过滤后的可见集）
+        const llmWithTools = this.executorLLM.bindTools(activeTools)
 
         let finalResult = ""
         const intermediateSteps: AgentStep[] = []
@@ -547,7 +562,7 @@ export class HierarchicalAgentLangGraph {
             executorMessages.push(response)
             const toolResults = await Promise.all(
                 toolCalls.map(async (tc) => {
-                    const tool = this.toolMap.get(tc.name as string)
+                    const tool = activeToolMap.get(tc.name as string)
                     if (!tool) {
                         logAgent({
                             type: "error",

@@ -100,12 +100,12 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
     ensureAutoPlanRef.current = () => {
       if (!autoPlanExecRef.current) {
         autoPlanExecRef.current = createHierarchicalAgent(
-          llmRef.current!, toolsRef.current!, tracer, toolStatsRegistry, config.llmTimeoutMs,
+          llmRef.current!, toolsRef.current!, tracer, toolStatsRegistry, config.llmTimeoutMs, toolFilter,
         );
       }
       return autoPlanExecRef.current;
     };
-  }, [tracer, toolStatsRegistry, config]);
+  }, [tracer, toolStatsRegistry, config, toolFilter]);
 
   // 按当前模式动态创建 executor；切换/卸载时 cleanup 释放旧 PTC 实例（worker runtime）
   useEffect(() => {
@@ -126,7 +126,7 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
             llmTimeoutMs: config.llmTimeoutMs,
           })
         : agentMode === "plan"
-          ? createHierarchicalAgent(llmRef.current, toolsRef.current, tracer, toolStatsRegistry, config.llmTimeoutMs)
+          ? createHierarchicalAgent(llmRef.current, toolsRef.current, tracer, toolStatsRegistry, config.llmTimeoutMs, toolFilter)
           : createAgentExecutor(
               llm,
               tools,

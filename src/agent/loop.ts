@@ -99,8 +99,9 @@ export function createHierarchicalAgent(
   tracer?: Tracer,
   toolStatsRegistry?: ToolStatsRegistry,
   llmTimeoutMs?: number,
+  toolFilter?: ToolFilter,
 ): HierarchicalAgentLangGraph {
-  return new HierarchicalAgentLangGraph(llm, tools, tracer, toolStatsRegistry, llmTimeoutMs);
+  return new HierarchicalAgentLangGraph(llm, tools, tracer, toolStatsRegistry, llmTimeoutMs, toolFilter);
 }
 
 /**
