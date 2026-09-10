@@ -31,6 +31,15 @@ export type HumanResponse =
   | { kind: "approval"; decision: "allow" | "always" | "deny"; reason?: string }
   | { kind: "question"; answer: string };
 
+/**
+ * Omit 在联合类型上不分配（keyof 只取公共键，会把联合塌缩成 { kind }），
+ * 故用裸类型参数的条件类型触发分配 —— request() 的入参不能携带 id（由通道分配）。
+ */
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
+/** 请求入参：HumanRequest 去掉通道分配的 id */
+export type HumanRequestInput = DistributiveOmit<HumanRequest, "id">;
+
 /** 谁来回答。三种实现：TUI（ManualInteractor）/ 无人值守 / 测试内联替身 */
 export interface HumanInteractor {
   ask(req: HumanRequest): Promise<HumanResponse>;
@@ -123,7 +132,7 @@ export class HumanChannel {
   }
 
   /** 入队 → 等前一个 resolve → 问交互器 → 出队；Promise 挂起直到有人作答 */
-  request(req: Omit<HumanRequest, "id">): Promise<HumanResponse> {
+  request(req: HumanRequestInput): Promise<HumanResponse> {
     const full = { ...req, id: `h${++this.seq}` } as HumanRequest;
     return new Promise<HumanResponse>((resolve) => {
       this.queue.push({ req: full, resolve });
