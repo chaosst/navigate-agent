@@ -25,6 +25,7 @@ import { Tracer } from "../agent/tracer.js";
 import { ToolStatsRegistry } from "../tools/stats-registry.js"
 import { ToolFilter } from "../tools/tool-filter.js"
 import { updatePlanMessage } from "./plan-utils.js"
+import type { HumanChannel } from "../tools/human-channel.js";
 
 /** 统一流式块（三种模式并集；各模式只产出相关字段，见设计文档 §5.2 AgentStreamChunk） */
 interface StreamChunk {
@@ -47,7 +48,9 @@ interface AppProps {
   systemPrompt: string;
   tracer?: Tracer;
   toolStatsRegistry?: ToolStatsRegistry;
-  toolFilter?: ToolFilter
+  toolFilter?: ToolFilter;
+  /** 人在环通道（allow 模式为 undefined）；App 渲染后 attach 交互器 */
+  humanChannel?: HumanChannel;
 }
 
 export function App({ config, memory, agentName = "Agent", llm, tools, systemPrompt, tracer, toolStatsRegistry, toolFilter }: AppProps) {

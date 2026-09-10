@@ -32,6 +32,7 @@ import { ApiKeyStore } from "./server/key-store.js";
 import type { ApiKeyAuthConfig } from "./server/api-key-auth.js";
 import { ToolStatsRegistry } from "./tools/stats-registry.js";
 import { PermissionWrapper } from "./tools/permission.js";
+import { buildApproval, resolveApprovalMode } from "./tools/human-channel.js";
 
 async function main() {
   const config = loadConfig();
@@ -71,10 +72,15 @@ async function main() {
     }
     // 统计注册表：核心工具经 PermissionWrapper 包装后注册（统计/限流/熔断生效）
     const toolStatsRegistry = new ToolStatsRegistry();
+
+    // 无人值守：审批默认 deny（APPROVAL_POLICY 可覆盖为 interactive/allow）
+    const approvalMode = resolveApprovalMode(process.env.APPROVAL_POLICY, "deny");
+    const { channel: humanChannel, policy: approvalPolicy } = buildApproval(approvalMode);
+
     const wrapRead = (tool: StructuredTool): StructuredTool =>
-      new PermissionWrapper(tool, "read", undefined, toolStatsRegistry);
+      new PermissionWrapper(tool, "read", undefined, toolStatsRegistry, humanChannel, approvalPolicy);
     const allTools = [
-      ...createTools(toolStatsRegistry),
+      ...createTools(toolStatsRegistry, humanChannel, approvalPolicy),
       wrapRead(ragTool),
       ...skillTools.map(wrapRead),
     ];

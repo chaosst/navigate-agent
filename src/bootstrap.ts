@@ -31,6 +31,8 @@ import { ResumeSearchTool } from "./resume/search-tool.js";
 import { parseResume } from "./resume/parser.js";
 import { SkillRegistry } from "./skills/registry.js";
 import { createTools } from "./tools/registry.js";
+import { AskUserTool } from "./tools/ask-user.js";
+import { buildApproval, resolveApprovalMode, type ApprovalMode, type HumanChannel } from "./tools/human-channel.js";
 import { ToolStatsRegistry } from "./tools/stats-registry.js";
 import { ToolFilter } from "./tools/tool-filter.js";
 import { PermissionWrapper } from "./tools/permission.js";
@@ -40,6 +42,8 @@ export interface BootstrapAgentOptions {
   llm?: ChatOpenAI;
   /** 注入 tracer（perf runner 每条任务独立 session 用）；不传则 new Tracer() */
   tracer?: Tracer;
+  /** 审批模式；缺省读 APPROVAL_POLICY，再缺省 interactive（TUI 语义） */
+  humanMode?: ApprovalMode;
 }
 
 export interface BootstrapResult {
@@ -62,6 +66,8 @@ export interface BootstrapResult {
   /** 委派子 agent 工具（normal 主 agent 用；profile 按 name 裁剪 child 工具面） */
   delegateTool: DelegateTool;
   systemPrompt: string;
+  /** 人在环通道（allow 模式下为 undefined）；TUI 渲染后 attach 交互器 */
+  humanChannel?: HumanChannel;
 }
 
 export async function bootstrapAgent(
@@ -122,12 +128,17 @@ export async function bootstrapAgent(
   const tracer = opts.tracer ?? new Tracer();
   const toolStatsRegistry = new ToolStatsRegistry();
   const toolFilter = new ToolFilter();
+
+  // 人在环：interactive 弹审批（TUI）/ deny 自动拒绝（无人值守）/ allow 全放行
+  const approvalMode = opts.humanMode ?? resolveApprovalMode(process.env.APPROVAL_POLICY);
+  const { channel: humanChannel, policy: approvalPolicy } = buildApproval(approvalMode);
+
   // 辅助：把非核心工具（RAG/简历/技能）也包装为只读并注册，保证统计完整
   const wrapRead = (tool: StructuredTool): StructuredTool =>
-    new PermissionWrapper(tool, "read", undefined, toolStatsRegistry);
+    new PermissionWrapper(tool, "read", undefined, toolStatsRegistry, humanChannel, approvalPolicy);
 
   const tools: StructuredTool[] = [
-    ...createTools(toolStatsRegistry),
+    ...createTools(toolStatsRegistry, humanChannel, approvalPolicy),
     wrapRead(ragTool),
     wrapRead(parallelDocsTool),
     ...(resumeTool ? [wrapRead(resumeTool)] : []),
@@ -144,6 +155,11 @@ export async function bootstrapAgent(
     llmTimeoutMs: config.llmTimeoutMs,
   });
   tools.push(wrapRead(delegateTool));
+
+  // agent 主动提问工具：同样必须 wrapRead 后 push（否则被 ToolFilter 静默滤掉）
+  if (humanChannel) {
+    tools.push(wrapRead(new AskUserTool(humanChannel)));
+  }
 
   const systemPrompt = buildSystemPrompt(resumeSummary, true, true);
 
@@ -165,6 +181,7 @@ export async function bootstrapAgent(
     tools,
     delegateTool,
     systemPrompt,
+    humanChannel,
   };
 }
 

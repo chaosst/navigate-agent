@@ -4,6 +4,7 @@ import { ReadFileTool, WriteFileTool, EditFileTool } from "./filesystem.js";
 import { ListFilesTool, SearchFilesTool } from "./search.js";
 import { PermissionWrapper, type ToolPermission } from "./permission.js";
 import type { ToolStatsRegistry } from "./stats-registry.js";
+import type { ApprovalPolicy, HumanChannel } from "./human-channel.js";
 import { WebSearchTool } from "./websearch.js";
 
 /**
@@ -14,13 +15,17 @@ import { WebSearchTool } from "./websearch.js";
  *                 ToolFilter 也能按权限等级过滤。不传则返回裸工具（兼容
  *                 test.ts 等无统计诉求的调用方）。
  */
-export function createTools(registry?: ToolStatsRegistry): StructuredTool[] {
+export function createTools(
+  registry?: ToolStatsRegistry,
+  channel?: HumanChannel,
+  policy?: ApprovalPolicy,
+): StructuredTool[] {
   // 每个工具按权限等级包装；无 registry 时保持裸工具
   const wrap = (
     tool: StructuredTool,
     permission: ToolPermission,
   ): StructuredTool =>
-    registry ? new PermissionWrapper(tool, permission, undefined, registry) : tool;
+    registry ? new PermissionWrapper(tool, permission, undefined, registry, channel, policy) : tool;
 
   return [
     wrap(new ShellTool(), "dangerous"),

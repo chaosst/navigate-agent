@@ -7,7 +7,7 @@ import { closePool } from "./storage/pool.js";
 
 async function main() {
   // Agent 启动接线统一收口到 bootstrap.ts（TUI 与 perf runner 共用）
-  const { config, memory, llm, tools, systemPrompt, tracer, toolFilter, toolStatsRegistry } =
+  const { config, memory, llm, tools, systemPrompt, tracer, toolFilter, toolStatsRegistry, humanChannel } =
     await bootstrapAgent();
 
   render(React.createElement(App, {
@@ -19,7 +19,8 @@ async function main() {
     systemPrompt,
     tracer,
     toolFilter,
-    toolStatsRegistry
+    toolStatsRegistry,
+    humanChannel,
   }));
 
   process.on("SIGINT", async () => {
