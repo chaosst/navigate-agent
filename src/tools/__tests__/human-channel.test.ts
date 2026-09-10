@@ -114,6 +114,28 @@ describe("HumanChannel", () => {
     await p;
     expect(ch.waitMs).toBeGreaterThanOrEqual(15);
   });
+
+  it("onWait 收到等待增量；订阅者抛错也不会吊死请求", async () => {
+    const manual = new ManualInteractor();
+    const ch = new HumanChannel();
+    ch.attach(manual);
+
+    // 正常路径：订阅者收到一次正增量
+    const seen: number[] = [];
+    ch.onWait = (ms) => { seen.push(ms); };
+    const p1 = ch.request(approval("t"));
+    manual.answer(ch.pending?.id ?? "", { kind: "approval", decision: "allow" });
+    await p1;
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toBeGreaterThanOrEqual(0);
+
+    // 失败路径：订阅者抛错 → 请求仍正常结算、后续请求不受影响
+    ch.onWait = () => { throw new Error("subscriber boom"); };
+    const p2 = ch.request(approval("t2"));
+    manual.answer(ch.pending?.id ?? "", { kind: "approval", decision: "allow" });
+    await expect(p2).resolves.toEqual({ kind: "approval", decision: "allow" });
+    expect(ch.pending).toBeNull();
+  });
 });
 
 describe("ManualInteractor", () => {

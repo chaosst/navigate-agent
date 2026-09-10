@@ -144,6 +144,18 @@ export class HumanChannel {
     for (const l of [...this.listeners]) l();
   }
 
+  /** 通知等待量订阅者（PTC 用它延长墙钟预算）；订阅者异常不得吊死已结算的请求 */
+  private notifyWait(deltaMs: number): void {
+    if (!this.onWait) return;
+    try {
+      this.onWait(deltaMs);
+    } catch (e) {
+      console.warn(
+        `[human-channel] onWait subscriber threw: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
   private async pump(): Promise<void> {
     if (this.pumping) return;
     this.pumping = true;
@@ -167,10 +179,10 @@ export class HumanChannel {
         }
         const delta = Date.now() - t0;
         this.waited += delta;
-        this.onWait?.(delta);
         this.current = null;
         item.resolve(res);
         this.notify();
+        this.notifyWait(delta);
       }
     } finally {
       this.pumping = false;
