@@ -103,8 +103,10 @@ export class HumanChannel {
   private waited = 0;
   private listeners = new Set<() => void>();
   private seq = 0;
-  /** 等待量增量回调（单一订阅者：PTC runtime 用它延长墙钟预算） */
+  /** 等待量增量回调（单一订阅者：PTC 用它恢复墙钟预算） */
   onWait?: (deltaMs: number) => void;
+  /** 等待开始回调（单一订阅者：PTC 用它暂停墙钟预算，避免单次长等待被误杀） */
+  onWaitStart?: () => void;
 
   /** 后挂载交互器。bootstrap 先建空通道，App 渲染完成后再 attach。 */
   attach(interactor: HumanInteractor): void {
@@ -156,6 +158,18 @@ export class HumanChannel {
     }
   }
 
+  /** 通知等待开始订阅者；订阅者异常不得让请求无法被问出 */
+  private notifyWaitStart(): void {
+    if (!this.onWaitStart) return;
+    try {
+      this.onWaitStart();
+    } catch (e) {
+      console.warn(
+        `[human-channel] onWaitStart subscriber threw: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
   private async pump(): Promise<void> {
     if (this.pumping) return;
     this.pumping = true;
@@ -164,6 +178,7 @@ export class HumanChannel {
         const item = this.queue.shift()!;
         this.current = item.req;
         this.notify();
+        this.notifyWaitStart();   // 必须在 ask() 之前：等待一开始就要停表
         const t0 = Date.now();
         let res: HumanResponse;
         try {

@@ -1,5 +1,8 @@
 import { PERMISSION_LABEL, type ToolPermission } from "../tools/permission.js";
 
+/** 单键数字快选的上限（一位数字） */
+const QUICK_PICK_MAX = 9;
+
 /** 审批决定（与 HumanResponse 的 approval.decision 对齐） */
 export type ApprovalDecision = "allow" | "always" | "deny";
 
@@ -29,6 +32,7 @@ export function optionIndexToValue(ch: string, options?: string[]): string | nul
  * 循环引用 / 不可序列化一律兜底成 String()，绝不抛。
  */
 export function summarizeArgs(args: unknown, maxValueLength = 200, maxTotal = 800): string {
+  if (args === undefined || args === null) return "（无参数）";
   let text: string;
   if (typeof args === "string") {
     text = args;
@@ -61,7 +65,12 @@ export function approvalHint(): string {
 export function formatQuestion(question: string, options?: string[]): string {
   const lines = [`[提问] ${question}`];
   if (options && options.length > 0) {
-    options.forEach((opt, i) => lines.push(`  ${i + 1}. ${opt}`));
+    options.forEach((opt, i) => {
+      lines.push(i < QUICK_PICK_MAX ? `  ${i + 1}. ${opt}` : `  - ${opt}`);
+    });
+    if (options.length > QUICK_PICK_MAX) {
+      lines.push(`仅前 ${QUICK_PICK_MAX} 项支持数字快选，其余请直接输入`);
+    }
     lines.push("按数字快选，或直接输入回答后回车");
   } else {
     lines.push("输入回答后回车提交");

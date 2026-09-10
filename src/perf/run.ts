@@ -498,9 +498,9 @@ export async function perfMain(): Promise<void> {
   if (isMock) {
     mock = new MockModel({ delayMs: args.mockDelayMs });
     llm = mock as unknown as ChatOpenAI; // executor 只用 bindTools/invoke，结构注入
-    bs = await bootstrapAgent({ llm });
+    bs = await bootstrapAgent({ llm, humanMode: "allow" });
   } else {
-    bs = await bootstrapAgent();
+    bs = await bootstrapAgent({ humanMode: "allow" });
     llm = bs.llm;
   }
 

@@ -147,4 +147,16 @@ describe("PermissionWrapper 审批门", () => {
     expect(inner.calls).toBe(1);
     expect(wrapper.stats.denials).toBe(0);
   });
+
+  it("注入 channel 但漏配 policy → 仍然问（fail-closed），不静默放行", async () => {
+    const rec = new Scripted(["deny"]);
+    const ch = new HumanChannel();
+    ch.attach(rec);
+    const inner = new EchoTool();
+    const wrapper = new PermissionWrapper(inner, "write", undefined, undefined, ch, undefined);
+    const out = String(await wrapper.invoke({ v: "x" }));
+    expect(rec.count).toBe(1);
+    expect(inner.calls).toBe(0);
+    expect(out).toContain("[approval_denied]");
+  });
 });

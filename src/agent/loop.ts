@@ -58,9 +58,11 @@ export function createPtcAgent(
     maxOutputBytes: config.ptc.maxOutputBytes,
   });
 
-  // 人工审批等待不计入 PTC 墙钟预算（等多久补多久）
+  // 人工审批等待不消耗 PTC 墙钟预算：等待开始即停表、结束时按剩余预算续跑。
+  // 必须成对挂钩——单次等待可能超过剩余预算，事后再延长（extendWall）已来不及（计时器会先到期）。
   if (config.humanChannel) {
-    config.humanChannel.onWait = (deltaMs: number) => runtime.extendWall(deltaMs);
+    config.humanChannel.onWaitStart = () => runtime.pauseWall();
+    config.humanChannel.onWait = () => runtime.resumeWall();
   }
 
   // 2. 分发桥：持有全量工具；变更类工具（shell/写/编辑）排他串行

@@ -59,6 +59,9 @@ export interface ToolCallStats {
 /** 每个 wrapper 保留的最近调用窗口条数（够单次长任务用；超出丢最旧） */
 export const CALL_WINDOW_CAP = 2000;
 
+/** 兜底策略：channel 存在但漏配 policy 时一律问（fail-closed，绝不放行工具） */
+const ASK_ALWAYS: ApprovalPolicy = { shouldAsk: () => true };
+
 /**
  * PermissionWrapper — 权限包装器
  *
@@ -179,7 +182,7 @@ export class PermissionWrapper extends StructuredTool {
     // 拒绝走 return 而非 throw：catch 里的 consecutiveFailures++ 会让「用户拒绝 3 次」误触熔断。
     if (
       this.channel &&
-      this.policy?.shouldAsk(this.name, this.permission) &&
+      (this.policy ?? ASK_ALWAYS).shouldAsk(this.name, this.permission) &&
       !this.channel.isAlwaysAllowed(this.name)
     ) {
       const res = await this.channel.request({
@@ -190,9 +193,9 @@ export class PermissionWrapper extends StructuredTool {
       });
       if (res.kind === "approval" && res.decision === "deny") {
         this.stats.denials++;
-        const why = res.reason ? ` User note: ${res.reason}` : "";
+        const why = res.reason ? ` Reason: ${res.reason}` : "";
         return (
-          `[approval_denied] Tool "${this.name}" was NOT executed — the user rejected this call.${why} ` +
+          `[approval_denied] Tool "${this.name}" was NOT executed — the call was not approved.${why} ` +
           `Do not retry the same call; ask the user what to do instead.`
         );
       }

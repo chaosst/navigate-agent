@@ -82,12 +82,14 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
 
   // 人在环：待答请求。由 channel 通知驱动，不参与回合状态机
   const [pendingRequest, setPendingRequest] = useState<HumanRequest | null>(null);
-  // TUI 侧交互器：把用户按键兑现成通道请求的结果
-  const interactorRef = useRef(new ManualInteractor());
+  // TUI 侧交互器：把用户按键兑现成通道请求的结果（惰性初始化，避免每次渲染都 new）
+  const interactorRef = useRef<ManualInteractor | null>(null);
+  if (!interactorRef.current) interactorRef.current = new ManualInteractor();
+  const interactor = interactorRef.current;
 
   // 后挂载交互器：bootstrap 先建空通道（未挂载时自动走无人值守兜底）
   useEffect(() => {
-    humanChannel?.attach(interactorRef.current);
+    humanChannel?.attach(interactor);
   }, [humanChannel]);
 
   // 订阅 pending 变化 → 触发 re-render 渲染卡片
@@ -100,7 +102,7 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
   const handleHumanAnswer = useCallback(
     (res: HumanResponse) => {
       if (!pendingRequest) return;
-      interactorRef.current.answer(pendingRequest.id, res);
+      interactor.answer(pendingRequest.id, res);
     },
     [pendingRequest],
   );

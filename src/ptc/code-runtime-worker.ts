@@ -19,6 +19,13 @@ import type {
   CodeRunResult,
 } from "./types.js";
 
+/** 单次运行的墙钟控制器：延长 / 暂停 / 恢复 */
+interface WallControl {
+  extend(ms: number): void;
+  pause(): void;
+  resume(): void;
+}
+
 /** WorkerThreadCodeRuntime 预算配置（均有默认值） */
 export interface WorkerCodeRuntimeConfig {
   /** 单次 run 的墙钟上限（ms），默认 60_000 */
@@ -52,8 +59,8 @@ export class WorkerThreadCodeRuntime implements CodeRuntime {
 
   private readonly config: Required<WorkerCodeRuntimeConfig>;
   private readonly activeWorkers = new Set<Worker>();
-  /** 正在运行的程序对应的墙钟延长器（同一时刻只有一个程序在跑） */
-  private wallExtenders = new Set<(ms: number) => void>();
+  /** 正在运行的程序对应的墙钟控制器（同一时刻只有一个程序在跑） */
+  private wallControls = new Set<WallControl>();
   private stripperPromise: Promise<void> | null = null;
   private stripper: Stripper | undefined;
 
@@ -68,12 +75,26 @@ export class WorkerThreadCodeRuntime implements CodeRuntime {
 
   /**
    * 延长当前程序的墙钟 deadline（毫秒）。
-   * 用途：人工审批等待不应被算进 PTC 预算——等多久补多久。
    * 无在跑程序时是安全空操作。
    */
   extendWall(ms: number): void {
     if (!Number.isFinite(ms) || ms <= 0) return;
-    for (const extend of [...this.wallExtenders]) extend(ms);
+    for (const c of [...this.wallControls]) c.extend(ms);
+  }
+
+  /**
+   * 暂停当前程序的墙钟，并记下剩余预算。
+   * 用途：人工审批等待不应被算进 PTC 预算。单次等待可能超过剩余预算，
+   * 所以必须「等待开始即停表」——事后再延长已经来不及（定时器会先到期）。
+   * 无在跑程序时是安全空操作。
+   */
+  pauseWall(): void {
+    for (const c of [...this.wallControls]) c.pause();
+  }
+
+  /** 恢复当前程序的墙钟：按暂停时记下的剩余预算续跑（等待多久都不额外扣）。无在跑程序时空操作。 */
+  resumeWall(): void {
+    for (const c of [...this.wallControls]) c.resume();
   }
 
   async run(request: CodeRunRequest): Promise<CodeRunResult> {
@@ -90,8 +111,11 @@ export class WorkerThreadCodeRuntime implements CodeRuntime {
       let settled = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
       let deadline = Date.now() + maxWallMs;
+      /** 暂停中标志与暂停时刻记下的剩余预算 */
+      let wallPaused = false;
+      let remainingMs = maxWallMs;
 
-      /** 按当前 deadline 重排定时器（初始 arm 与 extendWall 共用） */
+      /** 按当前 deadline 重排定时器（初始 arm 与 extend/resume 共用） */
       const armWallTimer = (): void => {
         if (timer) clearTimeout(timer);
         timer = setTimeout(() => {
@@ -99,12 +123,34 @@ export class WorkerThreadCodeRuntime implements CodeRuntime {
         }, Math.max(1, deadline - Date.now()));
       };
 
-      const extendWallTimer = (ms: number): void => {
-        if (settled) return;
-        deadline += ms;
-        armWallTimer();
+      const wallControl: WallControl = {
+        extend: (ms) => {
+          if (settled) return;
+          // 暂停期间延长 = 增加暂停时记下的剩余预算，恢复时一并生效
+          if (wallPaused) {
+            remainingMs += ms;
+            return;
+          }
+          deadline += ms;
+          armWallTimer();
+        },
+        pause: () => {
+          if (settled || wallPaused) return;
+          wallPaused = true;
+          remainingMs = deadline - Date.now();
+          if (timer) {
+            clearTimeout(timer);
+            timer = undefined;
+          }
+        },
+        resume: () => {
+          if (settled || !wallPaused) return;
+          wallPaused = false;
+          deadline = Date.now() + Math.max(0, remainingMs);
+          armWallTimer();
+        },
       };
-      this.wallExtenders.add(extendWallTimer);
+      this.wallControls.add(wallControl);
 
       const worker = this.spawnWorker(stripped.code);
 
@@ -112,7 +158,7 @@ export class WorkerThreadCodeRuntime implements CodeRuntime {
         if (settled) return;
         settled = true;
         if (timer) clearTimeout(timer);
-        this.wallExtenders.delete(extendWallTimer);
+        this.wallControls.delete(wallControl);
         request.signal?.removeEventListener("abort", onAbort);
         worker.removeAllListeners();
         this.activeWorkers.delete(worker);
@@ -174,7 +220,7 @@ export class WorkerThreadCodeRuntime implements CodeRuntime {
       worker.on("error", onWorkerError);
       worker.on("exit", onExit);
 
-      // 2. 预算：墙钟硬上限，到期强制 terminate（人工审批等待由 extendWall 补偿）
+      // 2. 预算：墙钟硬上限，到期强制 terminate（人工审批等待由 pauseWall/resumeWall 补偿）
       armWallTimer();
 
       // 3. 中止：signal 已中止则立即结算，否则监听

@@ -62,6 +62,10 @@ describe("summarizeArgs", () => {
     cyc.self = cyc;
     expect(() => summarizeArgs(cyc)).not.toThrow();
   });
+  it("无参数（undefined / null）不渲染成字面量 undefined", () => {
+    expect(summarizeArgs(undefined)).toBe("（无参数）");
+    expect(summarizeArgs(null)).toBe("（无参数）");
+  });
 });
 
 describe("formatApproval / formatQuestion", () => {
@@ -81,6 +85,13 @@ describe("formatApproval / formatQuestion", () => {
   it("无选项的提问卡片不出现编号", () => {
     const out = formatQuestion("你的 API key 是？");
     expect(out).not.toContain("1.");
+  });
+  it("超过 9 个选项时只给前 9 项编号，并提示其余需直接输入", () => {
+    const options = Array.from({ length: 11 }, (_, i) => `o${i + 1}`);
+    const out = formatQuestion("选一个？", options);
+    expect(out).toContain("9. o9");
+    expect(out).not.toContain("10. o10");
+    expect(out).toContain("仅前 9 项支持数字快选");
   });
   it("approvalHint 提到三种按键", () => {
     const hint = approvalHint();

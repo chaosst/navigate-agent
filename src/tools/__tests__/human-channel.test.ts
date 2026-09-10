@@ -136,6 +136,25 @@ describe("HumanChannel", () => {
     await expect(p2).resolves.toEqual({ kind: "approval", decision: "allow" });
     expect(ch.pending).toBeNull();
   });
+
+  it("onWaitStart 在问交互器之前触发（PTC 靠它停表）", async () => {
+    const events: string[] = [];
+    const manual = new ManualInteractor();
+    const ch = new HumanChannel();
+    ch.attach({
+      async ask(req) {
+        events.push("ask");
+        return manual.ask(req);
+      },
+    });
+    ch.onWaitStart = () => events.push("start");
+
+    const p = ch.request(approval("t"));
+    manual.answer(ch.pending?.id ?? "", { kind: "approval", decision: "allow" });
+    await p;
+
+    expect(events).toEqual(["start", "ask"]);
+  });
 });
 
 describe("ManualInteractor", () => {
