@@ -1,6 +1,7 @@
 import { StructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 import type { ToolStatsRegistry } from "./stats-registry.js";
+import type { HumanChannel, ApprovalPolicy } from "./human-channel.js";
 
 /**
  * 工具权限等级
@@ -49,6 +50,8 @@ export interface ToolCallStats {
   totalDurationMs: number;
   lastCallAt: number | null;
   errors: number;
+  /** 被用户拒绝的次数（不计入 errors / 不计入熔断） */
+  denials: number;
   /** 逐次调用窗口（start: performance.now()，dur ms），供 perf 算并发感知的工具墙钟。环形上限 CALL_WINDOW_CAP */
   calls: { start: number; dur: number }[];
 }
@@ -82,6 +85,7 @@ export class PermissionWrapper extends StructuredTool {
     totalDurationMs: 0,
     lastCallAt: null,
     errors: 0,
+    denials: 0,
     calls: [],
   };
 
@@ -93,6 +97,11 @@ export class PermissionWrapper extends StructuredTool {
   private consecutiveFailures: number = 0;
   /** 熔断开始时间（null = 未熔断） */
   private circuitOpenedAt: number | null = null;
+
+  /** 人在环通道（null = 无审批，行为与今天一致） */
+  private channel?: HumanChannel;
+  /** 审批策略（与 channel 成对注入） */
+  private policy?: ApprovalPolicy;
 
   // ——— 透传原始工具的属性 ———
 
@@ -120,12 +129,16 @@ export class PermissionWrapper extends StructuredTool {
     permission: ToolPermission,
     guardConfig?: Partial<ToolGuardConfig>,
     registry?: ToolStatsRegistry,
+    channel?: HumanChannel,
+    policy?: ApprovalPolicy,
   ) {
     super();
     this.inner = inner;
     this.permission = permission;
     this.guardConfig = { ...DEFAULT_GUARD_CONFIG, ...guardConfig };
     this.registry = registry;
+    this.channel = channel;
+    this.policy = policy;
     registry?.register(this);
 
     // LangChain StructuredTool/Runnable 的构造会把 name/description 作为**实例属性**赋值
@@ -156,10 +169,37 @@ export class PermissionWrapper extends StructuredTool {
       this.consecutiveFailures = 0;
     }
 
-    // ——— 执行 ———
+    // ——— 记账（先于审批门：被拒绝的调用同样计入 callCount 与限流窗口） ———
+    // 有意为之：防止 LLM 被拒后原地重试刷屏。
     this.callTimestamps.push(now);
     this.stats.callCount++;
     this.stats.lastCallAt = now;
+
+    // ——— 审批门（限流/熔断之后、执行之前） ———
+    // 拒绝走 return 而非 throw：catch 里的 consecutiveFailures++ 会让「用户拒绝 3 次」误触熔断。
+    if (
+      this.channel &&
+      this.policy?.shouldAsk(this.name, this.permission) &&
+      !this.channel.isAlwaysAllowed(this.name)
+    ) {
+      const res = await this.channel.request({
+        kind: "approval",
+        tool: this.name,
+        args,
+        permission: this.permission,
+      });
+      if (res.kind === "approval" && res.decision === "deny") {
+        this.stats.denials++;
+        const why = res.reason ? ` User note: ${res.reason}` : "";
+        return (
+          `[approval_denied] Tool "${this.name}" was NOT executed — the user rejected this call.${why} ` +
+          `Do not retry the same call; ask the user what to do instead.`
+        );
+      }
+    }
+
+    // ——— 执行 ———
+    // startTime 在审批门之后：人工等待不计入 totalDurationMs（否则 stats footer 里工具耗时虚高）
     const startTime = performance.now();
 
     try {
@@ -209,6 +249,7 @@ export class PermissionWrapper extends StructuredTool {
       `calls=${this.stats.callCount} ` +
       `avg=${avg}ms ` +
       `errors=${this.stats.errors} ` +
+      `denied=${this.stats.denials} ` +
       `permission=${this.permission}`;
   }
 
@@ -218,6 +259,7 @@ export class PermissionWrapper extends StructuredTool {
     this.stats.totalDurationMs = 0;
     this.stats.lastCallAt = null;
     this.stats.errors = 0;
+    this.stats.denials = 0;
     this.callTimestamps = [];
     this.consecutiveFailures = 0;
     this.circuitOpenedAt = null;
