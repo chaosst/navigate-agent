@@ -24,6 +24,7 @@ import { ModeRouter, type RouteDecision, type RoutableMode } from "../agent/mode
 import { Tracer } from "../agent/tracer.js";
 import { ToolStatsRegistry } from "../tools/stats-registry.js"
 import { ToolFilter } from "../tools/tool-filter.js"
+import { updatePlanMessage } from "./plan-utils.js"
 
 /** 统一流式块（三种模式并集；各模式只产出相关字段，见设计文档 §5.2 AgentStreamChunk） */
 interface StreamChunk {
@@ -386,10 +387,7 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
                     `  ${i + 1}. [${s.status}] ${s.description}${s.result ? " → " + s.result.slice(0, 80) : ""}`,
                 ),
               ].join("\n");
-              setStaticMessages((prev) => [
-                ...prev,
-                { role: "system", content: planText, timestamp: new Date() },
-              ]);
+              setStaticMessages((prev) => updatePlanMessage(prev, planText));
             }
             // PTC 块：run_code 程序卡片 / 程序内子调用（plan/普通模式不产生，零副作用；
             // PTC 模式接入后复用同一处理，见 5.7 stream 块契约）
