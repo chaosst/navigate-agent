@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Box, Text, Static } from "ink";
 import { Input } from "./input.js";
+import { ApprovalPrompt } from "./approval-prompt.js";
 import { MessageItem, type OutputMessage } from "./output.js";
 import {
   ptcProgramToMessage,
@@ -25,7 +26,7 @@ import { Tracer } from "../agent/tracer.js";
 import { ToolStatsRegistry } from "../tools/stats-registry.js"
 import { ToolFilter } from "../tools/tool-filter.js"
 import { updatePlanMessage } from "./plan-utils.js"
-import type { HumanChannel } from "../tools/human-channel.js";
+import { ManualInteractor, type HumanChannel, type HumanRequest, type HumanResponse } from "../tools/human-channel.js";
 
 /** 统一流式块（三种模式并集；各模式只产出相关字段，见设计文档 §5.2 AgentStreamChunk） */
 interface StreamChunk {
@@ -53,7 +54,7 @@ interface AppProps {
   humanChannel?: HumanChannel;
 }
 
-export function App({ config, memory, agentName = "Agent", llm, tools, systemPrompt, tracer, toolStatsRegistry, toolFilter }: AppProps) {
+export function App({ config, memory, agentName = "Agent", llm, tools, systemPrompt, tracer, toolStatsRegistry, toolFilter, humanChannel }: AppProps) {
   // ------------------------------------------------------------------
   // Message storage — split into "static" and "dynamic" arrays.
   //
@@ -78,6 +79,31 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
   const [streamingTools, setStreamingTools] = useState<string[]>([]);
   const [sessionName, setSessionName] = useState("Chat");
   const [agentMode, setAgentMode] = useState<AgentMode>(config.agentMode);
+
+  // 人在环：待答请求。由 channel 通知驱动，不参与回合状态机
+  const [pendingRequest, setPendingRequest] = useState<HumanRequest | null>(null);
+  // TUI 侧交互器：把用户按键兑现成通道请求的结果
+  const interactorRef = useRef(new ManualInteractor());
+
+  // 后挂载交互器：bootstrap 先建空通道（未挂载时自动走无人值守兜底）
+  useEffect(() => {
+    humanChannel?.attach(interactorRef.current);
+  }, [humanChannel]);
+
+  // 订阅 pending 变化 → 触发 re-render 渲染卡片
+  useEffect(() => {
+    if (!humanChannel) return;
+    setPendingRequest(humanChannel.pending);
+    return humanChannel.subscribe(() => setPendingRequest(humanChannel.pending));
+  }, [humanChannel]);
+
+  const handleHumanAnswer = useCallback(
+    (res: HumanResponse) => {
+      if (!pendingRequest) return;
+      interactorRef.current.answer(pendingRequest.id, res);
+    },
+    [pendingRequest],
+  );
 
   // Refs to keep values accessible inside stable callbacks without
   // causing the callback identity to change (which would tear down
@@ -128,6 +154,7 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
             tracer,
             toolStatsRegistry,
             llmTimeoutMs: config.llmTimeoutMs,
+            humanChannel,
           })
         : agentMode === "plan"
           ? createHierarchicalAgent(llmRef.current, toolsRef.current, tracer, toolStatsRegistry, config.llmTimeoutMs, toolFilter)
@@ -147,7 +174,7 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
         void exec.dispose();
       }
     };
-  }, [agentMode, llm, tools, config, systemPrompt, toolStatsRegistry, toolFilter, tracer]);
+  }, [agentMode, llm, tools, config, systemPrompt, toolStatsRegistry, toolFilter, tracer, humanChannel]);
   useEffect(() => { llmRef.current = llm; }, [llm]);
   useEffect(() => { toolsRef.current = tools; }, [tools]);
 
@@ -551,6 +578,7 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
           ) : agentMode === "ptc" ? (
             <Text color="magenta"> | 📦 PTC Mode</Text>
           ) : null}
+          {pendingRequest ? <Text color="yellow"> | 等待你的确认</Text> : null}
           {" "}(/help)
         </Text>
 
@@ -589,10 +617,19 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
           </Box>
         ) : null}
 
+        {/* 人在环：审批 / 提问卡片（dynamic 区；<Static> 写一次不可改） */}
+        {pendingRequest ? (
+          <ApprovalPrompt
+            key={pendingRequest.id}
+            request={pendingRequest}
+            onAnswer={handleHumanAnswer}
+          />
+        ) : null}
+
         {/* Input (dynamic) */}
         <Input
           onSubmit={onSubmit}
-          disabled={running}
+          disabled={running || !!pendingRequest}
           agentMode={agentMode}
           onToggleAgentMode={handleToggleAgentMode}
         />
