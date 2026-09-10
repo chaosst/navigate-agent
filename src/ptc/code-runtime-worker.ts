@@ -52,6 +52,8 @@ export class WorkerThreadCodeRuntime implements CodeRuntime {
 
   private readonly config: Required<WorkerCodeRuntimeConfig>;
   private readonly activeWorkers = new Set<Worker>();
+  /** 正在运行的程序对应的墙钟延长器（同一时刻只有一个程序在跑） */
+  private wallExtenders = new Set<(ms: number) => void>();
   private stripperPromise: Promise<void> | null = null;
   private stripper: Stripper | undefined;
 
@@ -62,6 +64,16 @@ export class WorkerThreadCodeRuntime implements CodeRuntime {
       maxOldGenerationSizeMb: config.maxOldGenerationSizeMb ?? 128,
       maxYoungGenerationSizeMb: config.maxYoungGenerationSizeMb ?? 32,
     };
+  }
+
+  /**
+   * 延长当前程序的墙钟 deadline（毫秒）。
+   * 用途：人工审批等待不应被算进 PTC 预算——等多久补多久。
+   * 无在跑程序时是安全空操作。
+   */
+  extendWall(ms: number): void {
+    if (!Number.isFinite(ms) || ms <= 0) return;
+    for (const extend of [...this.wallExtenders]) extend(ms);
   }
 
   async run(request: CodeRunRequest): Promise<CodeRunResult> {
@@ -77,6 +89,22 @@ export class WorkerThreadCodeRuntime implements CodeRuntime {
     return new Promise<CodeRunResult>((resolve) => {
       let settled = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
+      let deadline = Date.now() + maxWallMs;
+
+      /** 按当前 deadline 重排定时器（初始 arm 与 extendWall 共用） */
+      const armWallTimer = (): void => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => {
+          finish({ logs: [], error: { kind: "timeout", message: `Program exceeded maxWallMs (${maxWallMs}ms)` } });
+        }, Math.max(1, deadline - Date.now()));
+      };
+
+      const extendWallTimer = (ms: number): void => {
+        if (settled) return;
+        deadline += ms;
+        armWallTimer();
+      };
+      this.wallExtenders.add(extendWallTimer);
 
       const worker = this.spawnWorker(stripped.code);
 
@@ -84,6 +112,7 @@ export class WorkerThreadCodeRuntime implements CodeRuntime {
         if (settled) return;
         settled = true;
         if (timer) clearTimeout(timer);
+        this.wallExtenders.delete(extendWallTimer);
         request.signal?.removeEventListener("abort", onAbort);
         worker.removeAllListeners();
         this.activeWorkers.delete(worker);
@@ -145,10 +174,8 @@ export class WorkerThreadCodeRuntime implements CodeRuntime {
       worker.on("error", onWorkerError);
       worker.on("exit", onExit);
 
-      // 2. 预算：墙钟硬上限，到期强制 terminate
-      timer = setTimeout(() => {
-        finish({ logs: [], error: { kind: "timeout", message: `Program exceeded maxWallMs (${maxWallMs}ms)` } });
-      }, maxWallMs);
+      // 2. 预算：墙钟硬上限，到期强制 terminate（人工审批等待由 extendWall 补偿）
+      armWallTimer();
 
       // 3. 中止：signal 已中止则立即结算，否则监听
       if (request.signal?.aborted) {

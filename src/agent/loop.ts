@@ -19,6 +19,7 @@ import { DispatchBridge } from "../ptc/dispatch-bridge.js";
 import { RunCodeTool } from "../ptc/run-code-tool.js";
 import { PtcAgentLangGraph } from "../ptc/ptc-agent-langgraph.js";
 import { ToolFilter } from "../tools/tool-filter.js";
+import type { HumanChannel } from "../tools/human-channel.js";
 
 /** PTC 运行时配置（由 config/index.ts 的 PTC_* 字段聚合） */
 export interface PtcAgentConfig {
@@ -46,6 +47,7 @@ export function createPtcAgent(
     tracer?: Tracer;
     toolStatsRegistry?: ToolStatsRegistry;
     llmTimeoutMs?: number;
+    humanChannel?: HumanChannel;
   },
 ): PtcAgentLangGraph {
   const tracer = config.tracer;
@@ -55,6 +57,11 @@ export function createPtcAgent(
     maxWallMs: config.ptc.maxWallMs,
     maxOutputBytes: config.ptc.maxOutputBytes,
   });
+
+  // 人工审批等待不计入 PTC 墙钟预算（等多久补多久）
+  if (config.humanChannel) {
+    config.humanChannel.onWait = (deltaMs: number) => runtime.extendWall(deltaMs);
+  }
 
   // 2. 分发桥：持有全量工具；变更类工具（shell/写/编辑）排他串行
   const bridge = new DispatchBridge(
