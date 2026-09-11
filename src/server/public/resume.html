@@ -82,6 +82,16 @@
   .timeline-item ul { padding-left: 20px; color: var(--text-muted); font-size: 0.9rem; }
   .timeline-item li { margin-bottom: 4px; }
 
+  /* 条目正文（description）—— 所有分节通用 */
+  .item-desc { color: var(--text-muted); font-size: 0.9rem; line-height: 1.8; }
+  .timeline-item .item-desc { margin-top: 4px; }
+
+  /* 无时间线的叙述型分节（求职意向 / 核心亮点 / 证书 / 未知分节） */
+  .prose-item { margin-bottom: 20px; }
+  .prose-item:last-child { margin-bottom: 0; }
+  .prose-item h3 { font-size: 1rem; font-weight: 600; margin-bottom: 8px; }
+  .prose-item .item-desc { font-size: 0.92rem; }
+
   /* Skills */
   .skills-grid { display: flex; flex-wrap: wrap; gap: 8px; }
   .skill-tag {
@@ -206,6 +216,22 @@ function skillColor(category) {
   return map[category] || "var(--tag-tool)";
 }
 
+// 分节图标。未列出的类型走默认图标 —— 新增 SectionType 时不会因此渲染成空白。
+const SECTION_ICONS = {
+  experience: "💼",
+  education: "🎓",
+  skills: "🔧",
+  projects: "🚀",
+  certifications: "📜",
+  languages: "🌐",
+  summary: "✨",
+};
+
+/** 多行文本 → HTML：先转义，再把换行转成 <br>（否则 description 里的 \n 会被浏览器折叠成空格） */
+function textBlock(s) {
+  return esc(s).replace(/\n/g, "<br>");
+}
+
 function renderResume(data) {
   document.getElementById("footer-info").textContent =
     `最后更新: ${new Date().toLocaleDateString("zh-CN")}`;
@@ -229,16 +255,27 @@ function renderResume(data) {
 
   if (data.sections) {
     for (const section of data.sections) {
-      if (section.type === "experience" || section.type === "education") {
-        const icon = section.type === "experience" ? "💼" : "🎓";
-        html.push(`<div class="card"><h2 class="section-title">${icon} ${esc(section.title)}</h2>`);
+      const icon = SECTION_ICONS[section.type] || "📌";
+      const titleHtml = `<h2 class="section-title">${icon} ${esc(section.title)}</h2>`;
+      // 时间线样式只用于「有起止时间的条目」；其余分节用叙述段落样式。
+      const isTimeline = section.type === "experience" || section.type === "education";
+      const itemClass = isTimeline ? "timeline-item" : "prose-item";
+
+      // ⚠️ 这里是**兜底分支**（不是 else-if 的最后一支）：任何未在上面显式处理的分节
+      // 都会落到这里按「标题 + 副标题 + 正文 + 要点」渲染。
+      // 历史缺陷：experience/education 分支漏渲染 item.description，导致正文只存在于
+      // description 的分节（教育背景 / 求职意向与定位 / 核心亮点）卡片里只有标题、正文全空。
+      if (section.type !== "skills" && section.type !== "projects") {
+        html.push(`<div class="card">${titleHtml}`);
         for (const item of section.items) {
-          html.push(`<div class="timeline-item"><h3>${esc(item.title)}</h3>`);
-          if (item.subtitle || item.dateRange) {
-            html.push(`<div class="meta">${[item.subtitle, item.dateRange].filter(Boolean).join(" · ")}</div>`);
-          }
+          html.push(`<div class="${itemClass}">`);
+          // 合成分节的 item.title 就是分节标题本身，重复渲染会出现「求职意向与定位」上下各一次
+          if (item.title && item.title !== section.title) html.push(`<h3>${esc(item.title)}</h3>`);
+          const meta = [item.subtitle, item.dateRange].filter(Boolean).join(" · ");
+          if (meta) html.push(`<div class="meta">${esc(meta)}</div>`);
+          if (item.description) html.push(`<div class="item-desc">${textBlock(item.description)}</div>`);
           if (item.highlights && item.highlights.length) {
-            html.push(`<ul>${item.highlights.map(h => `<li>${esc(h)}</li>`).join("")}</ul>`);
+            html.push(`<ul>${item.highlights.map(h => `<li>${textBlock(h)}</li>`).join("")}</ul>`);
           }
           html.push(`</div>`);
         }
@@ -246,26 +283,29 @@ function renderResume(data) {
       }
 
       if (section.type === "skills") {
-        html.push(`<div class="card"><h2 class="section-title">🔧 ${esc(section.title)}</h2><div class="skills-grid">`);
+        html.push(`<div class="card">${titleHtml}<div class="skills-grid">`);
         for (const item of section.items) {
-          if (item.tags) {
-            for (const tag of item.tags) {
-              const cat = getSkillCategory(tag);
-              html.push(`<span class="skill-tag" style="background:${skillColor(cat)}">${esc(tag)}</span>`);
-            }
-          }
-          if (item.description) {
-            item.description.split(/[,，\/\n]/).map(t => t.trim()).filter(Boolean).forEach(t => {
-              const cat = getSkillCategory(t);
-              html.push(`<span class="skill-tag" style="background:${skillColor(cat)}">${esc(t)}</span>`);
-            });
+          // 技能内容落在哪个字段取决于简历格式，三个都要读：
+          //   tags        —— 显式标签
+          //   highlights  —— resume.md 的 `- **前端**: React, TypeScript` 列表
+          //   description —— docx 转换后的整段文本
+          // 只读其中一两个会让另一种格式的技能节渲染成空卡片。
+          const parts = [];
+          for (const tag of item.tags ?? []) parts.push(tag);
+          for (const h of item.highlights ?? []) parts.push(...h.split(/[,，、\/]/));
+          if (item.description) parts.push(...item.description.split(/[,，、\/\n]/));
+          for (const part of parts) {
+            const t = part.trim();
+            if (!t) continue;
+            const cat = getSkillCategory(t);
+            html.push(`<span class="skill-tag" style="background:${skillColor(cat)}">${esc(t)}</span>`);
           }
         }
         html.push(`</div></div>`);
       }
 
       if (section.type === "projects") {
-        html.push(`<div class="card"><h2 class="section-title">🚀 ${esc(section.title)}</h2><div class="project-grid">`);
+        html.push(`<div class="card">${titleHtml}<div class="project-grid">`);
         for (const item of section.items) {
           html.push(`<div class="project-card"><h4>${esc(item.title)}</h4>`);
           if (item.dateRange) html.push(`<div class="date">${esc(item.dateRange)}</div>`);

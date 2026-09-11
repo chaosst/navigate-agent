@@ -30,7 +30,7 @@ export function buildResumeSystemPrompt(resumeSummary?: string): string {
   }
 
   prompt += `\n\n## 简历分区
-简历包含这些分区，检索时可用 section 过滤：experience（工作经历）、education（教育背景）、skills（技能）、projects（项目经历）、certifications（证书）、languages（语言）。`;
+简历包含这些分区，检索时可用 section 过滤：experience（工作经历）、education（教育背景）、skills（技能）、projects（项目经历）、certifications（证书）、languages（语言）、summary（求职意向 / 核心亮点等叙述型分节）。`;
 
   return prompt;
 }
