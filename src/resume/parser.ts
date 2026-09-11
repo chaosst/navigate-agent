@@ -16,17 +16,85 @@ function parseFrontmatter(lines: string[]): { meta: Record<string, string>; rest
   return { meta, rest: lines.slice(i) };
 }
 
-const SECTION_MAP: Record<string, SectionType> = {
-  "工作经历": "experience",
-  "工作经验": "experience",
-  "教育背景": "education",
-  "教育": "education",
-  "技能": "skills",
-  "项目": "projects",
-  "项目经历": "projects",
-  "证书": "certifications",
-  "语言": "languages",
-};
+/**
+ * 分节标题 → SectionType 的有序关键词规则。
+ *
+ * 旧实现用精确表查（`SECTION_MAP[title]`），只有 `## 技能` 这种逐字匹配才命中，
+ * 而真实简历的标题普遍更长——「四、专业技能」「AI 项目经历（重点）」全部落到兜底
+ * 的 experience。改为子串匹配后，标题只要含关键词即可归类。
+ *
+ * ⚠️ 顺序即优先级：「AI 项目经历」同时含「项目」与「经历」，必须先判 projects，
+ * 否则会被 experience 抢先命中。
+ */
+const SECTION_RULES: ReadonlyArray<{ pattern: RegExp; type: SectionType }> = [
+  { pattern: /项目|作品|project/i, type: "projects" },
+  { pattern: /工作|经历|履历|experience|employment/i, type: "experience" },
+  { pattern: /教育|学历|education/i, type: "education" },
+  { pattern: /技能|专长|技术栈|skill/i, type: "skills" },
+  { pattern: /证书|认证|certificat/i, type: "certifications" },
+  { pattern: /语言|language/i, type: "languages" },
+];
+
+/**
+ * 未命中任何规则时的兜底类型。
+ *
+ * 旧值是 `experience`，会把「求职意向与定位」「核心亮点」这类叙述型分节伪装成工作经历
+ * ——渲染成 💼 + 时间线圆点，检索时也会被 `section=experience` 过滤命中。
+ * 改为 `summary`（叙述型）：渲染为正文段落，语义正确且对新分节天然安全。
+ */
+const DEFAULT_SECTION_TYPE: SectionType = "summary";
+
+function resolveSectionType(title: string): SectionType {
+  for (const rule of SECTION_RULES) {
+    if (rule.pattern.test(title)) return rule.type;
+  }
+  return DEFAULT_SECTION_TYPE;
+}
+
+// ——— 无 frontmatter 时的头部推断（docx 路径不可能有 frontmatter） ———
+
+const CONTACT_PATTERNS = {
+  email: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/,
+  phone: /(?:\+?86[-\s]?)?1[3-9]\d[-\s]?\d{4}[-\s]?\d{4}/,
+  github: /github\.com\/[A-Za-z0-9_./-]+/i,
+} as const;
+
+/** 首个非 github 的 http(s) 链接视为个人站点 */
+function pickWebsite(text: string): string | undefined {
+  const urls = text.match(/https?:\/\/[^\s)】\]]+/g) ?? [];
+  return urls.find((u) => !/github\.com/i.test(u));
+}
+
+/** 判定某行是否像「姓名」/「职位」这类短标题行（排除联系方式、装饰、长句） */
+function looksLikeHeaderLabel(line: string): boolean {
+  const t = line.trim();
+  if (!t || t.length > 30) return false;
+  if (/[@：:|｜/]/.test(t)) return false; // 含分隔符 → 是信息行而非姓名/职位
+  if (/https?:|data:/i.test(t)) return false;
+  return true;
+}
+
+interface HeaderFallback {
+  name: string;
+  title: string;
+  email: string;
+  phone?: string;
+  github?: string;
+  website?: string;
+}
+
+function deriveHeaderFallback(headerLines: string[]): HeaderFallback {
+  const joined = headerLines.join(" ");
+  const labels = headerLines.filter(looksLikeHeaderLabel);
+  return {
+    name: labels[0] ?? "",
+    title: labels[1] ?? "",
+    email: joined.match(CONTACT_PATTERNS.email)?.[0] ?? "",
+    phone: joined.match(CONTACT_PATTERNS.phone)?.[0],
+    github: joined.match(CONTACT_PATTERNS.github)?.[0],
+    website: pickWebsite(joined),
+  };
+}
 
 function parseSections(lines: string[]): ResumeSection[] {
   const sections: ResumeSection[] = [];
@@ -51,7 +119,7 @@ function parseSections(lines: string[]): ResumeSection[] {
       }
       const title = sectionMatch[1].trim();
       currentSection = {
-        type: SECTION_MAP[title] || "experience",
+        type: resolveSectionType(title),
         title,
         items: [],
       };
@@ -78,7 +146,14 @@ function parseSections(lines: string[]): ResumeSection[] {
         sectionHighlights = [];
       }
 
-      if (currentItem) finalizeItem(currentItem, descriptionLines, highlights);
+      // ⚠️ finalizeItem 只做收尾，**不会**把条目放进 section.items ——
+      // 必须在这里显式 push，否则进入下一个 ### 时上一个条目就被丢弃。
+      // 历史缺陷：只有每个分节的最后一个条目能被 finalizeSection 推入，
+      // 导致「工作经历」这类多条目分节只剩最后一段（实测丢了华为 OD 那段经历）。
+      if (currentItem) {
+        finalizeItem(currentItem, descriptionLines, highlights);
+        currentSection.items.push(currentItem);
+      }
       const title = itemMatch[1].trim();
       currentItem = {
         title,
@@ -181,30 +256,35 @@ export function parseResumeText(content: string): ResumeData {
   const lines = content.split("\n");
 
   const { meta, rest } = parseFrontmatter(lines);
+  const hasFrontmatter = Object.keys(meta).length > 0;
   const sections = parseSections(rest);
 
-  // Combine description-less text before any section as summary
-  let summary = "";
-  if (sections.length > 0) {
-    const firstSectionStart = lines.findIndex(l => l.startsWith("## "));
-    if (firstSectionStart > 0) {
-      const preLines = lines.slice(meta.name ? lines.indexOf("---", 1) + 1 : 0, firstSectionStart)
-        .filter(l => l.trim() && !l.startsWith("---"))
-        .join(" ")
-        .trim();
-      if (preLines) summary = preLines;
-    }
-  }
+  const clean = (ls: string[]): string[] =>
+    ls.map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+
+  const firstSectionIdx = rest.findIndex((l) => /^##\s+/.test(l));
+  const preSectionLines = clean(firstSectionIdx >= 0 ? rest.slice(0, firstSectionIdx) : []);
+  // 头部推断的取样范围比 summary 宽：完全没有分节时退化为全文，仍能取到首行姓名
+  const headerLines = firstSectionIdx >= 0 ? preSectionLines : clean(rest);
+
+  // frontmatter 缺失时的头部推断：docx 路径不可能带 frontmatter，
+  // 若不推断则 name/title/contact 全空（实测「谭泳超」这种首行姓名也拿不到）。
+  const fallback = hasFrontmatter ? null : deriveHeaderFallback(headerLines);
+
+  // 有 frontmatter：分节前的正文整体作 summary（保持旧行为）。
+  // 无 frontmatter：头部块是姓名/职位/联系方式/装饰徽章等噪声，不作 summary——
+  // 真正的自我介绍由「求职意向与定位」这类分节承载，会正常切块入索引。
+  const summary = hasFrontmatter ? preSectionLines.join(" ").trim() : "";
 
   return {
-    name: meta.name || "",
-    title: meta.title || "",
+    name: meta.name || fallback?.name || "",
+    title: meta.title || fallback?.title || "",
     summary,
     contact: {
-      email: meta.email || "",
-      phone: meta.phone || undefined,
-      github: meta.github || undefined,
-      website: meta.website || undefined,
+      email: meta.email || fallback?.email || "",
+      phone: meta.phone || fallback?.phone,
+      github: meta.github || fallback?.github,
+      website: meta.website || fallback?.website,
       linkedin: meta.linkedin || undefined,
     },
     sections,

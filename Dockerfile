@@ -23,7 +23,9 @@ COPY --from=builder /app/dist dist/
 COPY --from=builder /app/src/server/public dist/server/public/
 # 运行期要读的只读文件
 COPY skills/ skills/
-COPY resume.md ./
+# resume.* —— 简历源允许 md（手工维护）或 docx（loader 自动转 markdown），
+# 两者至少存在其一；写死 resume.md 会让「只用 docx」的构建直接失败。
+COPY resume.* ./
 
 # 启动脚本：把可变数据导向挂载卷 /app/data
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh

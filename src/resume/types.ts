@@ -20,7 +20,9 @@ export type SectionType =
   | "skills"
   | "projects"
   | "certifications"
-  | "languages";
+  | "languages"
+  /** 叙述型分节（求职意向 / 核心亮点 / 自我评价…），也是未命中关键词时的兜底类型 */
+  | "summary";
 
 export interface ResumeSection {
   type: SectionType;

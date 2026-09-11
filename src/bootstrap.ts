@@ -12,7 +12,6 @@
  */
 import "dotenv/config";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
 import type { StructuredTool } from "@langchain/core/tools";
 import type { ChatOpenAI, OpenAIEmbeddings } from "@langchain/openai";
 import type { Pool } from "pg";
@@ -28,7 +27,8 @@ import { ParallelDocsTool } from "./rag/parallel-tool.js";
 import { DelegateTool } from "./agent/delegate-tool.js";
 import { ResumeStore } from "./resume/store.js";
 import { ResumeSearchTool } from "./resume/search-tool.js";
-import { parseResume } from "./resume/parser.js";
+import { parseResumeText } from "./resume/parser.js";
+import { loadResumeSource } from "./resume/loader.js";
 import { SkillRegistry } from "./skills/registry.js";
 import { createTools } from "./tools/registry.js";
 import { AskUserTool } from "./tools/ask-user.js";
@@ -94,16 +94,28 @@ export async function bootstrapAgent(
   let resumeSummary: string | undefined;
   let resumeTool: ResumeSearchTool | undefined;
 
-  if (existsSync("resume.md")) {
+  // 走 loader 而非硬编码 resume.md：与 server-entry 共用同一套入口归一化
+  // （resume.md 优先 → resume.docx 经 mammoth 转换 + normalizeConvertedMarkdown）。
+  // 旧实现直接 existsSync("resume.md")，导致 TUI 完全看不到 provider 无关的 docx 简历。
+  const resumeSource = await loadResumeSource();
+  if (resumeSource) {
     try {
       const resumeStore = await ResumeStore.create("navigate.db", embeddings);
-      const rawMd = readFileSync("resume.md", "utf-8");
-      const resumeData = parseResume("resume.md");
+      const rawMd = resumeSource.text;
+      const resumeData = parseResumeText(rawMd);
+
+      // 空索引守卫：0 章节 ⇒ 索引为空 ⇒ 简历问答恒答「未提及」。宁可装配失败也不要静默空转。
+      if (resumeData.sections.length === 0) {
+        throw new Error(
+          "解析出 0 个章节 —— 索引将为空，简历问答无法回答任何问题。" +
+            `源文件：${resumeSource.sourcePath}。请确认分节能被识别为 \`## 标题\`。`,
+        );
+      }
 
       const hash = md5(rawMd);
       if (await resumeStore.hasChanged(hash)) {
         await resumeStore.import(resumeData, rawMd);
-        console.log("Resume indexed successfully");
+        console.log(`Resume indexed successfully (source: ${resumeSource.sourcePath})`);
       } else {
         console.log("Resume unchanged, using cached index");
       }
