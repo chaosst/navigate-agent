@@ -6,6 +6,8 @@ import {
   formatApproval,
   formatQuestion,
   approvalHint,
+  compactArgs,
+  describeIntent,
 } from "../approval-view.js";
 
 describe("resolveApprovalKey", () => {
@@ -98,5 +100,68 @@ describe("formatApproval / formatQuestion", () => {
     expect(hint).toContain("y");
     expect(hint).toContain("a");
     expect(hint).toContain("n");
+  });
+});
+
+describe("compactArgs（紧凑单行，替代 pretty JSON）", () => {
+  it("对象压成单行 key=value，多个键两空格分隔", () => {
+    expect(compactArgs({ path: "a.txt", content: "hi" })).toBe("path=a.txt  content=hi");
+  });
+  it("嵌套对象 / 数组走紧凑 JSON", () => {
+    expect(compactArgs({ list: [1, 2] })).toBe("list=[1,2]");
+  });
+  it("超长整体截断并带省略号", () => {
+    const out = compactArgs({ content: "x".repeat(100) }, 30);
+    expect(out.length).toBeLessThan(60);
+    expect(out).toContain("…");
+  });
+  it("无参数 → （无参数）", () => {
+    expect(compactArgs({})).toBe("（无参数）");
+    expect(compactArgs(undefined)).toBe("（无参数）");
+    expect(compactArgs(null)).toBe("（无参数）");
+  });
+  it("循环引用不抛", () => {
+    const cyc: Record<string, unknown> = {};
+    cyc.self = cyc;
+    expect(() => compactArgs(cyc)).not.toThrow();
+  });
+});
+
+describe("describeIntent（审批卡片说人话）", () => {
+  it("write_file → 文件路径 + 字符数，不 dump JSON", () => {
+    const out = describeIntent("write_file", { path: "PROJECT_INTRO.txt", content: "abc" });
+    expect(out).toBe("写入文件 PROJECT_INTRO.txt（3 字符）");
+    expect(out).not.toContain("{");
+  });
+  it("edit_file / read_file / list_files 走各自句式", () => {
+    expect(describeIntent("edit_file", { path: "src/a.ts" })).toBe("修改文件 src/a.ts");
+    expect(describeIntent("read_file", { path: "src/a.ts" })).toBe("读取文件 src/a.ts");
+    expect(describeIntent("list_files", { path: "src", maxDepth: 2 })).toBe("列出目录 src（深度 2）");
+  });
+  it("execute_command → 直接给命令原文", () => {
+    expect(describeIntent("execute_command", { command: "rm -rf x" })).toBe("执行命令 rm -rf x");
+  });
+  it("检索类 → 带引号的查询词", () => {
+    expect(describeIntent("search_documents", { query: "RAG 三级缓存" })).toBe("检索知识库“RAG 三级缓存”");
+    expect(describeIntent("web_search", { query: "ink static" })).toBe("联网搜索“ink static”");
+  });
+  it("delegate → 委派目标 + 任务", () => {
+    expect(describeIntent("delegate", { agent: "code", task: "分析 loop.ts" })).toBe("委派 code agent：分析 loop.ts");
+  });
+  it("未知工具 → 退回紧凑单行参数（不换行、不 pretty JSON）", () => {
+    const out = describeIntent("mystery_tool", { a: 1, b: "two" });
+    expect(out).toBe("a=1  b=two");
+    expect(out).not.toContain("\n");
+  });
+  it("参数缺失 / 非对象都不抛", () => {
+    expect(() => describeIntent("write_file", undefined)).not.toThrow();
+    expect(() => describeIntent("execute_command", null)).not.toThrow();
+    expect(() => describeIntent("execute_command", "raw")).not.toThrow();
+    expect(() => describeIntent("read_file", {})).not.toThrow();
+  });
+  it("formatApproval 不再出现 JSON 花括号缩进", () => {
+    const out = formatApproval("write_file", { path: "a.txt", content: "hi" }, "write");
+    expect(out).toContain("写入文件 a.txt");
+    expect(out).not.toContain('"path"');
   });
 });
