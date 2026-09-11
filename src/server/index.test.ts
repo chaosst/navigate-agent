@@ -216,9 +216,10 @@ describe("jd-match ResumeTooLongError budget mapping (e2e)", () => {
     process.env.H5_LOGIN_USERS = "";
     process.env.H5_WIKI_PROXY_PORT = "0";
     // 注入抛 ResumeTooLongError 的假 analyzer → 路由应映射为可读 400（而非 502）
+    // 位置参数：store, port, resumeStore, resumeData, apiAuth, resumeExecutor, jdAnalyzer
     const app = createRagServer(
       mockStore, 0,
-      undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined,
       { analyze: async () => { throw new ResumeTooLongError(99999); } },
     );
     server = (app as unknown as { httpServer: import("node:http").Server }).httpServer;

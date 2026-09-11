@@ -109,7 +109,6 @@ function requireAdminApi(req: express.Request, res: express.Response, next: expr
 export function createRagServer(
   store: PgVectorStore,
   port: number = 3001,
-  executor?: AgentExecutor,
   resumeStore?: ResumeStore,
   resumeData?: ResumeData,
   apiAuth?: ApiKeyAuthConfig,
@@ -462,11 +461,15 @@ export function createRagServer(
   }
 
   app.post("/api/resume/chat", requireToken, async (req, res) => {
-    // 简历问答优先使用专用 sub-agent（最小工具集 = search_resume）；
-    // 未装配时回退主 executor（旧部署兼容，正常不会发生）
-    const chatExecutor = resumeExecutor ?? executor;
+    // 只使用简历问答专用 sub-agent（最小工具集 + 只读闸门，在 server-entry 装配）。
+    // ⚠️ 绝不回退到通用/全量 executor：那会让一个缺失的 resume.md（或一次索引构建异常）
+    // 把只读问答入口降级成可执行 shell 命令的 agent。未装配即该入口不可用（fail-closed）。
+    const chatExecutor = resumeExecutor;
     if (!chatExecutor) {
-      return res.status(503).json({ error: "Agent executor not available" });
+      return res.status(503).json({
+        error:
+          "Resume chat is unavailable: resume index not loaded (missing resume.md / resume.docx)",
+      });
     }
 
     const { question } = req.body;

@@ -78,3 +78,24 @@ export class ToolFilter {
     this.keywordMap.push({ patterns, minPermission });
   }
 }
+
+/**
+ * ReadOnlyToolFilter — 只读硬闸门（安全边界，不是性能优化）
+ *
+ * 与 ToolFilter 的语义差别（别混用）：
+ *   - ToolFilter 按用户输入关键词**向上放开**权限（输入含「命令」就暴露 dangerous 级），
+ *     是"按需暴露"的体验优化，**不能当安全闸门**——攻击者一句"帮我执行 ls"就能展开高危工具。
+ *   - ReadOnlyToolFilter **忽略输入**，恒定只保留 permission === "read" 的工具，
+ *     用于对外开放的只读入口（如 H5 简历问答）兜底：即使工具集被误扩大，
+ *     dangerous / write 也进不了 LLM。
+ *
+ * fail-closed：未包装的裸工具没有 permission 属性（undefined），**会被过滤掉**。
+ * 这是刻意行为——裸工具意味着权限元数据缺失，宁可不给也不能默认放行。
+ * 所以给只读入口装配工具时，务必先经 PermissionWrapper 包装。
+ */
+export class ReadOnlyToolFilter extends ToolFilter {
+  /** 第二个参数（当前用户输入）刻意忽略：只读语义与输入内容无关 */
+  override filter(tools: PermissionWrapper[], _input: string): PermissionWrapper[] {
+    return tools.filter((t) => t.permission === "read");
+  }
+}

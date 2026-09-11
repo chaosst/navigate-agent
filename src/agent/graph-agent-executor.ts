@@ -230,15 +230,16 @@ export class GraphAgentExecutorBase {
         const userInput = state.userInput || extractUserText(state.messages)
 
         let activeTools = this.tools
-        // 动态工具权限过滤
+        // 动态工具权限过滤（fail-closed）
+        // 注意：过滤结果为空时**不回退 this.tools**。旧实现 `if (filtered.length > 0)`
+        // 会在过滤后为空时静默放行全量工具面——只要工具集里混进了未包装的裸工具
+        // （无 permission 属性）或工具被误扩大，过滤就形同虚设。空 = 本入口不允许任何
+        // 工具可用，语义明确且不会越权；LLM 仍可凭自身知识作答。
         if (this.toolFilter && userInput) {
-            const filtered = this.toolFilter.filter(
+            activeTools = this.toolFilter.filter(
                 this.tools as PermissionWrapper[],
                 userInput,
             )
-            if (filtered.length > 0) {
-                activeTools = filtered
-            }
         }
 
         // 迭代入口日志：排查循环轮数/上下文增长
