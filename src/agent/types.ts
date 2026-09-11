@@ -27,7 +27,10 @@ export interface ToolResult {
 export interface AgentEvents {
   onToolStart?: (tool: string, input: Record<string, unknown>) => void;
   onToolEnd?: (result: ToolResult) => void;
+  /** 最终回答的 token（finalize / fallback 产出） */
   onToken?: (token: string) => void;
+  /** 中间轮次叙述的 token：仅供流式预览，不进入最终回答 */
+  onPreview?: (token: string) => void;
   onFinish?: (output: string) => void;
   onError?: (error: Error) => void;
 }
@@ -81,6 +84,14 @@ const NormalStateValue = {
   }),
   // 原始用户输入（供 ToolFilter 使用；tools/toolFilter 等用闭包捕获，不进 state）
   userInput: Annotation<string>({
+      reducer: (a:string, b:string) => b,
+      default: () => ""
+  }),
+  // finalize / fallback 节点的权威最终回答（含统计页脚）。
+  // 缺这个通道时 LangGraph 会**静默丢弃**节点返回的 finalOutput，最终回答就只剩
+  // 「agent 节点 token 拼接」一条来源 —— 于是中间轮次的叙述被混进回答里
+  // （2026-09-11 修复；回归护栏见 src/agent/__tests__/final-output.test.ts）。
+  finalOutput: Annotation<string>({
       reducer: (a:string, b:string) => b,
       default: () => ""
   }),

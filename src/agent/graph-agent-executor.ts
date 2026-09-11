@@ -588,7 +588,8 @@ export class GraphAgentExecutor extends GraphAgentExecutorBase {
             messages: [new SystemMessage(this.systemPrompt), ...messages],
             userInput: extractUserText(messages),
             iteration: 0,
-            intermediateSteps: []
+            intermediateSteps: [],
+            finalOutput: ""
         }
         // LangGraph recursionLimit 计的是「超步」（agent 节点 + tools 节点各算一步），
         // 而 maxIterations 计的是 LLM 调用轮数。每轮 = agent + tools ≈ 2 个超步，
@@ -615,7 +616,12 @@ export class GraphAgentExecutor extends GraphAgentExecutorBase {
                 const [msgChunk, metadata] = value
                 if (metadata?.langgraph_node === 'agent') {
                     const token = msgChunk?.content ?? ""
-                    if (token) yield { output: String(token) }
+                    // agent 节点**每一轮**（含调用工具前那几轮）的 token 都走 outputPreview：
+                    // 只喂 TUI 动态预览，绝不进最终回答。最终回答只认 finalize / fallback
+                    // 写下的 finalOutput —— 与 PTC / plan 模式同一语义。
+                    // （历史缺陷：这里曾 yield { output }，导致第 1 轮叙述 + 第 2 轮叙述 +
+                    //   最终回答被拼成一条消息，见 2026-09-11 排查。）
+                    if (token) yield { outputPreview: String(token) }
                 }
                 continue
             }
@@ -640,13 +646,16 @@ export class GraphAgentExecutor extends GraphAgentExecutorBase {
                 } else if (value.finalize || value.fallback) {
                     const u = value.finalize ?? value.fallback
                     const kind = value.finalize ? "finalize" : "fallback"
+                    // 权威最终回答。字段名与 AgentState.finalOutput 通道对齐；
+                    // 通道缺失时这里会是 undefined（历史缺陷的表现：日志里 outputChars 恒为 0）。
+                    const finalText = typeof u.finalOutput === "string" ? u.finalOutput : ""
                     logAgent({
                         type: "info",
                         message: `[Loop] ${kind} 完成`,
-                        details: { outputChars: (u.finalOutput ?? "").length },
+                        details: { outputChars: finalText.length },
                     });
                     yield {
-                        output: u.finalOutput,
+                        output: finalText,
                         intermediateSteps: u.intermediateSteps ?? []
                     }
                 }

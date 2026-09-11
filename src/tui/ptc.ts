@@ -90,3 +90,25 @@ export class StreamAccumulator {
     this.preview = "";
   }
 }
+
+/**
+ * 动态区流式预览裁剪：只保留尾部，但**按整行**切，绝不切在词/行中间。
+ *
+ * 旧的 `"…" + text.slice(-800)` 会切出 `…ckage.json` 这种半截词 —— 看起来像画面被
+ * 撕裂，这是 2026-09-11 排查流式布局问题时直接看到的证据。
+ * 只有「单行本身就超过字符预算」这种无行可退的情况才硬切。
+ */
+export function clipPreview(text: string, maxChars = 1200, maxLines = 16): string {
+  if (!text) return "";
+  const lines = text.split("\n");
+  let body = lines.length > maxLines ? lines.slice(-maxLines).join("\n") : text;
+  if (body.length > maxChars) {
+    const cut = body.length - maxChars;
+    const nl = body.indexOf("\n", cut);
+    // 退到下一个整行边界；找不到换行说明是单行超长，只能硬切
+    body = nl >= 0 ? body.slice(nl + 1) : body.slice(-maxChars);
+  }
+  const dropped = text.length - body.length;
+  if (dropped <= 0) return text;
+  return `⋯ 预览已省略前 ${dropped} 字符\n${body}`;
+}

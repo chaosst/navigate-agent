@@ -123,8 +123,9 @@ export class PtcAgentLangGraph extends GraphAgentExecutorBase {
                 runCodeCalls: 0,        // run_code 外层调用次数
                 subCalls: 0,            // 程序内工具子调用总数（跨所有 run_code 累积）
                 programErrors: 0,       // 程序执行失败次数（六类 CodeRunFailure 任一）
-                consecutiveErrors: 0   // 连续失败次数；>= 3 时路由至 fallback
-            } 
+                        consecutiveErrors: 0   // 连续失败次数；>= 3 时路由至 fallback
+            },
+            finalOutput: ""
         }
 
         // 2. 订阅分发桥子调用事件（程序内 tools.x() → ptcDispatch 块）

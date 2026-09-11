@@ -8,6 +8,7 @@ import {
   ptcDispatchToMessage,
   extractRunCodeErrorKind,
   StreamAccumulator,
+  clipPreview,
 } from "./ptc.js";
 import { handleCommand } from "./commands.js";
 import { createAgentExecutor, createHierarchicalAgent, createPtcAgent, runAgentMessages } from "../agent/loop.js";
@@ -40,6 +41,9 @@ interface StreamChunk {
   ptcDispatch?: PtcDispatchEvent;
 }
 
+/** dynamic 区最多同时挂几条当轮卡片；超出部分提前落 <Static>，防止帧高失控 */
+const TURN_BUFFER_LIMIT = 8;
+
 interface AppProps {
   config: AppConfig;
   memory: AgentMemory;
@@ -56,27 +60,25 @@ interface AppProps {
 
 export function App({ config, memory, agentName = "Agent", llm, tools, systemPrompt, tracer, toolStatsRegistry, toolFilter, humanChannel }: AppProps) {
   // ------------------------------------------------------------------
-  // Message storage — split into "static" and "dynamic" arrays.
+  // 渲染分两层：
   //
-  // <Static> renders items once and never clears/rewrites them. This is
-  // critical for performance: when the user types a character, Ink only
-  // needs to clear and rewrite the small dynamic area (2-3 lines) instead
-  // of the entire terminal output (potentially 50+ lines of messages).
+  // - staticMessages → <Static>：写一次、永不重绘。终端里可能累积几十行，不参与
+  //   每次 re-render，所以输入时只重绘下方小块 dynamic 区，不闪。
+  // - dynamicMessages → dynamic 区：**当轮**的卡片 + 流式文本，每 50ms 整块重绘。
   //
-  // - staticMessages: finalized messages (user, assistant, system, completed
-  //   tool calls). These are appended to <Static> and never updated.
-  // - dynamicMessages: running tool calls. These stay in the dynamic area
-  //   and are moved to staticMessages when the tool completes.
+  // 关键约束（2026-09-11 修复流式布局问题）：**回合中途不要往 <Static> 插东西**。
+  // <Static> 打印在 dynamic 区**上方**，而流式文本在 dynamic 区里不断整块重绘；
+  // 中途插一行卡片，正在读的那段回答就被工具卡片「拦腰截断」。
+  // 因此当轮的卡片先进 turnBufferRef，回合收尾时按原顺序整体落盘。
   // ------------------------------------------------------------------
   const [staticMessages, setStaticMessages] = useState<OutputMessage[]>([]);
   const [dynamicMessages, setDynamicMessages] = useState<OutputMessage[]>([]);
 
-  // Ref mirror of dynamicMessages for synchronous access in callbacks
-  const dynamicMsgRef = useRef<OutputMessage[]>([]);
+  /** 当轮卡片缓冲（同步可读，供流式回调使用） */
+  const turnBufferRef = useRef<OutputMessage[]>([]);
 
   const [running, setRunning] = useState(false);
   const [streamingText, setStreamingText] = useState("");
-  const [streamingTools, setStreamingTools] = useState<string[]>([]);
   const [sessionName, setSessionName] = useState("Chat");
   const [agentMode, setAgentMode] = useState<AgentMode>(config.agentMode);
 
@@ -235,6 +237,53 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
     });
   }, []);
 
+  // ------------------------------------------------------------------
+  // 回合渲染原语：当轮卡片先留在 dynamic 区，回合收尾才整体落 <Static>。
+  // 落盘时机是这一组函数的唯一职责，别在回合中途直接 setStaticMessages。
+  // ------------------------------------------------------------------
+
+  /** 追加一张当轮卡片（只进 dynamic 区，不落 Static） */
+  const emit = useCallback((msg: OutputMessage) => {
+    turnBufferRef.current = [...turnBufferRef.current, msg];
+    if (turnBufferRef.current.length > TURN_BUFFER_LIMIT) {
+      const overflow = turnBufferRef.current.slice(0, turnBufferRef.current.length - TURN_BUFFER_LIMIT);
+      turnBufferRef.current = turnBufferRef.current.slice(-TURN_BUFFER_LIMIT);
+      setStaticMessages((prev) => [...prev, ...overflow]);
+    }
+    setDynamicMessages(turnBufferRef.current);
+  }, []);
+
+  /** 结算当轮最后一张「进行中」卡片（工具调用结束时把 running 换成结果） */
+  const settleRunningCard = useCallback((patch: (msg: OutputMessage) => OutputMessage) => {
+    let idx = -1;
+    for (let i = turnBufferRef.current.length - 1; i >= 0; i--) {
+      if (turnBufferRef.current[i].running) { idx = i; break; }
+    }
+    if (idx < 0) return;
+    turnBufferRef.current = turnBufferRef.current.map((m, i) => (i === idx ? patch(m) : m));
+    setDynamicMessages(turnBufferRef.current);
+  }, []);
+
+  /** 计划卡片是原地刷新的（同一张卡反复更新状态），所以走替换而非追加 */
+  const emitPlan = useCallback((planText: string) => {
+    turnBufferRef.current = updatePlanMessage(turnBufferRef.current, planText);
+    setDynamicMessages(turnBufferRef.current);
+  }, []);
+
+  /** 回合收尾：当轮卡片整体落入 <Static>（保持原有顺序），dynamic 区清空 */
+  const commitTurnBuffer = useCallback(() => {
+    const buffered = turnBufferRef.current;
+    turnBufferRef.current = [];
+    setDynamicMessages([]);
+    if (buffered.length > 0) setStaticMessages((prev) => [...prev, ...buffered]);
+  }, []);
+
+  /** 丢弃当轮缓冲（/clear、切换会话时用） */
+  const resetTurnBuffer = useCallback(() => {
+    turnBufferRef.current = [];
+    setDynamicMessages([]);
+  }, []);
+
   const onSubmit = useCallback(
     async (value: string) => {
       // Handle /session commands
@@ -245,9 +294,7 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
           await memory.switchSession(s.id);
           setSessionName(s.name);
           setStaticMessages([]);
-          setDynamicMessages([]);
-          dynamicMsgRef.current = [];
-          setStreamingTools([]);
+          resetTurnBuffer();
         } else if (parts[1] === "switch" && parts[2]) {
           const s = await memory.switchSession(parts[2]);
           if (s) {
@@ -260,8 +307,7 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
                 timestamp: m.createdAt,
               })),
             );
-            setDynamicMessages([]);
-            dynamicMsgRef.current = [];
+            resetTurnBuffer();
           }
         } else if (!parts[1] || parts[1] === "list") {
           const sessions = await memory.listSessions();
@@ -284,9 +330,7 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
         const result = handleCommand(value);
         if (result === "CLEAR") {
           setStaticMessages([]);
-          setDynamicMessages([]);
-          dynamicMsgRef.current = [];
-          setStreamingTools([]);
+          resetTurnBuffer();
           return;
         }
         // /show is not supported with <Static> — static messages can't
@@ -309,7 +353,7 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
       setRunning(true);
       streamingBufferRef.current = "";
       setStreamingText("");
-      setStreamingTools([]);
+      resetTurnBuffer();
 
       try {
         let output: string;
@@ -341,178 +385,102 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
             { role: "system", content: autoChip, timestamp: new Date() },
           ]);
         }
-        if (exec instanceof PtcAgentLangGraph) {
-          // ---- PTC Mode: programmatic tool calling ----
-          const streamAcc = new StreamAccumulator();
+        // ---- 三种模式共用同一套 chunk 渲染 ----
+        // 卡片 → 当轮缓冲（回合收尾才落 <Static>）；叙述 → 动态预览。
+        // 最终回答与中间叙述的区分由 StreamAccumulator 负责，三模式语义一致。
+        const streamAcc = new StreamAccumulator();
+        const renderChunk = (chunk: StreamChunk) => {
+          streamAcc.push(chunk);
+          streamingBufferRef.current = streamAcc.previewText;
 
-          const stream = exec.stream({ messages: turn.messages });
-          for await (const rawChunk of stream) {
-            const chunk = rawChunk as StreamChunk;
-            // 中间叙述 → 仅动态预览；finalize 输出 → 进入最终回答（见 StreamAccumulator）
-            streamAcc.push(chunk);
-            streamingBufferRef.current = streamAcc.previewText;
-            // run_code 程序卡片
-            if (chunk.ptcProgram) {
-              const p = chunk.ptcProgram;
-              setStaticMessages((prev) => [
-                ...prev,
-                ptcProgramToMessage(p),
-              ]);
-            }
-            // 程序内子调用事件
-            if (chunk.ptcDispatch) {
-              const ev = chunk.ptcDispatch;
-              setStaticMessages((prev) => [
-                ...prev,
-                ptcDispatchToMessage(ev),
-              ]);
-            }
-            if (chunk.intermediateSteps) {
-              for (const step of chunk.intermediateSteps) {
-                // run_code 步骤：卡片已由 ptcProgram 块展示，这里只补失败徽章
-                if (step.action.tool === "run_code") {
-                  const kind = extractRunCodeErrorKind(step.observation);
-                  if (kind) {
-                    setStaticMessages((prev) => [
-                      ...prev,
-                      {
-                        role: "system",
-                        content: `run_code failed: [${kind}]`,
-                        timestamp: new Date(),
-                      },
-                    ]);
-                  }
-                  continue;
-                }
-                const msg: OutputMessage = {
-                  role: "tool",
-                  content: `Calling: ${step.action.tool}\n→ ${String(step.observation).slice(0, 200)}`,
-                  name: step.action.tool,
-                  timestamp: new Date(),
-                };
-                setStaticMessages((prev) => [...prev, msg]);
-                setStreamingTools((prev) => [
-                  ...prev,
-                  `⚡ ${step.action.tool}`,
-                ]);
-              }
-            }
-          }
-          output = streamAcc.output;
-        } else if (exec instanceof HierarchicalAgentLangGraph) {
-          // ---- Plan Mode: use HierarchicalAgentLangGraph ----
-          const planExecutor = exec;
-          const streamAcc = new StreamAccumulator();
-
-          const stream = planExecutor.stream({ messages: turn.messages });
-          for await (const rawChunk of stream) {
-            const chunk = rawChunk as StreamChunk;
-            // 中间叙述 → 仅动态预览；finalize 输出 → 进入最终回答
-            streamAcc.push(chunk);
-            streamingBufferRef.current = streamAcc.previewText;
-            if (chunk.plan) {
-              const plan = chunk.plan;
-              const planText = [
+          // plan 卡片：同一张卡原地刷新状态
+          if (chunk.plan) {
+            const plan = chunk.plan;
+            emitPlan(
+              [
                 `🗺️ Plan: ${plan.goal}`,
                 ...plan.steps.map(
                   (s: any, i: number) =>
                     `  ${i + 1}. [${s.status}] ${s.description}${s.result ? " → " + s.result.slice(0, 80) : ""}`,
                 ),
-              ].join("\n");
-              setStaticMessages((prev) => updatePlanMessage(prev, planText));
-            }
-            // PTC 块：run_code 程序卡片 / 程序内子调用（plan/普通模式不产生，零副作用；
-            // PTC 模式接入后复用同一处理，见 5.7 stream 块契约）
-            if (chunk.ptcProgram) {
-              const p = chunk.ptcProgram;
-              setStaticMessages((prev) => [
-                ...prev,
-                ptcProgramToMessage(p),
-              ]);
-            }
-            if (chunk.ptcDispatch) {
-              const ev = chunk.ptcDispatch;
-              setStaticMessages((prev) => [
-                ...prev,
-                ptcDispatchToMessage(ev),
-              ]);
-            }
-            if (chunk.intermediateSteps) {
-              for (const step of chunk.intermediateSteps) {
-                // run_code 步骤：卡片已由 ptcProgram 块展示，这里只补失败徽章
-                if (step.action.tool === "run_code") {
-                  const kind = extractRunCodeErrorKind(step.observation);
-                  if (kind) {
-                    setStaticMessages((prev) => [
-                      ...prev,
-                      {
-                        role: "system",
-                        content: `run_code failed: [${kind}]`,
-                        timestamp: new Date(),
-                      },
-                    ]);
-                  }
-                  continue;
-                }
-                const msg: OutputMessage = {
-                  role: "tool",
-                  content: `Calling: ${step.action.tool}\n→ ${String(step.observation).slice(0, 200)}`,
-                  name: step.action.tool,
+              ].join("\n"),
+            );
+          }
+          // PTC：run_code 程序卡片 / 程序内子调用
+          if (chunk.ptcProgram) {
+            emit(ptcProgramToMessage(chunk.ptcProgram));
+          }
+          if (chunk.ptcDispatch) {
+            emit(ptcDispatchToMessage(chunk.ptcDispatch));
+          }
+          for (const step of chunk.intermediateSteps ?? []) {
+            // run_code 步骤：卡片已由 ptcProgram 块展示，这里只补失败徽章
+            if (step.action.tool === "run_code") {
+              const kind = extractRunCodeErrorKind(step.observation);
+              if (kind) {
+                emit({
+                  role: "system",
+                  content: `run_code failed: [${kind}]`,
                   timestamp: new Date(),
-                };
-                setStaticMessages((prev) => [...prev, msg]);
-                setStreamingTools((prev) => [
-                  ...prev,
-                  `⚡ ${step.action.tool}`,
-                ]);
+                });
               }
+              continue;
             }
+            emit({
+              role: "tool",
+              content: `Calling: ${step.action.tool}\n→ ${String(step.observation).slice(0, 200)}`,
+              name: step.action.tool,
+              timestamp: new Date(),
+            });
+          }
+        };
+
+        if (exec instanceof PtcAgentLangGraph) {
+          // ---- PTC Mode: programmatic tool calling ----
+          for await (const rawChunk of exec.stream({ messages: turn.messages })) {
+            renderChunk(rawChunk as StreamChunk);
+          }
+          output = streamAcc.output;
+        } else if (exec instanceof HierarchicalAgentLangGraph) {
+          // ---- Plan Mode: use HierarchicalAgentLangGraph ----
+          for await (const rawChunk of exec.stream({ messages: turn.messages })) {
+            renderChunk(rawChunk as StreamChunk);
           }
           output = streamAcc.output;
         } else {
           // ---- Normal Mode: use GraphAgentExecutor ----
+          // 与 PTC / plan 同一语义：onPreview = 中间轮次叙述（仅预览，不进最终回答），
+          // onToken = finalize 产出的最终回答。
           output = await runAgentMessages(exec as GraphAgentExecutor, turn.messages, {
             onToolStart(tool, input) {
-              const msg: OutputMessage = {
+              emit({
                 role: "tool",
                 content: `Calling: ${tool}\n${JSON.stringify(input, null, 2)}`,
                 name: tool,
                 timestamp: new Date(),
                 running: true,
-              };
-              dynamicMsgRef.current = [...dynamicMsgRef.current, msg];
-              setDynamicMessages(dynamicMsgRef.current);
-              setStreamingTools((prev) => [...prev, `⚡ ${tool}`]);
+              });
             },
             onToolEnd(result) {
-              const runningTool = dynamicMsgRef.current.find((m) => m.running);
-              if (runningTool) {
-                const completed: OutputMessage = {
-                  ...runningTool,
-                  running: false,
-                  content: `→ ${result.output}`,
-                };
-                setStaticMessages((prev) => [...prev, completed]);
-                dynamicMsgRef.current = dynamicMsgRef.current.filter(
-                  (m) => !m.running,
-                );
-                setDynamicMessages(dynamicMsgRef.current);
-              }
-              setStreamingTools((prev) => [
-                ...prev,
-                `  → ${result.output?.slice(0, 200)}`,
-              ]);
+              settleRunningCard((msg) => ({
+                ...msg,
+                running: false,
+                content: `→ ${result.output}`,
+              }));
+            },
+            onPreview(token) {
+              streamAcc.push({ outputPreview: token });
+              streamingBufferRef.current = streamAcc.previewText;
             },
             onToken(token) {
-              streamingBufferRef.current += token;
-            },
-            onFinish() {
-              // handled below
+              streamAcc.push({ output: token });
+              streamingBufferRef.current = streamAcc.previewText;
             },
           }, config.llmTimeoutMs);
         }
 
-        // Add final assistant response to static
+        // 收尾顺序关键：当轮卡片先整体落 <Static>，最终回答排在它们之后
+        commitTurnBuffer();
         setStaticMessages((prev) => [
           ...prev,
           { role: "assistant", content: output, timestamp: new Date() },
@@ -522,10 +490,9 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
         void memory.rememberAfterTurn().catch((err) =>
           console.error(`[AgentMemory] rememberAfterTurn failed:`, err),
         );
-        streamingBufferRef.current = "";
-        setStreamingText("");
-        setStreamingTools([]);
       } catch (error) {
+        // 半途失败也要把已发生的卡片落盘，否则用户看不到执行到了哪一步
+        commitTurnBuffer();
         setStaticMessages((prev) => [
           ...prev,
           {
@@ -535,6 +502,9 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
           },
         ]);
       } finally {
+        // 预览是易失区，成功失败都在这里清（原来只在成功路径清 → 异常后旧预览会一直挂在输入框上方）
+        streamingBufferRef.current = "";
+        setStreamingText("");
         setRunning(false);
       }
     },
@@ -552,14 +522,14 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
   //
   // Dynamic area  ← only this part is cleared/rewritten on re-render
   //   status line (1 line)
-  //   [running tool] (0-N lines, usually 0)
-  //   [streaming tools] (0-N lines, usually 0)
-  //   [streaming text] (0-N lines, usually 0)
+  //   [当轮卡片] (0-N lines: 工具调用 / PTC 程序 / plan 卡片)
+  //   [streaming text] (0-N lines)
+  //   [审批 / 提问卡片] (0-1 张)
   //   > input (1-2 lines)
   //   [Agent is thinking...] (0-1 lines)
   //
-  // When typing (not running), dynamic area = 2-3 lines.
-  // Clearing/rewriting 2-3 lines is nearly instant → no flicker.
+  // 当轮卡片与流式文本在**同一层**，所以整块原子重绘、顺序稳定；
+  // 回合结束时卡片才整体落入 <Static>（见 commitTurnBuffer）。
   // ------------------------------------------------------------------
   return (
     <Box flexDirection="column">
@@ -584,21 +554,10 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
           {" "}(/help)
         </Text>
 
-        {/* Running tool calls (dynamic) */}
+        {/* 当轮卡片（dynamic）：回合收尾时整体落入 <Static>，中途不插队 */}
         {dynamicMessages.map((msg, i) => (
           <MessageItem key={`dyn-${i}`} msg={msg} agentName={agentName} />
         ))}
-
-        {/* Streaming tool calls (dynamic) */}
-        {streamingTools.length > 0 ? (
-          <Box flexDirection="column" marginBottom={1}>
-            {streamingTools.map((t, i) => (
-              <Text key={i} color="#888888">
-                {t}
-              </Text>
-            ))}
-          </Box>
-        ) : null}
 
         {/* Streaming text (dynamic) */}
         {streamingText ? (
@@ -610,10 +569,9 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
             </Box>
             <Box paddingLeft={2}>
               <Text color="white">
-                {/* 中间叙述可能很长（PTC 模式 agent 逐步说明），截断尾部避免撑爆动态区域 */}
-                {streamingText.length > 800
-                  ? "…" + streamingText.slice(-800)
-                  : streamingText}
+                {/* 预览可能很长（PTC 模式 agent 逐步说明）：只留尾部，但按整行切，
+                    绝不切出 `…ckage.json` 这种半截词 */}
+                {clipPreview(streamingText)}
               </Text>
             </Box>
           </Box>

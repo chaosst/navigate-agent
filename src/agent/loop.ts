@@ -175,13 +175,30 @@ export async function runAgent(
   return runAgentMessages(executor, messageHistory, events, timeoutMs)
 }
 
+/**
+ * 最终回答选取：权威值优先，权威值空则回退到流式拼接。
+ *
+ * 为什么需要兜底：权威值（finalize/fallback 的 finalOutput）依赖 AgentState 通道、
+ * LangGraph 的 updates 语义两跳，任一环出问题都会得到空串。退化时宁可用「带中间叙述
+ * 的拼接文本」，也不能把整条回答变空。反过来，只要权威值在，就绝不让叙述混进去。
+ */
+export function pickFinalOutput(authoritative: string, streamedFallback: string): string {
+  return authoritative.trim().length > 0 ? authoritative : streamedFallback;
+}
+
 export async function runAgentMessages(
   executor: GraphAgentExecutor,
   messages: BaseMessage[],
   events?: AgentEvents,
   timeoutMs = 30_000,
 ) {
+  /** 权威最终回答（finalize / fallback 写入） */
   let output = "";
+  /**
+   * 流式拼接兜底。注意这里把 outputPreview 也拼进来是有意的：
+   * 它只作为「权威值缺失时的退化」存在，不参与正常路径。
+   */
+  let streamed = "";
   let previousStepCount = 0;
   try {
     // 整体流超时包装（单次 LLM 调用超时由 executor 内部 llmTimeoutMs 控制）
@@ -212,10 +229,22 @@ export async function runAgentMessages(
         }
         previousStepCount = steps.length;
       }
+      // 中间轮次叙述：只做动态预览，不进入最终回答（与 PTC / plan 模式一致）
+      if (chunk.outputPreview !== undefined && chunk.outputPreview !== null) {
+        const preview = String(chunk.outputPreview);
+        if (preview) {
+          streamed += preview;
+          events?.onPreview?.(preview);
+        }
+      }
+      // 最终回答：只认 finalize / fallback 产出
       if (chunk.output !== undefined && chunk.output !== null) {
         const chunkOutput = String(chunk.output);
-        output += chunkOutput;
-        events?.onToken?.(chunkOutput);
+        if (chunkOutput) {
+          output += chunkOutput;
+          streamed += chunkOutput;
+          events?.onToken?.(chunkOutput);
+        }
       }
     }
   } catch (error) {
@@ -224,9 +253,10 @@ export async function runAgentMessages(
     events?.onError?.(err);
     throw err;
   }
-  logAgent({ type: "llm_response", message: `Output: ${output.slice(0, 200)}` });
-  events?.onFinish?.(output);
-  return output;
+  const final = pickFinalOutput(output, streamed);
+  logAgent({ type: "llm_response", message: `Output: ${final.slice(0, 200)}` });
+  events?.onFinish?.(final);
+  return final;
 }
 
 /**
