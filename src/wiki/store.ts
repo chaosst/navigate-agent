@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import type { WikiArticle, WikiCategory, WikiRevision, WikiArticleListItem, WikiArticleListResponse } from "./types.js";
 import { PgVectorStore } from "../storage/pg-vector-store.js";
+import { chunkMarkdownText } from "../rag/md-chunker.js";
 
 export class WikiStore {
   private db: Database;
@@ -200,20 +201,16 @@ export class WikiStore {
       // deleteDoc is async
       await this.ragStore.deleteDoc(wikiDocId);
 
-      // Chunk and add to RAG
+      // Chunk and add to RAG —— 与 loader.ts 的 .md 路径共用同一个切块器（标题感知）。
+      // 内容本身就是 markdown（`# 标题` + 正文），所以 wiki 文章同样吃标题分节、代码块保护。
       const filename = `${article.slug}.md`;
       const content = `# ${article.title}\n\n${article.contentMd}`;
-      // Use the same loader pattern but inline to avoid temp files
-      const { RecursiveCharacterTextSplitter } = await import("@langchain/textsplitters");
-      const { Document } = await import("@langchain/core/documents");
-      const splitter = new RecursiveCharacterTextSplitter({ chunkSize: 1000, chunkOverlap: 200 });
-      const docs = await splitter.splitDocuments([
-        new Document({ pageContent: content, metadata: { filename, source: `wiki/${article.slug}` } })
-      ]);
-      const chunks = docs.map(d => ({
-        content: d.pageContent,
-        metadata: { ...d.metadata, filename, source: `wiki/${article.slug}` },
-      }));
+      const chunks = await chunkMarkdownText(content, {
+        chunkSize: 1000,
+        chunkOverlap: 200,
+        filename,
+        source: `wiki/${article.slug}`,
+      });
       await this.ragStore.addChunks(chunks, wikiDocId);
     } catch (err) {
       console.warn(`[wiki] RAG sync failed for ${article.slug}:`, (err as Error)?.message);
