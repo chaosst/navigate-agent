@@ -16,6 +16,9 @@ function esc(s: string): string {
 
 /**
  * 生成 pages.length 页的 PDF，第 i 页正文为 pages[i]。
+ *
+ * 文本里的 `\n` 会被渲染成**多个视觉行**（各自 Td 定位）—— 这样 pdfjs 的 lineEnforce
+ * 才会真的吐出换行，页眉/页脚一类的"行级"逻辑才测得出来。
  * 结构：Catalog → Pages → 每页 (Page + Contents) → 共享 Font。
  */
 export function makeTestPdf(pages: string[]): Buffer {
@@ -41,7 +44,13 @@ export function makeTestPdf(pages: string[]): Buffer {
     bodies[pageId] =
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] ` +
       `/Resources << /Font << /F1 ${fontId} 0 R >> >> /Contents ${contentId} 0 R >>`;
-    const stream = `BT /F1 18 Tf 72 700 Td (${esc(pages[i])}) Tj ET`;
+    const stream =
+      "BT /F1 18 Tf " +
+      pages[i]
+        .split("\n")
+        .map((line, li) => `${li === 0 ? "72 700 Td" : "0 -24 Td"} (${esc(line)}) Tj`)
+        .join(" ") +
+      " ET";
     bodies[contentId] = `<< /Length ${Buffer.byteLength(stream, "latin1")} >>\nstream\n${stream}\nendstream`;
   }
 

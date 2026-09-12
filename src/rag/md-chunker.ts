@@ -72,10 +72,92 @@ export function splitByHeadings(md: string): MdSection[] {
 }
 
 /**
+ * 把正文切成"原子块"：**代码围栏整体是一块**，普通散文连续行是一块。
+ *
+ * 这是"0 个 chunk 出现落单 ``` 围栏"的保证来源：只要代码块不被拆开，
+ * 成对围栏就永远落在同一个 chunk 里。
+ */
+function toAtomicBlocks(body: string): { text: string; isCode: boolean }[] {
+  const blocks: { text: string; isCode: boolean }[] = [];
+  let buf: string[] = [];
+  let inFence = false;
+
+  const flushBuf = (isCode: boolean): void => {
+    if (buf.length > 0) {
+      blocks.push({ text: buf.join("\n"), isCode });
+      buf = [];
+    }
+  };
+
+  for (const line of body.split("\n")) {
+    if (isFenceLine(line)) {
+      if (inFence) {
+        buf.push(line);
+        flushBuf(true); // 闭合围栏 → 代码块结束
+        inFence = false;
+      } else {
+        flushBuf(false); // 开始围栏 → 结算前面的散文块
+        inFence = true;
+        buf.push(line);
+      }
+      continue;
+    }
+    buf.push(line);
+  }
+  flushBuf(inFence); // 未闭合围栏按代码块整体保留（宁可超长，不要拆开）
+
+  return blocks;
+}
+
+/** 超长节内切：先按原子块贪心装箱，块本身超长时才动用字符切块器 */
+async function splitBodyFenceAware(
+  body: string,
+  chunkSize: number,
+  splitter: RecursiveCharacterTextSplitter,
+): Promise<string[]> {
+  const pieces: string[] = [];
+  let pending = "";
+
+  const flushPending = (): void => {
+    if (pending.trim()) pieces.push(pending.trim());
+    pending = "";
+  };
+
+  for (const block of toAtomicBlocks(body)) {
+    // 单块就超预算：先结算，再单独处理
+    if (block.text.length > chunkSize) {
+      flushPending();
+      if (block.isCode) {
+        pieces.push(block.text.trim()); // 代码块不拆，宁可超长
+      } else {
+        for (const p of await splitter.splitText(block.text)) {
+          if (p.trim()) pieces.push(p.trim());
+        }
+      }
+      continue;
+    }
+
+    if (pending === "") {
+      pending = block.text;
+      continue;
+    }
+    if (pending.length + 1 + block.text.length <= chunkSize) {
+      pending = `${pending}\n${block.text}`;
+      continue;
+    }
+    flushPending();
+    pending = block.text;
+  }
+  flushPending();
+
+  return pieces;
+}
+
+/**
  * 标题感知切块（纯函数）。**标题是边界**——绝不跨标题拼。
  *
  *   body <= chunkSize → 整节 1 个 chunk
- *   body >  chunkSize → 节内 RecursiveCharacterTextSplitter 切，每片同一 headingPath，
+ *   body >  chunkSize → 节内切分（**围栏感知**：代码块整体不拆），每片同一 headingPath，
  *                       metadata.partIndex / partTotal
  *   content 组装：leaf = headingPath.at(-1)
  *                 leaf 非空 → `${leaf}\n\n${body}`；否则 body 原样
@@ -84,7 +166,8 @@ export function splitByHeadings(md: string): MdSection[] {
  * 的话检索端拿不到（四处 SELECT 目前都不返回 metadata）。注入叶标题是最低成本的语义
  * 定位增强，对 FTS 也有正向作用。
  *
- * 节间不做 overlap —— 标题即语义边界。
+ * 节间不做 overlap —— 标题即语义边界。节内也不额外造 overlap，只有"单块超预算"
+ * 落到字符切块器时才用 chunkOverlap。
  */
 export async function chunkMdSections(
   sections: MdSection[],
@@ -112,7 +195,7 @@ export async function chunkMdSections(
       continue;
     }
 
-    const parts = await splitter.splitText(s.body);
+    const parts = await splitBodyFenceAware(s.body, chunkSize, splitter);
     parts.forEach((part, i) => {
       out.push({
         content: withLeaf(part),

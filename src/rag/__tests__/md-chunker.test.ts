@@ -122,6 +122,20 @@ describe("chunkMdSections", () => {
     expect(countFences(out[0].content)).toBe(2);
   });
 
+  it("★ 超长节内切时，代码块仍不被拆开（0 个落单围栏）", async () => {
+    const code = ["```ts", ...Array.from({ length: 20 }, (_, i) => `const x${i} = ${i};`), "```"].join("\n");
+    const md = ["## 长节", fill(300), "", code, "", fill(300), "", code].join("\n");
+
+    const out = await chunkMdSections(splitByHeadings(md), {
+      chunkSize: 500,
+      chunkOverlap: 0,
+      filename: "a.md",
+    });
+
+    expect(out.length).toBeGreaterThan(1);
+    for (const c of out) expect(countFences(c.content) % 2).toBe(0);
+  });
+
   it("metadata：filename / source 正确，source 可被覆盖", async () => {
     const md = ["## 标题", "正文"].join("\n");
     const out = await chunkMdSections(splitByHeadings(md), { ...OPTS, source: "wiki/x" });
