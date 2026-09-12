@@ -71,7 +71,21 @@ All tools are `StructuredTool` subclasses wrapped in `PermissionWrapper` (rate l
 ### RAG (`src/rag/` + `src/storage/`)
 - **`retriever.ts`** — `RagSearchTool` (tool: `search_documents`)，包装 `PgVectorStore.search()` 混合检索，可选 LLM rerank
 - **`reranker.ts`** — LLM-based listwise reranker
-- **`loader.ts`** — Parses PDF, DOCX, TXT/MD and splits into chunks，随后经 `PgVectorStore.addChunks()` 入库
+- **`loader.ts`** — 切块**唯一入口** `loadDocument(filePath, filename, chunkSize?, chunkOverlap?)`，按扩展名分派（下方），产出 `LoadedChunk[]` → `PgVectorStore.addChunks()`
+- **切块分派**（2026-09 起；此前所有格式共用一把 `RecursiveCharacterTextSplitter`）：
+
+  | 格式 | 策略 | 模块 |
+  |---|---|---|
+  | `.txt` / 未知扩展名 | 字符切块，**中文标点感知分隔符** `["\n\n","\n","。","！","？","；","，"," ",""]`（`keepSeparator` 必须保持默认 `true`，设 false 会丢标点） | `plain-chunker.ts` |
+  | `.md` | 标题感知：`#`~`######` 分节、**标题即边界**、叶标题拼进 content 提升检索定位、代码围栏整体不拆；无标题则 fail-safe 退回字符切块 | `md-chunker.ts` |
+  | `.docx` | `mammoth.convertToHtml + styleMap` → 手写 HTML 子集解析器 → markdown，再复用 md 切块器。**不走 `convertToMarkdown`——实测它把 3 张表全丢**；`<img>` 在解析阶段丢弃（2 张证件照 = 1.44M 字符） | `docx-extract.ts` + `md-chunker.ts` |
+  | `.pdf` | 页感知：**页为原子单位**、跨页重复行判页眉/页脚剔除、短尾并页；页与页之间不造 overlap | `pdf-chunker.ts` |
+
+- **`citation.ts`** — `formatChunkSource`：把 chunk 元数据里的页码 / 标题路径渲染进 Source 行（`[1] Source: 年报.pdf · p.12-13` / `[2] Source: 方案.docx · 四、专业技能 > 后端能力`）。`PgVectorStore` 四处 SELECT 都返回 `c.metadata`
+- **`ChunkMetadata`**（`rag/types.ts`）：`strategy`(`text-char`\|`pdf-page`\|`md-heading`) / `pageStart`/`pageEnd`/`pageLabel` / `headingPath` / `partIndex`/`partTotal`，全部写进 `doc_chunks.metadata(JSONB)`，**无需数据库迁移**
+- **wiki 同步**（`src/wiki/store.ts`）与 `.md` 路径共用 `chunkMarkdownText`，不再有第二份内联 splitter
+- ⚠️ **PDF 视觉换行重建（`reflowLines`）默认关闭**（`PDF_REFLOW_ENABLED = false`）：收益是实的（切点落在标点后的比例 35% → 71%），但护栏失效时表格行会被粘成"一行 N 个格子"→ **列错位、LLM 自信答错**。先只吃「页感知 + 去噪」的确定性收益，观察一轮再开
+- ⚠️ **切块只在上传与 `/api/reindex/:id` 时发生**：改完策略后存量 PDF/DOCX/MD/TXT 必须**逐个 reindex** 才会生效（前提 `rag_uploads/` 里还留着源文件）
 
 > 旧版 JSON 落点的 `src/rag/vectorstore.ts`（OpenAI embeddings + BM25、`rag_data/vectorstore.json`）已删除，向量检索整体迁到 `PgVectorStore`。
 

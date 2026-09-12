@@ -27,13 +27,29 @@ All source files live under `src/`. Use `.ts` for TypeScript and `.tsx` for file
 
 The RAG document management server starts automatically on port 3001 when the agent runs. The SQLite database (`navigate.db`) is created in the project root on first launch.
 
+## Testing Guidelines
+
+The project uses **vitest** (`npm run test` = `vitest run --dir src`). Type-check with `npx tsc --noEmit`. Test files live in `__tests__/` next to the code they cover (`src/<module>/__tests__/*.test.ts`); names describe the behavior under test.
+
+## RAG Chunking (src/rag/)
+
+`loadDocument(filePath, filename, chunkSize?, chunkOverlap?)` in `src/rag/loader.ts` is the single entry point and **dispatches by file extension**:
+
+| Format | Strategy | Module |
+|---|---|---|
+| `.txt` / unknown | character split, **CJK-punctuation-aware separators** | `plain-chunker.ts` |
+| `.md` | heading-aware (`#`..`######` are boundaries, fences stay intact) | `md-chunker.ts` |
+| `.docx` | `convertToHtml` + styleMap → hand-written HTML subset parser → markdown, then the md chunker | `docx-extract.ts` |
+| `.pdf` | page-aware (page is atomic; repeated header/footer lines stripped) | `pdf-chunker.ts` |
+
+- Wiki sync (`src/wiki/store.ts`) shares `chunkMarkdownText` with the `.md` path — do not add a second inline splitter.
+- `reflowLines` (PDF visual line rebuild) is **off by default** (`PDF_REFLOW_ENABLED = false`); turning it on can glue table rows into one line → wrong column alignment.
+- Chunk metadata (`strategy` / `pageStart` / `pageEnd` / `pageLabel` / `headingPath`) is stored in `doc_chunks.metadata` (JSONB) and surfaced in citations by `src/rag/citation.ts`.
+- **Chunking only happens on upload and `/api/reindex/:id`** — existing documents must be reindexed one by one to pick up a new strategy.
+
 ## Coding Style & Naming Conventions
 
 TypeScript with strict mode enabled. Files use PascalCase for class and interface names, camelCase for functions and variables. Interfaces are preferred over type aliases for object shapes. Use `StructuredTool` from `@langchain/core/tools` for all tool implementations, overriding `_call()` rather than `_input()`. Imports from external packages use bare specifiers; internal imports use relative paths with `.js` extensions.
-
-## Testing Guidelines
-
-The project does not currently have a dedicated test framework. TypeScript compilation (`npx tsc --noEmit`) is the primary gate for correctness. When adding tests, use the same framework as the LangChain ecosystem and place test files in `tests/` mirroring the `src/` structure. Test names should describe the behavior under test in snake_case.
 
 ## Commit & Pull Request Guidelines
 
