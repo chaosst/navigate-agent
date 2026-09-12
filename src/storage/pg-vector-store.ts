@@ -2,6 +2,7 @@ import { Pool } from "pg";
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { randomUUID } from "node:crypto";
 import type { RagDocument, RagResult } from "../rag/types.js";
+import { pickCitationFields } from "../rag/citation.js";
 import { HotCache } from "./cache.js";
 
 export class PgVectorStore {
@@ -179,7 +180,7 @@ export class PgVectorStore {
         const params: unknown[] = [`[${embedding.join(",")}]`, k * 2];
         if (hasScope) params.push(docIds);
         const { rows } = await this.pool.query(
-          `SELECT c.id, c.content, c.doc_id, c.chunk_index, d.filename,
+          `SELECT c.id, c.content, c.doc_id, c.chunk_index, d.filename, c.metadata,
                   1 - (c.embedding <=> $1::vector) AS score
            FROM doc_chunks c
            JOIN documents d ON d.id = c.doc_id
@@ -195,6 +196,7 @@ export class PgVectorStore {
             source: r.filename || "",
             docId: r.doc_id,
             chunkIndex: r.chunk_index,
+            ...pickCitationFields(r.metadata),
           });
         }
       }
@@ -208,7 +210,7 @@ export class PgVectorStore {
       const params: unknown[] = [q, k * 2];
       if (hasScope) params.push(docIds);
       const { rows } = await this.pool.query(
-        `SELECT c.id, c.content, c.doc_id, c.chunk_index, d.filename,
+        `SELECT c.id, c.content, c.doc_id, c.chunk_index, d.filename, c.metadata,
                 ts_rank(c.fts_vector, plainto_tsquery('chinese_zh', $1), 16) AS score
          FROM doc_chunks c
          JOIN documents d ON d.id = c.doc_id
@@ -224,6 +226,7 @@ export class PgVectorStore {
           source: r.filename || "",
           docId: r.doc_id,
           chunkIndex: r.chunk_index,
+          ...pickCitationFields(r.metadata),
         });
       }
     } catch (e) {
@@ -237,7 +240,7 @@ export class PgVectorStore {
         const params: unknown[] = [q, `%${q}%`, k * 2];
         if (hasScope) params.push(docIds);
         const { rows } = await this.pool.query(
-          `SELECT c.id, c.content, c.doc_id, c.chunk_index, d.filename,
+          `SELECT c.id, c.content, c.doc_id, c.chunk_index, d.filename, c.metadata,
                   similarity(c.content, $1) AS score
            FROM doc_chunks c
            JOIN documents d ON d.id = c.doc_id
@@ -254,6 +257,7 @@ export class PgVectorStore {
             source: r.filename || "",
             docId: r.doc_id,
             chunkIndex: r.chunk_index,
+            ...pickCitationFields(r.metadata),
           });
         }
       } catch (e) {
@@ -292,7 +296,7 @@ export class PgVectorStore {
       const params: unknown[] = [q, k];
       if (hasScope) params.push(docIds);
       const { rows } = await this.pool.query(
-        `SELECT c.id, c.content, c.doc_id, c.chunk_index, d.filename,
+        `SELECT c.id, c.content, c.doc_id, c.chunk_index, d.filename, c.metadata,
                 strpos(LOWER(c.content), LOWER($1)) AS pos,
                 1.0 / strpos(LOWER(c.content), LOWER($1)) AS score,
                 (length(c.content) - length(replace(lower(c.content), lower($1), '')))
@@ -310,6 +314,7 @@ export class PgVectorStore {
         source: r.filename || "",
         docId: r.doc_id,
         chunkIndex: r.chunk_index,
+        ...pickCitationFields(r.metadata),
       }));
       this.queryCache.set(cacheKey, results);
       return results;

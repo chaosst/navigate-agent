@@ -1,6 +1,10 @@
 import { StructuredTool } from "@langchain/core/tools";
 import { z } from "zod";
 import { PgVectorStore } from "../storage/pg-vector-store.js";
+import { formatChunkSource } from "./citation.js";
+
+// 引用定位信息（页码 / 标题路径）的格式化实现在 ./citation.js（存储层也要用其中的字段提取）。
+export { formatChunkSource } from "./citation.js";
 
 /** 单块检索内容上限（字符）：过长只留头，避免整段长 chunk 每轮回灌撑爆上下文 */
 const RESULT_CONTENT_MAX = 4000;
@@ -45,7 +49,7 @@ export class RagSearchTool extends StructuredTool {
     let total = 0;
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
-      const chunk = `[${i + 1}] Source: ${r.source}\n${capChunkContent(r.content)}\n`;
+      const chunk = `${formatChunkSource(r, i + 1)}\n${capChunkContent(r.content)}\n`;
       if (total + chunk.length > TOTAL_MAX) break; // 整体超限即止，不再多拼
       parts.push(chunk);
       total += chunk.length;
