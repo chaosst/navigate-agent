@@ -1,8 +1,7 @@
-import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
-import { Document } from "@langchain/core/documents";
 import { createHash } from "node:crypto";
 import type { PgVectorStore } from "../storage/pg-vector-store.js";
 import { createPool, type Pool, type RowDataPacket } from "mysql2/promise";
+import { chunkMarkdownText } from "../rag/md-chunker.js";
 
 /** 从任意字符串确定性派生一个合法 UUID（md5 → UUID 格式），保证同一页面 ID 恒定 */
 function deterministicUuid(seed: string): string {
@@ -119,27 +118,20 @@ export class ZyplayerDocAdapter {
     // 先清理旧索引（幂等）
     await this.ragStore.deleteDoc(docId);
 
-    // 分块处理
-    const splitter = new RecursiveCharacterTextSplitter({ chunkSize: 1000, chunkOverlap: 200 });
+    // 分块处理 —— 与 loader.ts 的 .md 路径共用同一个标题感知切块器。
+    // 页面内容本身就是 markdown（`# 标题` + 正文），因此同样吃标题分节、代码块保护。
+    // 注意：`src/wiki/store.ts` 的 syncToRag 用的是同一个入口，两条 wiki 路径必须保持一致。
     const slug = title
       .toLowerCase()
       .replace(/[^\w一-鿿]+/g, "-")
       .replace(/^-+|-+$/g, "")
       .slice(0, 80);
-    const docs = await splitter.splitDocuments([
-      new Document({
-        pageContent: content,
-        metadata: {
-          filename: `${slug}.md`,
-          source: `zyplayer/${slug}`,
-        },
-      }),
-    ]);
-
-    const chunks = docs.map((d) => ({
-      content: d.pageContent,
-      metadata: { ...d.metadata },
-    }));
+    const chunks = await chunkMarkdownText(content, {
+      chunkSize: 1000,
+      chunkOverlap: 200,
+      filename: `${slug}.md`,
+      source: `zyplayer/${slug}`,
+    });
 
     await this.ragStore.addChunks(chunks, docId);
 
