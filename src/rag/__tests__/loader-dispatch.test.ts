@@ -68,18 +68,25 @@ describe("loadDocument 分格式分派", () => {
     expect(md.every((c) => c.metadata.strategy === "md-heading")).toBe(true);
   });
 
-  it("★ .PDF（大写）→ 页感知切块，pageStart/pageEnd 合法", async () => {
-    const p = tmpFile("probe.PDF", makeTestPdf(["Page one alpha", "Page two beta"]));
-    const chunks = await loadDocument(p, "probe.PDF");
+  // 真实 pdfjs 初始化 + getInfo({parsePageInfo}) 是重活：单独跑 ~250ms，
+  // 但 72 个测试文件并发时会被饿死（实测膨胀到 >5s，触发 vitest 默认 5s 超时 → 假红）。
+  // 给足余量，避免用忙碌机器上的抖动污染「全绿」信号。
+  it(
+    "★ .PDF（大写）→ 页感知切块，pageStart/pageEnd 合法",
+    async () => {
+      const p = tmpFile("probe.PDF", makeTestPdf(["Page one alpha", "Page two beta"]));
+      const chunks = await loadDocument(p, "probe.PDF");
 
-    expect(chunks.length).toBeGreaterThan(0);
-    for (const c of chunks) {
-      expect(c.metadata.strategy).toBe("pdf-page");
-      expect(c.metadata.pageStart).toBe(1);
-      expect(c.metadata.pageEnd).toBe(2);
-    }
-    expect(chunks.some((c) => c.content.includes("Page one alpha"))).toBe(true);
-  });
+      expect(chunks.length).toBeGreaterThan(0);
+      for (const c of chunks) {
+        expect(c.metadata.strategy).toBe("pdf-page");
+        expect(c.metadata.pageStart).toBe(1);
+        expect(c.metadata.pageEnd).toBe(2);
+      }
+      expect(chunks.some((c) => c.content.includes("Page one alpha"))).toBe(true);
+    },
+    20_000,
+  );
 
   it("metadata 始终带 filename / source（addChunks 反查文件名依赖它）", async () => {
     const chunks = await loadDocument(tmpFile("d.txt", EN_TEXT), "d.txt");
