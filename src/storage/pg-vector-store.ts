@@ -25,7 +25,17 @@ export class PgVectorStore {
     chunks: { content: string; metadata: Record<string, unknown> }[],
     docId: string,
   ): Promise<void> {
-    if (chunks.length === 0) return;
+    if (chunks.length === 0) {
+      // ★ 不要静默 return。三个写入方（/api/upload、/api/reindex、wiki 同步）用的都是
+      //   「先 deleteDoc 再 addChunks」的破坏性顺序：0 片意味着旧索引已删、新索引没写，
+      //   而调用方会顺利拿到 200 —— 文档从 RAG 里消失，界面上却显示成功。
+      //   这里把话说明白，日志里能直接看到；调用方另有 422 兜底（见 server/index.ts）。
+      //   刻意不建 documents 行：没有任何可检索内容的条目是幽灵数据。
+      console.warn(
+        `[pgvector] addChunks received 0 chunks for doc ${docId}: nothing indexed (no documents row created)`,
+      );
+      return;
+    }
 
     // 为 chunks 预计算 embedding
     const texts = chunks.map((c) => c.content);

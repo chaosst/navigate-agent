@@ -269,6 +269,13 @@ export function createRagServer(
       const filename = fixEncoding(req.file.originalname);
       const filePath = req.file.path;
       const chunks = await loadDocument(filePath, filename);
+      if (chunks.length === 0) {
+        // 解析不出任何内容（空文件 / 纯图片 PDF…）：明确拒绝，不要回 200 { chunks: 0 }。
+        // 旧行为会让「上传成功」的文档在 /api/documents 里根本不出现，用户只能猜。
+        return res.status(422).json({
+          error: `未从 "${filename}" 解析出任何可索引内容（0 chunks），未入库`,
+        });
+      }
       await store.addChunks(chunks, docId);
       docMeta.set(docId, {
         filename,
@@ -366,11 +373,19 @@ export function createRagServer(
 
       const filePath = path.join(process.cwd(), "rag_uploads", storedFile);
 
-      // 1. 删除旧 chunk
-      await store.deleteDoc(id);
-
-      // 2. 重新分块
+      // 1. 先重新分块（纯读）。
+      //    必须排在 deleteDoc 之前：旧实现是「先删旧索引 → 再 loadDocument」，
+      //    一旦切出 0 片（源文件被清空、解析器行为变化…），旧索引已经删掉、
+      //    新索引一行没写 —— 文档从 RAG 里彻底消失，接口却回 200 { chunks: 0 }。
       const chunks = await loadDocument(filePath, meta.filename);
+      if (chunks.length === 0) {
+        return res.status(422).json({
+          error: `"${meta.filename}" 重新切块得到 0 chunks，本次重索引已放弃（旧索引保持原样）`,
+        });
+      }
+
+      // 2. 删除旧 chunk
+      await store.deleteDoc(id);
 
       // 3. 重新写入
       await store.addChunks(chunks, id);

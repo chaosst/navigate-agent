@@ -196,10 +196,7 @@ export class WikiStore {
 
   private async syncToRag(article: WikiArticle): Promise<void> {
     try {
-      // If this is an update, remove old index first
       const wikiDocId = `wiki:${article.id}`;
-      // deleteDoc is async
-      await this.ragStore.deleteDoc(wikiDocId);
 
       // Chunk and add to RAG —— 与 loader.ts 的 .md 路径共用同一个切块器（标题感知）。
       // 内容本身就是 markdown（`# 标题` + 正文），所以 wiki 文章同样吃标题分节、代码块保护。
@@ -211,6 +208,8 @@ export class WikiStore {
         filename,
         source: `wiki/${article.slug}`,
       });
+      // 先切块、再删旧索引：切块抛错时旧索引还在（与 /api/reindex 同一处理）
+      await this.ragStore.deleteDoc(wikiDocId);
       await this.ragStore.addChunks(chunks, wikiDocId);
     } catch (err) {
       console.warn(`[wiki] RAG sync failed for ${article.slug}:`, (err as Error)?.message);
