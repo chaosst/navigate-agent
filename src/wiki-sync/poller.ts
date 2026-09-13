@@ -79,33 +79,44 @@ export class ContentPoller {
 
   /** 执行一次检查：通过适配器获取变更页面并同步到 RAG */
   async tick(): Promise<void> {
+    const since = this.lastSyncTime;
+
     // 如果没有上次同步时间，只记录当前时间为初始同步点
-    if (!this.lastSyncTime) {
+    if (!since) {
       this.lastSyncTime = new Date().toISOString();
       this.saveState();
       console.log(`[content-poller] Initial state recorded at ${this.lastSyncTime}`);
       return;
     }
 
-    let changedPages: { pageId: number; updatedAt: string }[];
+    let changedPages: { pageId: number; updatedAt: string; deleted?: boolean }[];
     try {
-      changedPages = await this.adapter.listChangedPages(this.lastSyncTime);
+      changedPages = await this.adapter.listChangedPages(since);
     } catch (err) {
       console.warn("[content-poller] Failed to fetch changed pages:", (err as Error).message);
-      return; // 获取列表失败，跳过本轮
+      return; // 获取列表失败：水位不动，下一轮仍从同一时刻重查
     }
 
     if (changedPages.length === 0) {
-      // 没有变更，只更新时间戳
-      this.lastSyncTime = new Date().toISOString();
-      this.saveState();
+      // 没有变更 —— 水位保持不动，不要写 new Date()。
+      //
+      // 水位必须一直待在「数据库自己的时钟域」里：zyplayer-doc 容器 TZ=Asia/Shanghai
+      // （它写 wiki_page.update_time 用的是北京时间），而 app / mysql 容器跑在 UTC，
+      // 同一个库里两条时间轴差 8 小时。拿本机墙钟当游标，要么反复重同步，要么成段漏同步。
+      // 窗口保持打开是安全的：下一轮还是用同一个 since 再查一遍，只是白查一次 SQL。
       return;
     }
 
-    console.log(`[content-poller] Found ${changedPages.length} changed page(s) since ${this.lastSyncTime}`);
+    console.log(`[content-poller] Found ${changedPages.length} changed page(s) since ${since}`);
 
     for (const page of changedPages) {
       try {
+        if (page.deleted) {
+          // 页面进了回收站 → 清掉 RAG 里的旧索引，避免回答里还能翻出已删除的文档
+          await this.adapter.deletePageFromRag(page.pageId);
+          console.log(`[content-poller] Removed page ${page.pageId} from RAG (in trash)`);
+          continue;
+        }
         const title = await this.adapter.syncPageToRag(page.pageId);
         console.log(`[content-poller] Synced "${title}" (page ${page.pageId})`);
       } catch (err) {
@@ -114,8 +125,14 @@ export class ContentPoller {
       }
     }
 
-    this.lastSyncTime = new Date().toISOString();
+    // 水位推进到「本轮看到的最后一个变更时间」—— 取数据里的刻度，而不是本机墙钟。
+    // listChangedPages 按 update_time 升序返回，最后一条即最大值。
+    let next = since;
+    for (const page of changedPages) {
+      if (page.updatedAt > next) next = page.updatedAt;
+    }
+    this.lastSyncTime = next;
     this.saveState();
-    console.log(`[content-poller] Sync cycle complete at ${this.lastSyncTime}`);
+    console.log(`[content-poller] Sync cycle complete, watermark -> ${this.lastSyncTime}`);
   }
 }
