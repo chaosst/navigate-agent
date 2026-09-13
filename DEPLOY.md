@@ -270,16 +270,54 @@ docker restart zyplayer-doc        # 安全：不重建容器、不动卷，30s 
 **zyplayer-doc 看门狗（补上上面这个盲区，加到宿主机 crontab）**
 
 compose 已给 zyplayer-doc 配了 `healthcheck`（探 8083，`start_period: 120s`），
-但**原生 Docker 不会因 unhealthy 自动重启容器**，需要一条看门狗把状态接上：
+但**原生 Docker 不会因 unhealthy 自动重启容器**，需要一条看门狗把状态接上。
 
 ```bash
-crontab -e
-# 每 2 分钟：状态为 unhealthy 才重启（starting 阶段不误触发，故冷启动安全）
-*/2 * * * * test "$(docker inspect -f '{{.State.Health.Status}}' zyplayer-doc 2>/dev/null)" = unhealthy && docker restart zyplayer-doc >> /var/log/zyplayer-watchdog.log 2>&1
+crontab -e        # 以 admin 用户执行即可（admin 已在 docker 组，无需 sudo）
 ```
 
-> 备选（不依赖 healthcheck，但冷启动 30s 内会抖动触发一次）：
-> `*/2 * * * * docker exec zyplayer-doc bash -c 'exec 3<>/dev/tcp/127.0.0.1/8083' >/dev/null 2>&1 || docker restart zyplayer-doc`
+编辑器操作（首次会让你选，通常 nano 或 vi）：
+
+| 编辑器 | 插入 | 保存退出 | 放弃退出 |
+|---|---|---|---|
+| nano | 直接粘贴 | `Ctrl+O` → 回车 | `Ctrl+X` |
+| vi / vim | 先按 `i` | `Esc` → `:wq` → 回车 | `Esc` → `:q!` → 回车 |
+
+粘贴成两行（`#` 开头是注释，可留可删）：
+
+```
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# 每 2 分钟：状态为 unhealthy 才重启（starting 阶段不误触发，故冷启动安全）
+*/2 * * * * test "$(docker inspect -f '{{.State.Health.Status}}' zyplayer-doc 2>/dev/null)" = unhealthy && docker restart zyplayer-doc >> "$HOME/zyplayer-watchdog.log" 2>&1
+```
+
+> - **文件最后必须留一个空行（换行符）**，否则 cron 会静默忽略最后一行 —— 最常见的坑。
+> - 第一行 `PATH=` 不能省：cron 的默认 PATH 极简，可能找不到 `docker`。
+> - **日志不要写 `/var/log/`**：admin 无写权限 → 任务会静默失败（连报错都看不到）。用 `$HOME`
+>   （cron 会按 `/etc/passwd` 设置它，admin 即 `/home/admin`）。想彻底消除疑义可直接写绝对路径
+>   `/home/admin/zyplayer-watchdog.log`。
+> - 保存即生效（无需 reload）。
+> - **校验三步（缺一不可）**：
+>   ① `crontab -l` 回显内容；② `systemctl is-active crond`（Ubuntu 上服务名是 `cron`）应为 `active`；
+>   ③ **证明它真的在跑** —— 看 cron 自己的执行日志：
+>   `sudo tail -30 /var/log/cron | grep zyplayer`（或 `sudo journalctl -u crond --since "10 min ago"`）。
+> - ⚠️ **`~/zyplayer-watchdog.log` 不存在 = 一件好事**：日志只在"触发过重启"时才写入，
+>   文件没生成说明从来没不健康。**因此不能拿它判断任务有没有在跑** —— 那要看 ③。
+>   想守着等它出现请用 `tail -F`（**大写**：`-F` 在文件不存在时会等待；`-f` 会立刻报
+>   `No such file or directory` 然后退出，极易被误读成故障）。
+> - 只想要一次性验证：`crontab -r` 删掉整个用户 crontab（谨慎，会连别的任务一起删）。
+>
+> ⚠️ **时序前提（部署新 compose 之前别用上面这条）**：它依赖 zyplayer-doc 已有 `healthcheck`。
+> 旧容器没有 healthcheck → `{{.State.Health.Status}}` 返回**空字符串** → `test "" = unhealthy`
+> 恒假 → **看门狗永远不触发**（而且不报错，最难发现）。**新 compose 部署前请先用下面这条**：
+>
+> ```
+> */2 * * * * docker exec zyplayer-doc bash -c 'exec 3<>/dev/tcp/127.0.0.1/8083' >/dev/null 2>&1 || docker restart zyplayer-doc >> "$HOME/zyplayer-watchdog.log" 2>&1
+> ```
+>
+> 它直接探 8083，不依赖 healthcheck，**现在就能用**；代价是冷启动 30s 内会抖动触发一次重启
+> （无害，只是白重启一次）。部署完新 compose 后再换回上一条（更稳：`start_period` 内状态是
+> `starting`，不会误触发）。
 
 **重启/停止**
 
