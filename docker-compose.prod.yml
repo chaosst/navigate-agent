@@ -3,6 +3,10 @@
 #
 # 用法（注意 --env-file 保证 ${POSTGRES_PASSWORD} 从 .env.prod 读取）：
 #   docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
+#
+# ⚠️ 内存前提：本文件是 6 容器编排（app/postgres/ollama/mysql/zyplayer-doc/caddy），
+#    而机器 1871MB 内存 + 0 swap → 2026-09-10 内核 global OOM 杀掉了 zyplayer-doc 的 java。
+#    上线前必须先配 swap（见 DEPLOY.md 1.2 与「运维速查 · 内存看护」），否则会周期性复发。
 # ============================================================
 
 services:
@@ -112,14 +116,29 @@ services:
       DATASOURCE_USER: zyplayer
       DATASOURCE_PASSWORD: zyplayer_pass
       TZ: Asia/Shanghai
-      # Java 堆限制（镜像若支持 JAVA_OPTS 则生效，防止 OOM）
+      # Java 堆限制。注意：该镜像入口是 /bin/bash /start.sh，是否透传 JAVA_OPTS 未经证实
+      # （2026-09-10 那次 OOM 中 java RSS 仅 414MB，远低于 -Xmx768m，说明当时被杀与堆上限无关）。
+      # 验证是否生效：docker exec zyplayer-doc sh -c 'echo $JAVA_OPTS; cat /start.sh | grep -i java'
       JAVA_OPTS: -Xms256m -Xmx768m
     volumes:
       - zyplayer-files:/zyplayer/files
     depends_on:
       zyplayer-mysql:
         condition: service_healthy
+    # ★ 必须有 healthcheck：本镜像的 /start.sh 是「启动 java 后 tail -f /dev/null」的结构，
+    # java 被 OOM 杀掉后 PID 1 仍存活 → 容器状态仍是 Up、restart: unless-stopped 永不触发，
+    # 表现为 wiki 502（上游 Connection refused）而 docker ps 一切正常（2026-09-10 已实际发生）。
+    # 探针用 bash 内置 /dev/tcp（该镜像无 curl/wget/netstat/ss），连得上即视为进程在监听。
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8083"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s        # Spring Boot 冷启动 22-25s，2G 机器留足余量
     # 不映射 8083：由 app 的 wiki 代理（:3003）转发
+    #
+    # 注意：app 刻意不 depends_on 本服务。wiki 是附属功能，
+    # 不能让 zyplayer 挂掉时把主站（:3001）也拖得起不来。
 
   # ---------- Caddy：HTTPS 反向代理（自动签发证书）----------
   caddy:

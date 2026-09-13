@@ -29,16 +29,26 @@ ssh root@<你的服务器IP>
 
 > Windows 自带 OpenSSH 可直接用；也可用终端软件（Termius / FinalShell）。
 
-### 1.2 创建 swap（2G 内存机器**必须**做，否则构建会 OOM）
+### 1.2 创建 swap（2G 内存机器**必须**做，构建和运行都需要）
+
+**不建会怎样（已实际发生）**：2026-09-10 17:19 内核 `global OOM` 杀掉了 zyplayer-doc 的 java
+（`anon-rss 414248kB`），而容器因 `/start.sh` 末尾的 `tail -f /dev/null` 仍保持 `Up` →
+表现为 **wiki 502（上游 `Connection refused`）但 `docker ps` 一切正常**（"容器假活"）。
+当时 `free -m` 为 `total 1871 / used 1200 / Swap 0`，而本编排要跑 6 个容器
+（app / postgres / ollama / zyplayer-mysql / zyplayer-doc / caddy）。
 
 ```bash
 fallocate -l 4G /swapfile
 chmod 600 /swapfile
 mkswap /swapfile
 swapon /swapfile
-echo '/swapfile none swap sw 0 0' >> /etc/fstab
+echo '/swapfile none swap sw 0 0' >> /etc/fstab    # ★ 漏了这行，重启后 swap 就没了
 free -h        # 确认 Swap 行显示 4G
 ```
+
+> ⚠️ **2026-09-13 生产实测 `Swap: 0`** —— 说明首次部署时这一步被跳过了。
+> swap 不是"可选优化"，是这台机器能跑满 6 容器、并让构建不 OOM 的前提。
+> 部署完成后请再核一次 `free -m`。
 
 ### 1.3 检查 Docker 环境
 
@@ -235,6 +245,42 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml logs -f app
 docker compose --env-file .env.prod -f docker-compose.prod.yml logs postgres
 ```
 
+**内存看护（2G 机器一号风险，建议每季度过一遍）**
+
+```bash
+# ① 谁在吃内存
+docker stats --no-stream --format "table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}"
+
+# ② swap 还在不在（重启后若不是 4G，说明 fstab 那行丢了 → 回 1.2 节）
+free -m
+
+# ③ 有没有被内核 OOM 杀过
+dmesg -T | grep -iE 'oom|killed process' | tail -5
+
+# ④ ★「容器假活」判据：状态 Up，但业务进程已死
+docker exec zyplayer-doc ps -ef | head
+#    只看到 /bin/bash /start.sh(PID 1) 和 tail -f /dev/null(PID 7) → java 已死
+docker restart zyplayer-doc        # 安全：不重建容器、不动卷，30s 后确认 8083 起来
+```
+
+> 为什么需要 ④：`restart: unless-stopped` **只在容器退出时生效**。zyplayer 镜像的 `/start.sh`
+> 末尾用 `tail -f /dev/null` 保活 PID 1，所以 java 被 OOM 杀掉后容器仍是 `Up`，restart 策略
+> 永远不会触发 → 502 会一直持续到有人手动重启。
+
+**zyplayer-doc 看门狗（补上上面这个盲区，加到宿主机 crontab）**
+
+compose 已给 zyplayer-doc 配了 `healthcheck`（探 8083，`start_period: 120s`），
+但**原生 Docker 不会因 unhealthy 自动重启容器**，需要一条看门狗把状态接上：
+
+```bash
+crontab -e
+# 每 2 分钟：状态为 unhealthy 才重启（starting 阶段不误触发，故冷启动安全）
+*/2 * * * * test "$(docker inspect -f '{{.State.Health.Status}}' zyplayer-doc 2>/dev/null)" = unhealthy && docker restart zyplayer-doc >> /var/log/zyplayer-watchdog.log 2>&1
+```
+
+> 备选（不依赖 healthcheck，但冷启动 30s 内会抖动触发一次）：
+> `*/2 * * * * docker exec zyplayer-doc bash -c 'exec 3<>/dev/tcp/127.0.0.1/8083' >/dev/null 2>&1 || docker restart zyplayer-doc`
+
 **重启/停止**
 
 ```bash
@@ -276,6 +322,7 @@ docker run --rm -v navigate_appdata:/data -v $(pwd):/backup alpine \
 | app 健康检查失败          | `logs app`：多半是 `DATABASE_URL` 拼错（密码与 POSTGRES_PASSWORD 不一致）或 OpenAI key 无效              |                             |                 |
 | 80/443 被占用          | 可能装了宝塔等面板，\`ss -tlnp                                                                    | grep -E ':(80               | 443)'\` 找占用进程停掉 |
 | 访问很慢                | 韩国节点到电信晚高峰一般；可换香港/东京节点或加 CDN                                                            |                             |                 |
+| wiki 502 / upstream unavailable | 上游 java 多半已被内核 OOM 杀掉（`dmesg` 求证）→ 按「运维速查 · 内存看护」④ 处置：`docker restart zyplayer-doc` + 补 swap |                             |                 |
 | 忘记运维 token          | \`docker compose ... logs app                                                           | grep 'Access token'\` 看启动日志 |                 |
 
 ---
