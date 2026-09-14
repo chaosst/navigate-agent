@@ -147,7 +147,14 @@ export class ZyplayerDocAdapter {
   async listChangedPages(since: string): Promise<ZyplayerPageItem[]> {
     const sinceDate = this.toMySQLDate(since);
     const [rows] = await this.pool.execute<RowDataPacket[]>(buildChangedPagesQuery(), [sinceDate]);
-    return toChangedItems(rows as unknown as ZyplayerRow[]);
+    const items = toChangedItems(rows as unknown as ZyplayerRow[]);
+    if (rows.length > 0) {
+      // 把「SQL 捞到了 N 行、但只有 M 行有正文可同步」说清楚。
+      // 目录节点 / 空正文页就是在 toChangedItems 里被丢掉的；不打这一行，
+      // 一旦两边数字不相等，日志看上去就跟"什么都没发生"一模一样。
+      console.log(`[zyplayer-sync] ${rows.length} changed row(s) since ${sinceDate} → ${items.length} syncable`);
+    }
+    return items;
   }
 
   /**

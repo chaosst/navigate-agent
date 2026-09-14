@@ -150,4 +150,51 @@ describe("ContentPoller 水位语义", () => {
     expect(sinceCalls).toEqual(["2026-09-13 15:00:00", "2026-09-13 15:00:00"]);
     expect(readState().lastSyncTime).toBe("2026-09-13 15:00:00");
   });
+
+  /**
+   * 现场教训（2026-09-14 生产）：水位被推进到 `2026-09-14 12:00:05`，而库里所有页面
+   * 的 mtime 都不超过它 —— 于是"编辑了却同步不进来"看起来像代码没生效，实际是
+   * **水位越过了失败的那一页**：listChangedPages 用的是 `> since`，一旦水位跨过去，
+   * 这一页再也不会出现在候选集里，失败被彻底静默。
+   */
+  it("★ 回归锁：某页同步失败时水位不得越过它（否则该页被永久跳过）", async () => {
+    seedState("2026-09-13 15:00:00");
+    const adapter: SyncAdapter = {
+      async listChangedPages() {
+        return [
+          { pageId: 19, updatedAt: "2026-09-14 12:00:01" },
+          { pageId: 24, updatedAt: "2026-09-14 12:00:05" },
+        ];
+      },
+      async syncPageToRag(pageId: number) {
+        if (pageId === 24) throw new Error("embedding timeout");
+        return `title-${pageId}`;
+      },
+      async deletePageFromRag() {},
+    };
+    const poller = new ContentPoller(adapter, 300_000, dir);
+
+    await poller.tick();
+
+    // 24 失败 ⇒ 水位只能停在它之前那一页，下一轮还能重新捞到 24
+    expect(readState().lastSyncTime).toBe("2026-09-14 12:00:01");
+  });
+
+  it("全部页面都失败 → 水位原地不动，整窗重试", async () => {
+    seedState("2026-09-13 15:00:00");
+    const adapter: SyncAdapter = {
+      async listChangedPages() {
+        return [{ pageId: 24, updatedAt: "2026-09-14 12:00:05" }];
+      },
+      async syncPageToRag() {
+        throw new Error("mysql gone away");
+      },
+      async deletePageFromRag() {},
+    };
+    const poller = new ContentPoller(adapter, 300_000, dir);
+
+    await poller.tick();
+
+    expect(readState().lastSyncTime).toBe("2026-09-13 15:00:00");
+  });
 });

@@ -104,10 +104,17 @@ export class ContentPoller {
       // （它写 wiki_page.update_time 用的是北京时间），而 app / mysql 容器跑在 UTC，
       // 同一个库里两条时间轴差 8 小时。拿本机墙钟当游标，要么反复重同步，要么成段漏同步。
       // 窗口保持打开是安全的：下一轮还是用同一个 since 再查一遍，只是白查一次 SQL。
+      //
+      // 心跳：空轮也留一行。否则日志里分不清「在岗但没活干」和「进程早就死了」——
+      // 2026-09-14 排障时就因为这里完全静默，无法判断 poller 是否还活着。5 分钟一条，量很小。
+      console.log(`[content-poller] No changes since ${since} (watermark held)`);
       return;
     }
 
     console.log(`[content-poller] Found ${changedPages.length} changed page(s) since ${since}`);
+
+    /** 本轮同步失败的页面 mtime（用来卡住水位，见下） */
+    const failedAt: string[] = [];
 
     for (const page of changedPages) {
       try {
@@ -120,19 +127,38 @@ export class ContentPoller {
         const title = await this.adapter.syncPageToRag(page.pageId);
         console.log(`[content-poller] Synced "${title}" (page ${page.pageId})`);
       } catch (err) {
+        failedAt.push(page.updatedAt);
         console.error(`[content-poller] Failed to sync page ${page.pageId}:`, (err as Error).message);
         // 继续同步下一页，不中断
       }
     }
 
-    // 水位推进到「本轮看到的最后一个变更时间」—— 取数据里的刻度，而不是本机墙钟。
-    // listChangedPages 按 update_time 升序返回，最后一条即最大值。
+    // 水位推进：只认「本轮已成功处理」的页面，且绝不越过任何失败页。
+    //
+    // 为什么必须这样：listChangedPages 是 `WHERE mtime > since`，水位一旦跨过某一页，
+    // 它就再也不会出现在候选集里 —— 一次瞬时失败（embedding 超时、MySQL 抖动）会把
+    // 那一页**永久**挡在 RAG 之外，而且日志只在当时留一行 error，事后完全看不出来。
+    // 2026-09-14 生产事故正是如此：水位停在 2026-09-14 12:00:05，恰好等于最后被编辑那页的
+    // mtime，而它从没进过 doc_chunks。
+    //
+    // listChangedPages 按 mtime 升序返回，所以"失败点"= 失败页面里最小的 mtime；
+    // 排在它之前且成功的那批可以放心推进，失败页及之后的下一轮重来（幂等，重复同步无害）。
+    const barrier = failedAt.length > 0 ? failedAt.reduce((a, b) => (a < b ? a : b)) : null;
+
     let next = since;
     for (const page of changedPages) {
-      if (page.updatedAt > next) next = page.updatedAt;
+      if (page.updatedAt <= next) continue;
+      if (barrier !== null && page.updatedAt >= barrier) continue;
+      next = page.updatedAt;
     }
+
     this.lastSyncTime = next;
     this.saveState();
+    if (barrier !== null) {
+      console.warn(
+        `[content-poller] ${failedAt.length} page(s) failed this cycle; watermark held at ${next} (will retry next cycle)`,
+      );
+    }
     console.log(`[content-poller] Sync cycle complete, watermark -> ${this.lastSyncTime}`);
   }
 }
