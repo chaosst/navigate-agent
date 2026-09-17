@@ -34,6 +34,11 @@ export interface AppConfig {
   ptcMaxParallelSubCalls: number; // PTC_MAX_PARALLEL_SUBCALLS，默认 10；1 恢复串行
   ptcMode: "code" | "both";       // PTC_TOOL_MODE，默认 "code"（PTC 内是否同时保留原生工具）
 
+  // plan（双层循环）运行预算
+  planMaxTokens: number;          // PLAN_MAX_TOKENS，默认 500_000（单步 ReAct 实测可烧数十万）
+  planMaxTimeMs: number;          // PLAN_MAX_TIME_MS，默认 900_000
+  planMaxSteps: number;           // PLAN_MAX_STEPS，默认 20
+
   /** 推理引擎 provider（PROVIDER 解析结果，默认 "openai"）。供日志/验证展示 */
   provider: ProviderName;
 
@@ -120,5 +125,10 @@ export function loadConfig(): AppConfig {
     ptcMaxOutputBytes: num(process.env.PTC_MAX_OUTPUT_BYTES, 64 * 1024),
     ptcMaxParallelSubCalls: num(process.env.PTC_MAX_PARALLEL_SUBCALLS, 10),
     ptcMode,
+
+    // plan 预算：默认比旧值（100k / 5min）放宽 —— 旧值会让多步计划在第一步就被判死刑
+    planMaxTokens: num(process.env.PLAN_MAX_TOKENS, 500_000),
+    planMaxTimeMs: num(process.env.PLAN_MAX_TIME_MS, 900_000),
+    planMaxSteps: num(process.env.PLAN_MAX_STEPS, 20),
   };
 }

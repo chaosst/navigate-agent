@@ -14,6 +14,7 @@ import { logAgent } from "./logger.js";
 import { GraphAgentExecutor } from "./graph-agent-executor.js";
 import { Tracer } from "./tracer.js";
 import { HierarchicalAgentLangGraph } from "./hierarchical-agent-langgraph.js";
+import type { HierarchicalBudget } from "./hierarchical-agent-langgraph.js";
 import { WorkerThreadCodeRuntime } from "../ptc/code-runtime-worker.js";
 import { DispatchBridge } from "../ptc/dispatch-bridge.js";
 import { RunCodeTool } from "../ptc/run-code-tool.js";
@@ -109,8 +110,9 @@ export function createHierarchicalAgent(
   toolStatsRegistry?: ToolStatsRegistry,
   llmTimeoutMs?: number,
   toolFilter?: ToolFilter,
+  budget?: HierarchicalBudget,
 ): HierarchicalAgentLangGraph {
-  return new HierarchicalAgentLangGraph(llm, tools, tracer, toolStatsRegistry, llmTimeoutMs, toolFilter);
+  return new HierarchicalAgentLangGraph(llm, tools, tracer, toolStatsRegistry, llmTimeoutMs, toolFilter, budget);
 }
 
 /**

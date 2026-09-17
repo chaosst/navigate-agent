@@ -142,12 +142,12 @@ export const DualLoopState = Annotation.Root({
   // 配置
   maxTokens: Annotation<number>({
     reducer: (_, b) => b,
-    default: () => 100000,  // 100k tokens
+    default: () => 500000,  // 500k tokens（plan 多步任务；可用 PLAN_MAX_TOKENS 覆盖）
   }),
   
   maxTimeMs: Annotation<number>({
     reducer: (_, b) => b,
-    default: () => 300000,  // 5 minutes
+    default: () => 900000,  // 15 minutes
   }),
   
   maxSteps: Annotation<number>({

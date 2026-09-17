@@ -28,18 +28,86 @@ const PLANNER_PROMPT = `你是一个任务规划器，采用双层循环架构�
 输出格式：
 {
   "action": "create_plan" | "execute_step" | "finalize",
-  "plan": { "goal": "...", "steps": [...] },  // 仅 create_plan 时
+  "plan": {                                   // 仅 create_plan 时
+    "goal": "整个任务的一句话目标",
+    "steps": [
+      { "id": "s1", "description": "第一步要做什么", "status": "pending" },
+      { "id": "s2", "description": "第二步要做什么", "status": "pending" }
+    ]
+  },
   "stepToExecute": 0,                         // 仅 execute_step 时
   "finalAnswer": "...",                       // 仅 finalize 时
   "reasoning": "思考过程"
-}`;
+}
+
+steps 字段约束（不遵守会导致任务列表只剩编号、无法展示）：
+- 每条 step 必须带 id / description / status 三个字段，且 description 非空
+- description 写清「这一步做什么」，例如「检索万绿湖游船班次与票价」
+- **严禁**把 "step_1"、"步骤 1" 这类编号原样当作 description
+- steps 至少 2 条，每条应当是能独立执行的动作`;
 
 const EXECUTOR_PROMPT = `你是一个任务执行器。
 
 规则：
-- 专注于当前步骤
-- 使用工具完成任务
-- 有最终答案时直接输出，不调用工具`;
+- 专注于当前步骤，只做这一步该做的事
+- 需要外部信息（检索、读文件、执行命令）时才调用工具
+- 撰写 / 整理 / 归纳 / 规划类步骤若不缺外部信息，**直接输出结果**，
+  不要为了「稳妥」反复调用工具
+- 已能给出结果时立即输出，不要重复调用同一个工具`;
+
+/**
+ * 跑到一半仍未产出文本时注入的提醒。
+ * 实测：纯汇总步骤会一直调工具（找根目录不存在的 README 找了 7 次），
+ * 跑满 10 轮零产出 → 步骤被判失败。仅靠 system prompt 约束不住。
+ */
+const EXECUTOR_NUDGE = "提示：以上信息可能已经足够。若本步骤是撰写 / 归纳 / 汇总类，"
+    + "请立即基于已有结果直接输出最终文本，不要再调用工具。";
+
+/** 内层 ReAct 上下文窗口：控制每轮请求体量，避免单步 token 超线性膨胀 */
+interface ExecutorContextWindow {
+    /** 保留最近多少组「AIMessage(tool_calls) + 其全部 ToolMessage」 */
+    recentGroups: number;
+    /** 单条工具结果字符上限，超出做头尾截断 */
+    maxToolResultChars: number;
+    /** 窗口内历史部分的总字符上限（从最新往前收，收满即停） */
+    maxContextChars: number;
+}
+
+const DEFAULT_CONTEXT_WINDOW: ExecutorContextWindow = {
+    recentGroups: 4,
+    maxToolResultChars: 1200,
+    maxContextChars: 24_000,
+};
+
+/**
+ * 双层循环（plan 模式）的运行预算。
+ * 默认值偏保守地放宽：plan 是多步任务，100k 总预算常在第一、二步就被 ReAct 循环耗尽
+ * （实测单步 163k tokens），导致 step_2..N 永远拿不到调度机会。
+ * 可用 PLAN_MAX_TOKENS / PLAN_MAX_TIME_MS / PLAN_MAX_STEPS 覆盖。
+ */
+export interface HierarchicalBudget {
+    maxTokens?: number;
+    maxTimeMs?: number;
+    maxSteps?: number;
+}
+
+const DEFAULT_BUDGET: Required<HierarchicalBudget> = {
+    maxTokens: 500_000,
+    maxTimeMs: 900_000,
+    maxSteps: 20,
+};
+
+/**
+ * 「不是描述的描述」：纯编号（step_1 / 步骤 2 / 3）。
+ * LLM 偶尔会把它填进 description，界面就只剩编号（2026-09-17 实测）。
+ */
+const NUMBER_LIKE_DESCRIPTION = /^(?:step[\s_-]*\d+|步骤\s*\d+|\d+)$/i;
+
+/** 资源耗尽的判定结果（供路由与 fallback 文案复用，避免只吐一句 Progress） */
+interface ExhaustionInfo {
+    reason: "tokens" | "time" | "steps";
+    message: string;
+}
 
 export class HierarchicalAgentLangGraph {
     private plannerLLM: ChatOpenAI;
@@ -51,6 +119,10 @@ export class HierarchicalAgentLangGraph {
     private llmTimeoutMs: number;
     /** 内层步骤 executor 的动态工具过滤（normal/ptc 同款；仅作用于 executeStep，planner 不绑工具不受影响） */
     private toolFilter?: ToolFilter;
+    /** 运行预算（未传则用 DEFAULT_BUDGET；stream 的 config 参数优先级更高） */
+    private budget: Required<HierarchicalBudget>;
+    /** 内层 ReAct 上下文窗口 */
+    private contextWindow: ExecutorContextWindow;
     private graph: any;
 
     constructor(
@@ -60,6 +132,8 @@ export class HierarchicalAgentLangGraph {
         toolStatsRegistry?: ToolStatsRegistry,
         llmTimeoutMs = 120_000,
         toolFilter?: ToolFilter,
+        budget?: HierarchicalBudget,
+        contextWindow?: Partial<ExecutorContextWindow>,
     ) {
         this.plannerLLM = llm;
         this.executorLLM = llm;
@@ -68,11 +142,17 @@ export class HierarchicalAgentLangGraph {
         this.toolStatsRegistry = toolStatsRegistry;
         this.llmTimeoutMs = llmTimeoutMs;
         this.toolFilter = toolFilter;
+        this.budget = { ...DEFAULT_BUDGET, ...budget };
+        this.contextWindow = { ...DEFAULT_CONTEXT_WINDOW, ...contextWindow };
         this.graph = this.createGraph();
         logAgent({
             type: "info",
             message: `[LangGraph] 初始化完成，工具数量: ${tools.length}`,
-            details: { toolNames: tools.map(t => t.name) }
+            details: {
+                toolNames: tools.map(t => t.name),
+                budget: this.budget,
+                contextWindow: this.contextWindow,
+            }
         });
     }
 
@@ -192,12 +272,12 @@ export class HierarchicalAgentLangGraph {
             details: { messageCount: state.messages.length, planSteps: state.plan.steps.length }
         });
 
-        const plannerOutput = await this.callPlanner(state.messages, state.plan);
+        const { output: plannerOutput, tokensUsed: plannerTokens } = await this.callPlanner(state.messages, state.plan);
 
         logAgent({
             type: "info",
             message: `[LangGraph] 规划节点: 规划完成`,
-            details: { action: plannerOutput.action, reasoning: plannerOutput.reasoning }
+            details: { action: plannerOutput.action, reasoning: plannerOutput.reasoning, tokensUsed: plannerTokens }
         });
 
         // 3. 更新计划
@@ -218,30 +298,52 @@ export class HierarchicalAgentLangGraph {
             plan: newPlan,
             plannerOutput,
             currentStepIndex: plannerOutput.stepToExecute ?? state.currentStepIndex,
+            // planner 的 token 此前完全没计入预算（只算 executor），
+            // 属「统计偏低」的假信号；加法 reducer 下只能返回增量。
+            totalTokens: plannerTokens,
         };
     }
 
-    private isResourceExhausted(state: DualLoopStateType): boolean {
+    /** 预算耗尽的判定与原因（供路由与 fallback 文案共用；未耗尽返回 null） */
+    private getExhaustion(state: DualLoopStateType): ExhaustionInfo | null {
         const elapsed = Date.now() - state.startTime;
-        const exhausted = (
-            state.totalTokens >= state.maxTokens ||
-            elapsed >= state.maxTimeMs ||
-            state.currentStepIndex >= state.maxSteps
-        );
+        let info: ExhaustionInfo | null = null;
 
-        if (exhausted) {
+        if (state.totalTokens >= state.maxTokens) {
+            info = {
+                reason: "tokens",
+                message: `token 预算耗尽（${state.totalTokens}/${state.maxTokens}）`,
+            };
+        } else if (elapsed >= state.maxTimeMs) {
+            info = {
+                reason: "time",
+                message: `时间预算耗尽（${(elapsed / 1000).toFixed(1)}s/${(state.maxTimeMs / 1000).toFixed(0)}s）`,
+            };
+        } else if (state.currentStepIndex >= state.maxSteps) {
+            info = {
+                reason: "steps",
+                message: `已达步骤数上限（${state.currentStepIndex}/${state.maxSteps}）`,
+            };
+        }
+
+        if (info) {
             logAgent({
                 type: "error",
-                message: `[LangGraph] 资源检查: 已耗尽`,
+                message: `[LangGraph] 资源检查: 已耗尽（${info.reason}）`,
                 details: {
                     tokens: `${state.totalTokens}/${state.maxTokens}`,
                     elapsed: `${elapsed}ms/${state.maxTimeMs}ms`,
-                    steps: `${state.currentStepIndex}/${state.maxSteps}`
+                    steps: `${state.currentStepIndex}/${state.maxSteps}`,
+                    planSteps: state.plan.steps.length,
                 }
             });
         }
 
-        return exhausted;
+        return info;
+    }
+
+    private isResourceExhausted(state: DualLoopStateType): boolean {
+        return this.getExhaustion(state) !== null;
     }
 
     private async executorNode(state: DualLoopStateType) {
@@ -272,7 +374,7 @@ export class HierarchicalAgentLangGraph {
         step.status = "in_progress";
 
         // 执行步骤
-        const { result, intermediateSteps, tokensUsed } = await this.executeStep(
+        const { result, intermediateSteps, tokensUsed, completed, iterations } = await this.executeStep(
             step,
             state.messages,
         );
@@ -284,17 +386,27 @@ export class HierarchicalAgentLangGraph {
                 stepId: step.id,
                 resultLength: result.length,
                 toolCalls: intermediateSteps.length,
-                tokensUsed
+                tokensUsed,
+                completed,
+                iterations,
             }
         });
 
         step.result = result;
-        step.status = result.startsWith("Error:") ? "failed" : "completed";
+        // 「没产出结果」不能算完成：ReAct 迭代耗尽仍全是工具调用时 result 为空，
+        // 旧实现兜底成 "Step completed" 并标 completed —— 一个字都没产出却被计为成功。
+        if (!completed) {
+            step.status = "failed";
+            step.error = `未产出结果：ReAct 迭代 ${iterations} 轮仍全是工具调用（工具调用 ${intermediateSteps.length} 次）`;
+        } else {
+            step.status = result.startsWith("Error:") ? "failed" : "completed";
+            if (step.status === "failed") step.error = result;
+        }
 
         logAgent({
             type: "info",
             message: `[LangGraph] 执行节点: 步骤状态更新为 ${step.status}`,
-            details: { stepId: step.id, status: step.status }
+            details: { stepId: step.id, status: step.status, error: step.error }
         });
 
         // 更新计划
@@ -305,12 +417,21 @@ export class HierarchicalAgentLangGraph {
         return {
             plan: newPlan,
             intermediateSteps,
-            totalTokens: state.totalTokens + tokensUsed,
+            // totalTokens 是加法 reducer（reducer: (a,b) => a+b），节点只能返回**增量**。
+            // 旧实现返回 state.totalTokens + tokensUsed 会被二次累加（langgraph 语义已实测），
+            // 多步计划下 token 预算会翻倍消耗、过早触发 fallback。
+            totalTokens: tokensUsed,
             currentStepIndex: stepIndex + 1,
         };
     }
 
-    private async callPlanner(messages: BaseMessage[], currentPlan: ExecutionPlan): Promise<PlannerOutput> {
+    private async callPlanner(
+        messages: BaseMessage[],
+        currentPlan: ExecutionPlan,
+    ): Promise<{ output: PlannerOutput; tokensUsed: number }> {
+        /** planner 自身的 token 消耗（此前完全未计入预算，预算统计偏低） */
+        let tokensUsed = 0;
+
         logAgent({
             type: "info",
             message: `[LangGraph] 调用规划器`,
@@ -347,6 +468,7 @@ export class HierarchicalAgentLangGraph {
                 signal: AbortSignal.timeout(this.llmTimeoutMs)
             })
             const usage = (response as any).usage_metadata;
+            tokensUsed += (usage?.input_tokens ?? 0) + (usage?.output_tokens ?? 0);
             this.tracer?.addLLMCall(
                 0,
                 `planner messages[${plannerMessages.length}]`,
@@ -368,17 +490,20 @@ export class HierarchicalAgentLangGraph {
             });
             // 降级：创建单步骤计划
             return {
-                action: "create_plan",
-                plan: {
-                    goal: this.extractUserInput(messages),
-                    steps: [{
-                        id: "step_1", description: this.extractUserInput(messages), status: "pending"
-                    }],
-                    currentStepIndex: 0,
-                    createdAt: Date.now(),
-                    updatedAt: Date.now()
+                output: {
+                    action: "create_plan",
+                    plan: {
+                        goal: this.extractUserInput(messages),
+                        steps: [{
+                            id: "step_1", description: this.extractUserInput(messages), status: "pending"
+                        }],
+                        currentStepIndex: 0,
+                        createdAt: Date.now(),
+                        updatedAt: Date.now()
+                    },
+                    reasoning: `Fallback： ${err instanceof Error ? err.message : String(err)}`
                 },
-                reasoning: `Fallback： ${err instanceof Error ? err.message : String(err)}`
+                tokensUsed,
             }
         }
 
@@ -405,14 +530,31 @@ export class HierarchicalAgentLangGraph {
 
                 // 标准化 plan
                 if (parsed.plan) {
-                    parsed.plan.steps = parsed.plan.steps.map((s, i) => ({
-                        id: s.id || `step_${i + 1}`,
-                        description: s.description || `step_${i + 1}`,
-                        status: s.status || "pending"
-                    }))
+                    const missing: number[] = []
+                    parsed.plan.steps = parsed.plan.steps.map((s, i) => {
+                        const description = s.description?.trim()
+                        // 空描述与「纯编号冒充描述」都算缺失
+                        const usable = !!description && !NUMBER_LIKE_DESCRIPTION.test(description)
+                        if (!usable) missing.push(i + 1)
+                        return {
+                            id: s.id || `step_${i + 1}`,
+                            // 兜底只是「不让界面崩」，它不是描述。缺失必须告警：
+                            // 旧实现兜底成 `step_${i+1}`，任务列表静默退化成只有编号
+                            // （2026-09-17 实测 LLM 返回 {"stepId":"step_1","description":"step_1"}）。
+                            description: usable ? description : `（第 ${i + 1} 步：规划器未给出描述）`,
+                            status: s.status || "pending",
+                        }
+                    })
+                    if (missing.length > 0) {
+                        logAgent({
+                            type: "error",
+                            message: `[LangGraph] 规划器: ${missing.length}/${parsed.plan.steps.length} 条步骤缺少可用 description，已用占位描述`,
+                            details: { missingIndexes: missing }
+                        })
+                    }
                 }
 
-                return parsed
+                return { output: parsed, tokensUsed }
             }
         } catch (err) {
             logAgent({ type: "error", message: `JSON parse failed` });
@@ -424,10 +566,22 @@ export class HierarchicalAgentLangGraph {
             message: `[LangGraph] 规划器: 使用降级推理`,
             details: { contentLength: content.length }
         });
-        return this.inferPlannerAction(content, currentPlan)
+        return { output: this.inferPlannerAction(content, currentPlan), tokensUsed }
     }
 
-    private async executeStep(step: PlanStep, contextMessages: BaseMessage[], maxIterations: number = 10): Promise<{ result: string, intermediateSteps: AgentStep[], tokensUsed: number }> {
+    private async executeStep(
+        step: PlanStep,
+        contextMessages: BaseMessage[],
+        maxIterations: number = 10,
+    ): Promise<{
+        result: string;
+        intermediateSteps: AgentStep[];
+        tokensUsed: number;
+        /** 是否走到「无工具调用 → 产出文本」的正常出口。false = 迭代耗尽仍全是工具调用 */
+        completed: boolean;
+        /** 实际执行的 ReAct 轮数 */
+        iterations: number;
+    }> {
         logAgent({
             type: "info",
             message: `[LangGraph] 执行步骤 ${step.id}`,
@@ -459,6 +613,8 @@ export class HierarchicalAgentLangGraph {
         const intermediateSteps: AgentStep[] = []
         // 本步骤累计 token 消耗（从 usage_metadata 读取，供 totalTokens 与统计展示）
         let tokensUsed = 0
+        /** 实际跑过的 ReAct 轮数（供零产出时说明原因） */
+        let iterationsRun = 0
 
         logAgent({
             type: "info",
@@ -467,22 +623,45 @@ export class HierarchicalAgentLangGraph {
         });
 
         // 3、内存 ReAct 循环
+        const nudgeAt = Math.max(1, Math.ceil(maxIterations / 2))
         for (let iter = 0; iter < maxIterations; iter++) {
+            iterationsRun = iter + 1
             logAgent({
                 type: "info",
                 message: `[Step ${step.id}] Iter ${iter + 1}`
             })
 
+            // 跑到一半仍没产出文本 → 注入一次「别再调工具了」的提醒。
+            // 纯汇总步骤实测会一直检索（找不存在的 README 找了 7 次），跑满轮数零产出。
+            if (iterationsRun === nudgeAt) {
+                executorMessages.push(new HumanMessage(EXECUTOR_NUDGE))
+                logAgent({
+                    type: "info",
+                    message: `[LangGraph] 步骤 ${step.id}: 注入产出提醒（第 ${iterationsRun} 轮）`
+                })
+            }
+
+            // 每轮只发「受限窗口」，避免历史工具结果把请求体越滚越大
+            const llmMessages = this.buildExecutorWindow(executorMessages)
+            const isLastIteration = iter === maxIterations - 1
+
             let response
             try {
-                response = await llmWithTools.invoke(executorMessages, {
-                    signal: AbortSignal.timeout(this.llmTimeoutMs)
-                })
+                // 最后一轮不再绑工具：强制模型给出文本结论。
+                // 实测汇总类步骤会一直检索（找根目录不存在的 README 找了 10 次），
+                // 跑满轮数却一个字都没产出 —— 留一轮裸调用作保底收口。
+                response = isLastIteration
+                    ? await this.executorLLM.invoke(llmMessages, {
+                        signal: AbortSignal.timeout(this.llmTimeoutMs)
+                    })
+                    : await llmWithTools.invoke(llmMessages, {
+                        signal: AbortSignal.timeout(this.llmTimeoutMs)
+                    })
                 const usage = (response as any).usage_metadata;
                 tokensUsed += (usage?.input_tokens ?? 0) + (usage?.output_tokens ?? 0);
                 this.tracer?.addLLMCall(
                     iter,
-                    `step ${step.id} messages[${executorMessages.length}]`,
+                    `step ${step.id} messages[${llmMessages.length}]`,
                     null,
                     response.tool_calls?.map((tc: any) => tc.name as string) ?? null,
                     0,
@@ -506,14 +685,14 @@ export class HierarchicalAgentLangGraph {
                         message: `[LangGraph] 步骤 ${step.id}: 降级重试（不绑定工具）`
                     });
                     try {
-                        response = await this.executorLLM.invoke(executorMessages, {
+                        response = await this.executorLLM.invoke(llmMessages, {
                             signal: AbortSignal.timeout(this.llmTimeoutMs),
                         });
                         const usage = (response as any).usage_metadata;
                         tokensUsed += (usage?.input_tokens ?? 0) + (usage?.output_tokens ?? 0);
                         this.tracer?.addLLMCall(
                             iter,
-                            `step ${step.id} (retry) messages[${executorMessages.length}]`,
+                            `step ${step.id} (retry) messages[${llmMessages.length}]`,
                             this.extractText(response.content),
                             null,
                             0,
@@ -529,14 +708,19 @@ export class HierarchicalAgentLangGraph {
                         return {
                             result: `Error: LLM failed - ${retryErr instanceof Error ? retryErr.message : String(retryErr)}`,
                             intermediateSteps,
-                            tokensUsed: 0
+                            // 已发生的调用要计入预算，旧实现固定返回 0 会让统计偏低
+                            tokensUsed,
+                            completed: false,
+                            iterations: iterationsRun,
                         };
                     }
                 } else {
                     return {
                         result: `Error: LLM failed`,
                         intermediateSteps,
-                        tokensUsed: 0
+                        tokensUsed,
+                        completed: false,
+                        iterations: iterationsRun,
                     }
                 }
             }
@@ -617,20 +801,120 @@ export class HierarchicalAgentLangGraph {
             });
         }
 
+        const completed = finalResult.trim().length > 0;
+
         logAgent({
-            type: "info",
+            type: completed ? "info" : "error",
             message: `[LangGraph] 步骤 ${step.id} 执行完毕`,
             details: {
                 resultLength: finalResult.length,
-                totalToolCalls: intermediateSteps.length
+                totalToolCalls: intermediateSteps.length,
+                iterations: iterationsRun,
+                completed,
             }
         });
 
         return {
-            result: finalResult || "Step completed",
+            // 不用 "Step completed" 兜底 —— 那会把「一个字都没产出」伪装成正常完成：
+            // 卡片显示 ✅、状态标 completed，但这一步实际什么都没做。
+            result: completed
+                ? finalResult
+                : `（未产出内容：ReAct 迭代 ${iterationsRun} 轮全部产生了工具调用，未生成结果文本）`,
             intermediateSteps,
             tokensUsed,
+            completed,
+            iterations: iterationsRun,
         }
+    }
+
+    /**
+     * 构造内层 ReAct 的受限上下文视图。
+     *
+     * 背景：`executorMessages` 每轮全量重发，工具结果持续累积，单步 token 超线性膨胀
+     * （实测 31 次工具调用 = 163k tokens，单步即打爆 100k 预算）。
+     * 这里不改动 `executorMessages` 本身，只在每次调用 LLM 前生成
+     * 「最近若干组工具往返 + 单条结果截断」的视图。
+     *
+     * 硬约束：带 tool_calls 的 AIMessage 必须与其全部 ToolMessage 同现，
+     * 因此按「组」裁剪，绝不在组内切断（否则 OpenAI 直接 400）。
+     */
+    private buildExecutorWindow(messages: BaseMessage[]): BaseMessage[] {
+        const { recentGroups, maxToolResultChars, maxContextChars } = this.contextWindow;
+
+        // 头部固定：executorMessages 前缀是 [System(EXECUTOR_PROMPT), Human(本步骤指令)]
+        const head = messages.slice(0, 2);
+        const rest = messages.slice(2);
+        if (rest.length === 0) return head;
+
+        // 分组：带 tool_calls 的 AIMessage 起新组，其后所有消息（ToolMessage）归入该组
+        const groups: BaseMessage[][] = [];
+        for (const msg of rest) {
+            const toolCalls = msg._getType() === "ai" ? (msg as AIMessage).tool_calls : undefined;
+            const isToolCallRoot = Array.isArray(toolCalls) && toolCalls.length > 0;
+            if (isToolCallRoot || groups.length === 0) {
+                groups.push([msg]);
+            } else {
+                groups[groups.length - 1].push(msg);
+            }
+        }
+
+        // 从最新往前收，受「组数」与「字符数」双约束
+        const kept: BaseMessage[][] = [];
+        let windowChars = 0;
+        for (let i = groups.length - 1; i >= 0 && kept.length < recentGroups; i--) {
+            const group = groups[i];
+            const size = group.reduce((n, m) => n + this.messageChars(m), 0);
+            // 至少保留最新一组，避免超大结果导致窗口为空
+            if (kept.length > 0 && windowChars + size > maxContextChars) break;
+            kept.unshift(group);
+            windowChars += size;
+        }
+
+        const dropped = groups.length - kept.length;
+        if (dropped > 0) {
+            logAgent({
+                type: "info",
+                message: `[LangGraph] 执行步骤: 上下文窗口裁剪 ${dropped}/${groups.length} 组`,
+                details: {
+                    keptGroups: kept.length,
+                    droppedGroups: dropped,
+                    windowChars,
+                }
+            });
+        }
+
+        return [
+            ...head,
+            ...kept.flat().map((m) => this.truncateToolMessage(m, maxToolResultChars)),
+        ];
+    }
+
+    /** 估算单条消息的字符量（工具结果是大头，tool_calls 忽略不计） */
+    private messageChars(msg: BaseMessage): number {
+        const content = (msg as any).content;
+        if (typeof content === "string") return content.length;
+        if (Array.isArray(content)) return JSON.stringify(content).length;
+        return 0;
+    }
+
+    /** 单条工具结果超限时做头尾截断，保留开头（关键结论）与结尾（下一步线索） */
+    private truncateToolMessage(msg: BaseMessage, maxChars: number): BaseMessage {
+        if (msg._getType() !== "tool") return msg;
+
+        const text = this.extractText((msg as any).content);
+        if (text.length <= maxChars) return msg;
+
+        const headLen = Math.floor(maxChars * 0.7);
+        const tailLen = Math.max(0, maxChars - headLen);
+        const truncated = text.slice(0, headLen)
+            + `\n…[已截断 ${text.length - maxChars} 字符]…\n`
+            + text.slice(-tailLen);
+
+        // 生成视图专用副本：原消息继续用于 intermediateSteps 与统计，不受影响
+        return new ToolMessage({
+            content: truncated,
+            tool_call_id: (msg as any).tool_call_id,
+        });
     }
 
     private formatPlanSummary(plan: ExecutionPlan): string {
@@ -725,12 +1009,13 @@ export class HierarchicalAgentLangGraph {
             }
         });
 
-        const fallback = this.generateFallbackAnswer(state.plan);
+        const exhaustion = this.getExhaustion(state);
+        const fallback = this.generateFallbackAnswer(state, exhaustion);
 
         logAgent({
             type: "error",
             message: `[LangGraph] fallback 完成`,
-            details: { answerLength: fallback.length }
+            details: { answerLength: fallback.length, reason: exhaustion?.reason }
         });
 
         // 统计脚注：即使失败，已发生的 LLM/工具调用也应计入
@@ -759,10 +1044,38 @@ export class HierarchicalAgentLangGraph {
         return this.extractText(response.content);
     }
 
-    private generateFallbackAnswer(plan: ExecutionPlan): string {
+    /**
+     * 中断时的产出说明。
+     * 旧实现只吐 "Progress: 1/5" —— 用户看不出为什么停、停在哪、还能不能继续。
+     */
+    private generateFallbackAnswer(state: DualLoopStateType, exhaustion: ExhaustionInfo | null): string {
+        const plan = state.plan;
         const completed = plan.steps.filter(s => s.status === "completed");
-        return `Progress: ${completed.length}/${plan.steps.length} steps completed.\n\n` +
-            completed.map(s => `- ✅ ${s.description}`).join("\n");
+        const failed = plan.steps.filter(s => s.status === "failed");
+        const pending = plan.steps.filter(s => s.status === "pending" || s.status === "in_progress");
+        const elapsedSec = ((Date.now() - state.startTime) / 1000).toFixed(1);
+
+        const lines = [
+            `⚠️ 任务未完成：${exhaustion ? `因${exhaustion.message}中断` : "因执行异常中断"}`,
+            `进度 ${completed.length}/${plan.steps.length} 步 · 已消耗 ${state.totalTokens} tokens · 耗时 ${elapsedSec}s`,
+        ];
+
+        if (completed.length > 0) {
+            lines.push("", "已完成：", ...completed.map(s => `- ✅ ${s.description}`));
+        }
+        if (failed.length > 0) {
+            lines.push("", "未成功：", ...failed.map(s => `- ❌ ${s.description}${s.error ? `（${s.error}）` : ""}`));
+        }
+        if (pending.length > 0) {
+            lines.push("", "未开始：", ...pending.map(s => `- ⏳ ${s.description}`));
+        }
+
+        lines.push(
+            "",
+            "可提高 PLAN_MAX_TOKENS / PLAN_MAX_TIME_MS 后重试，或把任务拆成更小的几轮。",
+        );
+
+        return lines.join("\n");
     }
 
     private extractUserInput(messages: BaseMessage[]): string {
@@ -805,9 +1118,9 @@ export class HierarchicalAgentLangGraph {
           currentStepIndex: 0,
           totalTokens: 0,
           startTime: Date.now(),
-          maxTokens: config?.maxTokens ?? 100000,
-          maxTimeMs: config?.maxTimeMs ?? 300000,
-          maxSteps: config?.maxSteps ?? 20,
+          maxTokens: config?.maxTokens ?? this.budget.maxTokens,
+          maxTimeMs: config?.maxTimeMs ?? this.budget.maxTimeMs,
+          maxSteps: config?.maxSteps ?? this.budget.maxSteps,
           intermediateSteps: [],
         };
 
