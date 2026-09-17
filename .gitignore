@@ -29,6 +29,10 @@ basketball-website/
 backup/
 *.tar.gz
 
+# 本地调试遗留（git 修复探针 / 临时校验脚本）
+__probe_git/
+.tmp-*
+
 # 个人/运行时数据
 /resume.md
 /resume.docx
