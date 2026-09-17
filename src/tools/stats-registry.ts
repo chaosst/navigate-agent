@@ -45,7 +45,9 @@ export class ToolStatsRegistry {
       if (s.callCount > 0){
         totalCalls += s.callCount
         totalDuration += s.totalDurationMs
-        const avg = s.totalDurationMs / s.callCount
+        // 耗时取整（四舍五入）：`permission.now()` 是亚毫秒精度，直接打印会出
+        // `12.345678901234ms` 这种长尾，表格宽度被浮点尾巴撑开、也没人读小数点后 9 位
+        const avg = Math.round(s.totalDurationMs / s.callCount)
         totalErrors += s.errors
         lines.push(`| ${w.name} | ${s.callCount} | ${avg}ms | ${s.errors} | ${PERMISSION_LABEL[w.permission]} |`)
       }
@@ -69,7 +71,7 @@ export class ToolStatsRegistry {
       "| 工具 | 调用 | 平均耗时 | 错误 | 权限 |",
       "|---|---|---|---|---|",
       ...lines,
-      `总计: ${this.getTotalCalls()} 次调用, 总耗时 ${totalDuration}ms`,
+      `总计: ${this.getTotalCalls()} 次调用, 总耗时 ${Math.round(totalDuration)}ms`,
     ].join("\n");
   }
 
