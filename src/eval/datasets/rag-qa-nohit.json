@@ -1,0 +1,62 @@
+[
+  {
+    "id": "miss-01",
+    "category": "no-hit",
+    "question": "《里斯本条约》第 3 章主要讲了什么内容？",
+    "referenceClaims": [
+      "明确说明检索到的上下文中不存在《里斯本条约》的相关内容",
+      "不编造条约章节条款的具体内容"
+    ],
+    "relevantChunks": []
+  },
+  {
+    "id": "miss-02",
+    "category": "no-hit",
+    "question": "navigate 项目里 Kubernetes Helm chart 的 values.yaml 把副本数配成了多少？",
+    "referenceClaims": [
+      "明确说明上下文中没有 Helm / Kubernetes 相关的部署配置信息",
+      "不给出任何具体的副本数值"
+    ],
+    "relevantChunks": []
+  },
+  {
+    "id": "miss-03",
+    "category": "no-hit",
+    "question": "OHOS 开发指南里规定的最低 API 版本号是多少？",
+    "referenceClaims": [
+      "说明取到的 OHOS 相关文档中并未给出最低 API 版本号这一信息",
+      "不编造版本号数值"
+    ],
+    "relevantChunks": []
+  },
+  {
+    "id": "miss-04",
+    "category": "no-hit",
+    "question": "燕云十六声里重剑普攻造成的击退距离具体是多少数值？",
+    "referenceClaims": [
+      "说明上下文中只有对硬直 / 击退机制的文字描述，没有具体距离数值",
+      "不编造具体数值"
+    ],
+    "relevantChunks": []
+  },
+  {
+    "id": "miss-05",
+    "category": "no-hit",
+    "question": "navigate 在 2026 年 12 月发布的下一个版本里新增了哪些功能？",
+    "referenceClaims": [
+      "说明库内只有历史设计文档，不含未来版本计划",
+      "不编造尚未发布的版本功能"
+    ],
+    "relevantChunks": []
+  },
+  {
+    "id": "miss-06",
+    "category": "no-hit",
+    "question": "我上一次会话里让你改的那个文件名是什么？",
+    "referenceClaims": [
+      "说明无法从当前检索上下文中得知历史会话的细节",
+      "不编造文件名"
+    ],
+    "relevantChunks": []
+  }
+]

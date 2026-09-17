@@ -38,5 +38,65 @@
     "id": "agt-08",
     "category": "multi-step",
     "task": "读取 package.json 的 scripts 字段，然后列出所有与测试（test）相关的命令"
+  },
+  {
+    "id": "agt-09",
+    "category": "tool-read",
+    "task": "列出 src/rag 目录下的所有文件"
+  },
+  {
+    "id": "agt-10",
+    "category": "tool-read",
+    "task": "读取 tsconfig.json，并说明 compilerOptions 里 strict 与 target 的取值"
+  },
+  {
+    "id": "agt-11",
+    "category": "tool-shell",
+    "task": "查看当前 git 仓库所在的分支名"
+  },
+  {
+    "id": "agt-12",
+    "category": "tool-shell",
+    "task": "统计 src 目录下 .ts 文件的总数"
+  },
+  {
+    "id": "agt-13",
+    "category": "tool-shell",
+    "task": "查看当前 node 的版本号以及进程的工作目录"
+  },
+  {
+    "id": "agt-14",
+    "category": "rag",
+    "task": "从已上传的文档中检索与 Wiki.js 迁移方案相关的段落"
+  },
+  {
+    "id": "agt-15",
+    "category": "rag",
+    "task": "从已上传的文档中检索与「切块 / 文本分割」相关的段落，并说明文档选用了哪种分割器"
+  },
+  {
+    "id": "agt-16",
+    "category": "rag",
+    "task": "从已上传的文档中检索与「记忆层持久化」相关的段落"
+  },
+  {
+    "id": "agt-17",
+    "category": "rag",
+    "task": "从已上传的文档中检索与「架构 UML 的工具层」相关的段落"
+  },
+  {
+    "id": "agt-18",
+    "category": "multi-step",
+    "task": "先列出 src/eval 目录下的文件，再读取其中的运行器文件，说明它对外导出了什么"
+  },
+  {
+    "id": "agt-19",
+    "category": "multi-step",
+    "task": "读取 package.json 的 dependencies 字段，然后列出所有以 @langchain 开头的依赖及版本"
+  },
+  {
+    "id": "agt-20",
+    "category": "multi-step",
+    "task": "先搜索所有名称以 .test.ts 结尾的文件，再统计一共有多少个"
   }
 ]

@@ -162,5 +162,165 @@
       "items 至少含 2 个元素，每项含 name 与数值型 price",
       "total 数值等于各 price 之和"
     ]
+  },
+  {
+    "id": "fact-05",
+    "category": "factual",
+    "question": "HTTPS 与 HTTP 的主要区别是什么？",
+    "referenceClaims": [
+      "HTTPS 在 HTTP 之上叠加了 TLS/SSL 加密层",
+      "HTTP 默认端口 80，HTTPS 默认端口 443",
+      "加密保证了传输的机密性与完整性，并可验证服务端身份"
+    ]
+  },
+  {
+    "id": "fact-06",
+    "category": "factual",
+    "question": "什么是 DNS？它的主要作用是什么？",
+    "referenceClaims": [
+      "DNS 是域名系统（Domain Name System）",
+      "主要作用是把人类可读的域名解析为 IP 地址",
+      "它是分布式、分层级的系统，是互联网访问的寻址基础"
+    ]
+  },
+  {
+    "id": "fact-07",
+    "category": "factual",
+    "question": "进程与线程的核心区别是什么？",
+    "referenceClaims": [
+      "进程是资源分配的基本单位，线程是 CPU 调度的基本单位",
+      "同一进程内的多个线程共享内存空间，进程之间相互隔离",
+      "线程的创建与切换开销小于进程"
+    ]
+  },
+  {
+    "id": "fact-08",
+    "category": "factual",
+    "question": "Docker 镜像与容器是什么关系？",
+    "referenceClaims": [
+      "镜像是只读的模板，容器是镜像的运行实例",
+      "一个镜像可以启动多个彼此隔离的容器",
+      "容器在镜像之上叠加可写层，删除容器不影响镜像本身"
+    ]
+  },
+  {
+    "id": "reas-05",
+    "category": "reasoning",
+    "question": "某商品打 8 折后售价 240 元，原价是多少？请给出计算过程。",
+    "referenceClaims": [
+      "列出等式：240 = 原价 × 0.8",
+      "原价 = 240 / 0.8 = 300",
+      "最终答案为 300 元"
+    ]
+  },
+  {
+    "id": "reas-06",
+    "category": "reasoning",
+    "question": "把 1 到 100 的所有整数相加，结果是多少？请给出计算过程。",
+    "referenceClaims": [
+      "使用首尾配对求和的方法",
+      "共有 50 对，每对之和为 101",
+      "总和为 5050"
+    ]
+  },
+  {
+    "id": "reas-07",
+    "category": "reasoning",
+    "question": "一件工作甲单独做 4 天完成、乙单独做 6 天完成。两人合作需要几天完成？",
+    "referenceClaims": [
+      "甲的效率为每天 1/4，乙的效率为每天 1/6",
+      "合作效率为 1/4 + 1/6 = 5/12",
+      "所需时间为 12/5 = 2.4 天"
+    ]
+  },
+  {
+    "id": "reas-08",
+    "category": "reasoning",
+    "question": "一个长方形长增加 20%、宽减少 20%，面积变化了多少？",
+    "referenceClaims": [
+      "新面积为 1.2 × 0.8 = 0.96 倍原面积",
+      "面积减少了 4%",
+      "结论是缩小而非保持不变"
+    ]
+  },
+  {
+    "id": "inst-05",
+    "category": "instruction",
+    "question": "用一句话向小学生解释什么是「算法」。",
+    "referenceClaims": [
+      "表达出算法是解决某个问题的步骤或方法",
+      "使用生活化语言，不堆砌专业术语",
+      "整体为一句话且简洁易懂"
+    ]
+  },
+  {
+    "id": "inst-06",
+    "category": "instruction",
+    "question": "列出三种常用的 HTTP 请求方法，并各用一句话说明用途。",
+    "referenceClaims": [
+      "列出了至少三种 HTTP 方法（如 GET / POST / PUT / DELETE）",
+      "每个方法都配有一句话用途说明",
+      "各方法的语义描述与 HTTP 规范一致"
+    ]
+  },
+  {
+    "id": "inst-07",
+    "category": "instruction",
+    "question": "把下面这句话压缩成不超过 30 字的一句话摘要：「公司决定在下个季度将服务器从自建机房迁移到云上，以降低成本并提升弹性，同时由运维团队负责迁移方案的设计与实施。」",
+    "referenceClaims": [
+      "输出为单句摘要",
+      "总长度不超过 30 字",
+      "保留「迁移到云」以及「降本或提升弹性」等核心信息"
+    ]
+  },
+  {
+    "id": "inst-08",
+    "category": "instruction",
+    "question": "用三点列出「写单元测试」的主要好处。",
+    "referenceClaims": [
+      "输出为三条（或三点）列表形式",
+      "每点给出一个独立的好处",
+      "内容涵盖回归防护、重构信心或可作文档等含义"
+    ]
+  },
+  {
+    "id": "fmt-05",
+    "category": "format",
+    "question": "用 Markdown 有序列表列出软件开发流程的三个阶段。",
+    "referenceClaims": [
+      "使用 Markdown 有序列表语法（1. / 2. / 3.）",
+      "恰好或至少列出三个阶段",
+      "阶段名称合理（如需求、开发、测试）"
+    ]
+  },
+  {
+    "id": "fmt-06",
+    "category": "format",
+    "question": "把数字 1234567 用千分位分隔符格式化输出。只输出结果，不要任何解释。",
+    "referenceClaims": [
+      "输出为 1,234,567",
+      "不包含任何解释性文字",
+      "数字按三位一组用逗号分隔"
+    ]
+  },
+  {
+    "id": "fmt-07",
+    "category": "format",
+    "question": "用 YAML 表示一个用户：name 为 alice，age 为 30，roles 为数组且包含 admin 与 dev。只输出 YAML，不要任何解释。",
+    "referenceClaims": [
+      "输出是合法可解析的 YAML",
+      "包含 name、age、roles 三个键",
+      "roles 为数组且包含 admin 与 dev 两项"
+    ]
+  },
+  {
+    "id": "fmt-08",
+    "category": "format",
+    "question": "把下面的数据转成 JSON 数组：苹果、香蕉、橙子。只输出 JSON，不要任何解释。",
+    "referenceClaims": [
+      "输出是合法可解析的 JSON 数组",
+      "数组含三个字符串元素（苹果、香蕉、橙子）",
+      "不包含任何解释性文字"
+    ]
   }
 ]

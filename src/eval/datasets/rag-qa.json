@@ -1,0 +1,169 @@
+[
+  {
+    "id": "doc-01",
+    "category": "doc-qa",
+    "question": "navigate 的 Core Agent（Iter 1）设计里，Agent Loop 用什么框架实现？默认最大迭代次数是多少？",
+    "referenceClaims": [
+      "Agent Loop 基于 LangChain.js 的 AgentExecutor + OpenAIToolsAgent（OpenAI tools agent）实现",
+      "默认最大迭代次数（max iterations）为 25",
+      "TUI 采用 ink（React for CLI），LLM 通过 LangChain ChatOpenAI 集成"
+    ],
+    "relevantChunks": [
+      "89c8743c-5a3c-4293-b5f1-6d383f2b786c:0",
+      "0ae92788-b57b-bbf8-a4c6-9a1d02bb1b26:0"
+    ]
+  },
+  {
+    "id": "doc-02",
+    "category": "doc-qa",
+    "question": "navigate 的 Tools 层内置了哪几个工具？它们用什么 LangChain 类定义？",
+    "referenceClaims": [
+      "内置 6 个工具：execute_command、read_file、write_file、edit_file、list_files、search_files",
+      "每个工具用 LangChain StructuredTool 定义，包含名称、描述与输入 JSON Schema",
+      "search_files 基于 ripgrep 做文本搜索，edit_file 采用 search-and-replace 模式"
+    ],
+    "relevantChunks": [
+      "89c8743c-5a3c-4293-b5f1-6d383f2b786c:1",
+      "0ae92788-b57b-bbf8-a4c6-9a1d02bb1b26:1"
+    ]
+  },
+  {
+    "id": "doc-03",
+    "category": "doc-qa",
+    "question": "navigate 一轮对话的数据流分几步？其中工具执行失败、LLM 调用超时分别如何处理？",
+    "referenceClaims": [
+      "数据流为五步：TUI 输入 prompt → AgentExecutor 接收 prompt 与历史记录 → LLM 返回 tool_call 或最终回复 → 若为 tool_call 则执行工具并把结果传回 LLM 继续循环 → 若为最终回复则流式渲染到 TUI 等待下一轮输入",
+      "工具执行失败时，错误信息作为 observation 传回 LLM，由 agent 自行决定重试或给出回复",
+      "LLM 调用超时会重试 2 次后提示用户；超出 max iterations 时返回当前中间结果并提示"
+    ],
+    "relevantChunks": [
+      "89c8743c-5a3c-4293-b5f1-6d383f2b786c:2",
+      "0ae92788-b57b-bbf8-a4c6-9a1d02bb1b26:2"
+    ]
+  },
+  {
+    "id": "doc-04",
+    "category": "doc-qa",
+    "question": "navigate Core Agent 实施计划的 Global Constraints 里，对 Node.js 版本、模块解析方式和工具基类分别提了什么要求？",
+    "referenceClaims": [
+      "要求 Node.js >= 18",
+      "采用 ES module resolution（package.json 中 \"type\": \"module\"）",
+      "所有工具必须使用 @langchain/core/tools 的 StructuredTool，agent 用 @langchain/openai 的 OpenAIToolsAgent；TUI 必须用 ink，不使用 blessed 等其它终端库"
+    ],
+    "relevantChunks": [
+      "73c09568-fcac-4d36-a74f-380c8982f997:1"
+    ]
+  },
+  {
+    "id": "doc-05",
+    "category": "doc-qa",
+    "question": "navigate 的 Memory 层（Iter 2）用什么做持久化？向量库和 Embedding 各选了什么？",
+    "referenceClaims": [
+      "持久化存储用 better-sqlite3（嵌入式 SQLite）",
+      "向量库用 @langchain/community + MemoryVectorStore，Embedding 用 OpenAI text-embedding-3-small",
+      "SQLite 表为 sessions 与 messages；每个会话一个向量存储文件，存放对话摘要嵌入"
+    ],
+    "relevantChunks": [
+      "8ebcfb03-b533-4ed5-8f87-2389e934ba39:0"
+    ]
+  },
+  {
+    "id": "doc-06",
+    "category": "doc-qa",
+    "question": "navigate 的 RAG 引擎（Iter 3）用什么做文本分割和向量库？对外暴露了哪些 API 端点？",
+    "referenceClaims": [
+      "文本分割用 RecursiveCharacterTextSplitter，文档解析用 @langchain/community 的 document loaders",
+      "向量库为 MemoryVectorStore（文件级持久化），后端 API 为 Express.js",
+      "端点包括 POST /api/upload、GET /api/documents、DELETE /api/documents/:id、POST /api/query"
+    ],
+    "relevantChunks": [
+      "8ebcfb03-b533-4ed5-8f87-2389e934ba39:1"
+    ]
+  },
+  {
+    "id": "doc-07",
+    "category": "doc-qa",
+    "question": "navigate 的 AgentMemory facade（src/memory/index.ts）组合了哪些存储？暴露了哪些方法？",
+    "referenceClaims": [
+      "AgentMemory 是 SqliteStore + VectorMemory 的组合封装",
+      "暴露 getOrCreateSession、addMessage、getContextWindow、searchRelated、buildMemoryContext、close 方法",
+      "vector-memory.ts 用 OpenAIEmbeddings(text-embedding-3-small) + MemoryVectorStore，提供 storeSummary / search / deleteSessionMemories"
+    ],
+    "relevantChunks": [
+      "7403d61a-7cc1-a9af-9685-f270947ef2dc:1",
+      "80a0c3cc-5ced-4ae1-80f8-54da842b0bd3:1"
+    ]
+  },
+  {
+    "id": "doc-08",
+    "category": "doc-qa",
+    "question": "navigate 的 Skill 系统支持哪几种 action 类型？各自的实现方式是什么？",
+    "referenceClaims": [
+      "四种动作类型：template、shell、http、code",
+      "template 用 Nunjucks 模板引擎渲染，shell 用 child_process.execSync/exec，http 用 fetch()，code 用 new AsyncFunction() 沙箱执行",
+      "Skill 定义写在 skills/<name>.skill.yaml，含 name / description / schema / action 四段，schema 用 JSON Schema 描述参数"
+    ],
+    "relevantChunks": [
+      "2b32c6eb-47d2-4e2d-825a-9b8d43a6eba5:5",
+      "2b32c6eb-47d2-4e2d-825a-9b8d43a6eba5:6"
+    ]
+  },
+  {
+    "id": "doc-09",
+    "category": "doc-qa",
+    "question": "自建 Wiki 迁到 Wiki.js 后，Wiki.js 跑在哪个端口？与原应用怎么集成？RAG 同步靠什么触发？",
+    "referenceClaims": [
+      "Wiki.js 运行在独立端口 3003，是独立 Node.js 进程",
+      "二者通过导航栏链接与 Webhook 回调集成",
+      "RAG 同步由 Wiki.js 的 Webhook 机制触发，不依赖定时轮询"
+    ],
+    "relevantChunks": [
+      "f037973e-08db-4223-9e5e-6479b6cd315d:3"
+    ]
+  },
+  {
+    "id": "doc-10",
+    "category": "doc-qa",
+    "question": "Wiki.js 向 RAG 同步时，page:created / page:updated / page:deleted 三种事件分别怎么处理？Webhook 地址与 Payload 是什么？",
+    "referenceClaims": [
+      "Webhook POST 到 http://localhost:3001/api/wiki-sync，Payload 含 event、pageId、slug、title 等字段",
+      "page:created 走「通过 GraphQL API 获取内容 → 分块 → 注入 RAG」",
+      "page:updated 先删除旧索引再获取新内容分块注入；page:deleted 从 RAG 删除对应索引"
+    ],
+    "relevantChunks": [
+      "f037973e-08db-4223-9e5e-6479b6cd315d:5"
+    ]
+  },
+  {
+    "id": "doc-11",
+    "category": "doc-qa",
+    "question": "navigate 架构 UML 里，整体架构概览包含哪几个子系统分组？search_documents 工具最终调用的是哪个类？",
+    "referenceClaims": [
+      "整体架构概览分为 配置 / 入口 / Agent 引擎 / 工具层（StructuredTool）/ MCP / RAG / Skill / Resume 等子系统",
+      "MCP 侧含 McpClientManager 与外部 MCP 服务器（stdio）；RAG 侧含 RagVectorStore、Express /api/upload、WikiSyncService",
+      "RagSearchTool 的 name 为 search_documents，ResumeSearchTool 的 name 为 search_resume，前者调用 RagVectorStore"
+    ],
+    "relevantChunks": [
+      "5392e643-9810-9013-e235-4ac6816894b5:0",
+      "5392e643-9810-9013-e235-4ac6816894b5:1",
+      "5392e643-9810-9013-e235-4ac6816894b5:5",
+      "fb8696b3-ef9d-4f73-aaeb-8a72b1aa15ab:0",
+      "fb8696b3-ef9d-4f73-aaeb-8a72b1aa15ab:1",
+      "fb8696b3-ef9d-4f73-aaeb-8a72b1aa15ab:5"
+    ]
+  },
+  {
+    "id": "doc-12",
+    "category": "doc-qa",
+    "question": "简历问答（Resume RAG）里 ResumeStore 的持久化方案与通用 RAG 有何不同？简历各章节的分块粒度是怎么定的？",
+    "referenceClaims": [
+      "ResumeStore 用 SQLite 存储 chunks + base64 embeddings，与通用 RAG（MemoryVectorStore）解耦",
+      "启动时读取项目根目录 resume.md，检测文件 hash 变化后自动更新索引",
+      "分块粒度：summary 整段 1 块、experience/education 每个 item 1 块、skills 按类别分组块、projects 每个项目 1 块、certifications 每个证书 1 块"
+    ],
+    "relevantChunks": [
+      "38d4b4a4-3d26-c940-a8c1-c298c467d245:1",
+      "38d4b4a4-3d26-c940-a8c1-c298c467d245:2"
+    ]
+  }
+]
