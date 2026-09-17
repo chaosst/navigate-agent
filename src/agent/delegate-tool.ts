@@ -3,10 +3,54 @@ import { z } from "zod";
 import { HumanMessage } from "@langchain/core/messages";
 import type { ChatOpenAI } from "@langchain/openai";
 import type { StructuredToolInterface } from "@langchain/core/tools";
+import type { AgentStep } from "@langchain/core/agents";
 import { createAgentExecutor } from "./loop.js";
 
 /** 子 agent 专长类别 */
 export type DelegateAgent = "code" | "docs";
+
+// ---------------------------------------------------------------------------
+// 委托事件总线（模块级）
+//
+// 为什么是模块级而不是实例回调：bootstrap 里 delegate 经 wrapRead 包成
+// PermissionWrapper 后才进工具集，TUI 拿到的不是 DelegateTool 原实例，
+// 没法对实例挂回调。模块级总线与包装解耦，server 等无观察者路径零开销。
+// ---------------------------------------------------------------------------
+
+/** 子 agent 委托生命周期事件（runId 区分并行委托；同 runId 的事件按序到达） */
+export type DelegateEvent =
+  | { type: "start"; runId: string; agent: DelegateAgent; task: string }
+  | { type: "childTool"; runId: string; agent: DelegateAgent; tool: string; input: unknown }
+  | { type: "end"; runId: string; agent: DelegateAgent; ok: boolean; outputChars: number; error?: string };
+
+type DelegateListener = (e: DelegateEvent) => void;
+
+const delegateListeners = new Set<DelegateListener>();
+
+/** 订阅委托事件；返回退订函数。监听器抛错被吞掉，绝不影响委托本身 */
+export function onDelegateEvent(fn: DelegateListener): () => void {
+  delegateListeners.add(fn);
+  return () => {
+    delegateListeners.delete(fn);
+  };
+}
+
+/** 手动发事件（默认 runner 内部用；自定义 runSubAgent 想上报 childTool 也走这里） */
+export function emitDelegateEvent(e: DelegateEvent): void {
+  for (const fn of delegateListeners) {
+    try {
+      fn(e);
+    } catch {
+      // 观察者（如 TUI 渲染）异常不能拖垮子 agent 执行
+    }
+  }
+}
+
+let delegateRunSeq = 0;
+function nextRunId(): string {
+  delegateRunSeq += 1;
+  return `delegate-${delegateRunSeq}`;
+}
 
 export interface DelegateProfile {
   key: DelegateAgent;
@@ -56,6 +100,8 @@ export interface DelegateToolDeps {
     llm: ChatOpenAI;
     maxChildIterations: number;
     llmTimeoutMs: number;
+    /** 本次委托的 runId：自定义 runner 可用它 emitDelegateEvent 上报 childTool */
+    runId?: string;
   }) => Promise<string>;
 }
 
@@ -68,7 +114,7 @@ export function pickChildTools(allTools: StructuredToolInterface[], agent: Deleg
 /** 默认 child runner：用同一 llm + 裁剪工具 new 一个 GraphAgentExecutor 自主跑，收终稿 */
 async function defaultRunSubAgent(ctx: {
   task: string; profile: DelegateProfile; childTools: StructuredToolInterface[];
-  llm: ChatOpenAI; maxChildIterations: number; llmTimeoutMs: number;
+  llm: ChatOpenAI; maxChildIterations: number; llmTimeoutMs: number; runId?: string;
 }): Promise<string> {
   const exec = createAgentExecutor(
     ctx.llm,
@@ -82,6 +128,20 @@ async function defaultRunSubAgent(ctx: {
   );
   let output = "";
   for await (const chunk of exec.stream({ messages: [new HumanMessage(ctx.task)] })) {
+    // child 的每次工具调用经 intermediateSteps 上报（TUI 据此实时显示子 agent 在干什么）。
+    // step 在工具执行完后才到达（LangGraph updates 语义），但比全程静默好得多。
+    const steps = ((chunk as { intermediateSteps?: AgentStep[] }).intermediateSteps) ?? [];
+    if (ctx.runId) {
+      for (const step of steps) {
+        emitDelegateEvent({
+          type: "childTool",
+          runId: ctx.runId,
+          agent: ctx.profile.key,
+          tool: step.action.tool,
+          input: step.action.toolInput,
+        });
+      }
+    }
     const out = (chunk as { output?: unknown }).output;
     if (out !== undefined && out !== null) output += String(out);
   }
@@ -119,20 +179,30 @@ export class DelegateTool extends StructuredTool {
       return `[delegate] 子 agent「${profile.key}」无可用的工具（需要：${profile.tools.join(" / ")}）`;
     }
     const run = this.deps.runSubAgent ?? defaultRunSubAgent;
+    const runId = nextRunId();
+    const trimmedTask = task.trim();
+    emitDelegateEvent({ type: "start", runId, agent: profile.key, task: trimmedTask });
     try {
       const text = await run({
-        task: task.trim(),
+        task: trimmedTask,
         profile,
         childTools,
         llm: this.deps.llm,
         maxChildIterations: this.deps.maxChildIterations,
         llmTimeoutMs: this.deps.llmTimeoutMs,
+        runId,
       });
       const out = (text ?? "").trim();
-      if (!out) return `[delegate] 子 agent「${profile.key}」无输出`;
+      if (!out) {
+        emitDelegateEvent({ type: "end", runId, agent: profile.key, ok: false, outputChars: 0, error: "无输出" });
+        return `[delegate] 子 agent「${profile.key}」无输出`;
+      }
+      emitDelegateEvent({ type: "end", runId, agent: profile.key, ok: true, outputChars: out.length });
       return `[子 agent ${profile.key} 返回]\n${out}`;
     } catch (e) {
-      return `[delegate] 子 agent「${profile.key}」失败：${e instanceof Error ? e.message : String(e)}`;
+      const msg = e instanceof Error ? e.message : String(e);
+      emitDelegateEvent({ type: "end", runId, agent: profile.key, ok: false, outputChars: 0, error: msg });
+      return `[delegate] 子 agent「${profile.key}」失败：${msg}`;
     }
   }
 }

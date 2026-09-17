@@ -33,6 +33,15 @@ import { Tracer } from "../agent/tracer.js";
 import { ToolStatsRegistry } from "../tools/stats-registry.js"
 import { ToolFilter } from "../tools/tool-filter.js"
 import { updatePlanMessage } from "./plan-utils.js"
+import {
+  delegateCardKey,
+  delegateFinalLine,
+  delegateResultLine,
+  patchCardByKey,
+  renderDelegateBody,
+  type DelegateActivity,
+} from "./delegate-card.js"
+import { onDelegateEvent } from "../agent/delegate-tool.js";
 import { ManualInteractor, type HumanChannel, type HumanRequest, type HumanResponse } from "../tools/human-channel.js";
 
 /** 统一流式块（三种模式并集；各模式只产出相关字段，见设计文档 §5.2 AgentStreamChunk） */
@@ -93,6 +102,9 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
 
   /** 当轮卡片缓冲（同步可读，供流式回调使用） */
   const turnBufferRef = useRef<OutputMessage[]>([]);
+
+  /** delegate 子 agent 活动记账（runId → 次数/最近调用；end 时清除） */
+  const delegateActivityRef = useRef<Map<string, DelegateActivity>>(new Map());
 
   const [running, setRunning] = useState(false);
   const [streamingText, setStreamingText] = useState("");
@@ -156,6 +168,7 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
       if (!autoPlanExecRef.current) {
         autoPlanExecRef.current = createHierarchicalAgent(
           llmRef.current!, toolsRef.current!, tracer, toolStatsRegistry, config.llmTimeoutMs, toolFilter,
+          { maxTokens: config.planMaxTokens, maxTimeMs: config.planMaxTimeMs, maxSteps: config.planMaxSteps },
         );
       }
       return autoPlanExecRef.current;
@@ -182,7 +195,10 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
             humanChannel,
           })
         : agentMode === "plan"
-          ? createHierarchicalAgent(llmRef.current, toolsRef.current, tracer, toolStatsRegistry, config.llmTimeoutMs, toolFilter)
+          ? createHierarchicalAgent(
+              llmRef.current, toolsRef.current, tracer, toolStatsRegistry, config.llmTimeoutMs, toolFilter,
+              { maxTokens: config.planMaxTokens, maxTimeMs: config.planMaxTimeMs, maxSteps: config.planMaxSteps },
+            )
           : createAgentExecutor(
               llm,
               tools,
@@ -295,6 +311,79 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
     turnBufferRef.current = updatePlanMessage(turnBufferRef.current, planText);
     setDynamicMessages(turnBufferRef.current);
   }, []);
+
+  /** 按 key 原地更新当轮卡片；卡已被挤进 <Static> 时返回 false（调用方兜底） */
+  const patchCard = useCallback((key: string, patch: (msg: OutputMessage) => OutputMessage): boolean => {
+    const next = patchCardByKey(turnBufferRef.current, key, patch);
+    if (!next) return false;
+    turnBufferRef.current = next;
+    setDynamicMessages(next);
+    return true;
+  }, []);
+
+  /**
+   * 把 delegate 父步骤的终稿摘要并入最近的已 settle 委托卡。
+   * 委托过程已由事件卡实时展示（见下方 onDelegateEvent 订阅），父步骤到达时
+   * 不再开「Calling: delegate」新卡，只补一行结果预览；找不到卡（如子 agent
+   * 秒败没发 start）返回 false，由调用方退回普通卡片。
+   */
+  const settleDelegateResult = useCallback((observation: string): boolean => {
+    for (let i = turnBufferRef.current.length - 1; i >= 0; i--) {
+      const m = turnBufferRef.current[i];
+      if (m.name === "delegate" && !m.running) {
+        const next = turnBufferRef.current.map((x, j) =>
+          j === i ? { ...x, content: `${x.content}\n${delegateResultLine(observation)}` } : x,
+        );
+        turnBufferRef.current = next;
+        setDynamicMessages(next);
+        return true;
+      }
+    }
+    return false;
+  }, []);
+
+  // 订阅 delegate 子 agent 事件：一次委托一张卡，childTool 原地更新（帧高纪律）
+  useEffect(() => {
+    return onDelegateEvent((e) => {
+      const key = delegateCardKey(e.runId);
+      if (e.type === "start") {
+        delegateActivityRef.current.set(e.runId, { agent: e.agent, task: e.task, count: 0 });
+        emit({
+          role: "tool",
+          name: "delegate",
+          key,
+          running: true,
+          timestamp: new Date(),
+          content: renderDelegateBody({ agent: e.agent, task: e.task, count: 0 }),
+        });
+        return;
+      }
+      const activity = delegateActivityRef.current.get(e.runId);
+      if (e.type === "childTool") {
+        if (!activity) return;
+        activity.count += 1;
+        const raw = typeof e.input === "string" ? e.input : (JSON.stringify(e.input) ?? "");
+        activity.lastTool = `${e.tool}(${raw.slice(0, 60)})`;
+        patchCard(key, (msg) => ({ ...msg, content: renderDelegateBody(activity) }));
+        return;
+      }
+      // end：settle 卡片；卡若已溢出进 <Static>，补一条系统行兜底，别让终态消失
+      const finalLine = delegateFinalLine(activity, e.ok, e.outputChars, e.error);
+      delegateActivityRef.current.delete(e.runId);
+      const patched = patchCard(key, (msg) => ({
+        ...msg,
+        running: false,
+        content: renderDelegateBody(activity ?? { agent: e.agent, task: "", count: 0 }, finalLine),
+      }));
+      if (!patched) {
+        emit({
+          role: "system",
+          content: `delegate[${e.agent}] ${finalLine}`,
+          timestamp: new Date(),
+        });
+      }
+    });
+  }, [emit, patchCard]);
 
   /** 回合收尾：当轮卡片整体落入 <Static>（保持原有顺序），dynamic 区清空 */
   const commitTurnBuffer = useCallback(() => {
@@ -453,6 +542,20 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
               }
               continue;
             }
+            // delegate：过程已由事件卡实时展示，父步骤只把终稿摘要并入该卡；
+            // 找不到事件卡（如子 agent 秒败）才退回普通 Calling 卡
+            if (step.action.tool === "delegate") {
+              const obs = String(step.observation ?? "");
+              if (!settleDelegateResult(obs)) {
+                emit({
+                  role: "tool",
+                  content: `Calling: delegate\n→ ${obs.slice(0, 200)}`,
+                  name: "delegate",
+                  timestamp: new Date(),
+                });
+              }
+              continue;
+            }
             emit({
               role: "tool",
               content: `Calling: ${step.action.tool}\n→ ${String(step.observation).slice(0, 200)}`,
@@ -480,6 +583,9 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
           // onToken = finalize 产出的最终回答。
           output = await runAgentMessages(exec as GraphAgentExecutor, turn.messages, {
             onToolStart(tool, input) {
+              // delegate：子 agent 活动由事件卡实时展示（onDelegateEvent 订阅），
+              // 且这里的 step 到达时执行已完成——running 卡没有意义，结果在 onToolEnd 并入
+              if (tool === "delegate") return;
               emit({
                 role: "tool",
                 content: `Calling: ${tool}\n${JSON.stringify(input, null, 2)}`,
@@ -489,6 +595,10 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
               });
             },
             onToolEnd(result) {
+              if (result.tool === "delegate") {
+                settleDelegateResult(result.output);
+                return;
+              }
               settleRunningCard((msg) => ({
                 ...msg,
                 running: false,

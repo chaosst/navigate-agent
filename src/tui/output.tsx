@@ -10,6 +10,8 @@ export interface OutputMessage {
   timestamp: Date;
   running?: boolean;
   expanded?: boolean;
+  /** 稳定卡片 key：同名卡片原地更新用（如 delegate 事件卡），不参与渲染 */
+  key?: string;
   /** PTC 变体：携带结构化数据，MessageItem 据此渲染专用卡片 */
   ptc?:
     | { kind: "program"; data: PtcProgramView }
