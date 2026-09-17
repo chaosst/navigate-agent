@@ -33,6 +33,9 @@ backup/
 __probe_git/
 .tmp-*
 
+# 一次性探针输出（可能含环境变量快照，勿入库）
+eval_output/_*
+
 # 个人/运行时数据
 /resume.md
 /resume.docx
