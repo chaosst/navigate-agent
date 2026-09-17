@@ -92,23 +92,12 @@ export class StreamAccumulator {
 }
 
 /**
- * 动态区流式预览裁剪：只保留尾部，但**按整行**切，绝不切在词/行中间。
+ * 动态区流式预览的裁剪**已迁到 `layout.ts` 的 `tailByRows`**。
  *
- * 旧的 `"…" + text.slice(-800)` 会切出 `…ckage.json` 这种半截词 —— 看起来像画面被
- * 撕裂，这是 2026-09-11 排查流式布局问题时直接看到的证据。
- * 只有「单行本身就超过字符预算」这种无行可退的情况才硬切。
+ * 原因：旧的 `clipPreview` 按「逻辑行数 + 字符数」算预算，在中文/长行场景下会低估
+ * 实际占用的终端行数（一行 1200 字符在 80 列终端上是 15 行），导致动态帧高超过终端高度、
+ * Ink 擦帧失效（输入框跑到顶部 + 下方留白）。行预算属于布局职责，故移出本文件。
+ *
+ * 本轮迁移后 clipPreview 不再有生产调用方，已删除；对应回归不变式（只留尾部、按整行切、
+ * 绝不切出半截词）全部转移到 `src/tui/__tests__/layout.test.ts`。
  */
-export function clipPreview(text: string, maxChars = 1200, maxLines = 16): string {
-  if (!text) return "";
-  const lines = text.split("\n");
-  let body = lines.length > maxLines ? lines.slice(-maxLines).join("\n") : text;
-  if (body.length > maxChars) {
-    const cut = body.length - maxChars;
-    const nl = body.indexOf("\n", cut);
-    // 退到下一个整行边界；找不到换行说明是单行超长，只能硬切
-    body = nl >= 0 ? body.slice(nl + 1) : body.slice(-maxChars);
-  }
-  const dropped = text.length - body.length;
-  if (dropped <= 0) return text;
-  return `⋯ 预览已省略前 ${dropped} 字符\n${body}`;
-}

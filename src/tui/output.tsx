@@ -1,5 +1,7 @@
 import React from "react";
 import { Box, Text } from "ink";
+import { MarkdownView } from "./markdown-view.js";
+import { tailByRows, terminalColumns } from "./layout.js";
 
 export interface OutputMessage {
   role: "user" | "assistant" | "system" | "tool";
@@ -72,9 +74,36 @@ function PtcDispatchItem({ data }: { data: PtcDispatchView }) {
   );
 }
 
+/** "Navigate:" 头。静态消息与流式预览共用同一个组件——回合收尾时视觉不跳。 */
+export function AgentLabel({ agentName = "Agent" }: { agentName?: string }) {
+  return (
+    <Text bold color="#4FC3F7">
+      {agentName}:
+    </Text>
+  );
+}
+
+/**
+ * running 卡片的正文（工具入参 / 观测）。
+ *
+ * 动态区里必须按**终端行预算**裁：plan 模式 `Promise.all` 会同时挂多张 running 卡片，
+ * 每张塞 500 字符的话动态帧轻松超过终端高度 → Ink 擦帧失效（见 layout.ts 顶部注释）。
+ * 历史区（<Static>）没有帧高约束，沿用 500 字符上限即可。
+ */
+function toolBodyText(content: string, bodyRows?: number, columns?: number): string {
+  if (bodyRows && bodyRows > 0 && columns && columns > 0) {
+    return tailByRows(content, { rows: bodyRows, columns });
+  }
+  return content.length > 500 ? content.slice(0, 500) + "..." : content;
+}
+
 interface MessageItemProps {
   msg: OutputMessage;
   agentName?: string;
+  /** 动态区用：卡片正文最多几行（<Static> 不传，历史记录不裁） */
+  bodyRows?: number;
+  /** 动态区用：终端列数（配合 bodyRows 折行估算） */
+  columns?: number;
 }
 
 /**
@@ -90,7 +119,9 @@ interface MessageItemProps {
  * - running=true  → shows full content (truncated to 500 chars), with ▼
  * - running=false → shows first line only (truncated to 80 chars), with ▶
  */
-export function MessageItem({ msg, agentName = "Agent" }: MessageItemProps) {
+export function MessageItem({ msg, agentName = "Agent", bodyRows, columns }: MessageItemProps) {
+  const cols = columns ?? terminalColumns();
+
   switch (msg.role) {
     case "user":
       return (
@@ -120,11 +151,7 @@ export function MessageItem({ msg, agentName = "Agent" }: MessageItemProps) {
             {msg.name || "tool"}
           </Text>
           {msg.running || msg.expanded ? (
-            <Text color="#888888">
-              {msg.content.length > 500
-                ? msg.content.slice(0, 500) + "..."
-                : msg.content}
-            </Text>
+            <Text color="#888888">{toolBodyText(msg.content, bodyRows, cols)}</Text>
           ) : (
             <Text color="#888888">{detail}</Text>
           )}
@@ -140,15 +167,13 @@ export function MessageItem({ msg, agentName = "Agent" }: MessageItemProps) {
       );
 
     default:
+      // 最终回答：走 markdown 渲染（标题 / 列表 / 表格 / 代码块 / 行内样式），
+      // 不再直接把 markdown 源码糊在屏幕上。
       return (
         <Box flexDirection="column" marginBottom={1}>
-          <Box paddingY={1}>
-            <Text bold color="#4FC3F7">
-              {agentName}:
-            </Text>
-          </Box>
+          <AgentLabel agentName={agentName} />
           <Box paddingLeft={2}>
-            <Text color="white">{msg.content}</Text>
+            <MarkdownView text={msg.content} columns={Math.max(20, cols - 2)} />
           </Box>
         </Box>
       );

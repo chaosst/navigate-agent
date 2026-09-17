@@ -2,13 +2,19 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { Box, Text, Static } from "ink";
 import { Input } from "./input.js";
 import { ApprovalPrompt } from "./approval-prompt.js";
-import { MessageItem, type OutputMessage } from "./output.js";
+import { MessageItem, AgentLabel, type OutputMessage } from "./output.js";
+import { MarkdownView } from "./markdown-view.js";
+import {
+  computeDynamicBudget,
+  tailByRows,
+  terminalColumns,
+  terminalRows,
+} from "./layout.js";
 import {
   ptcProgramToMessage,
   ptcDispatchToMessage,
   extractRunCodeErrorKind,
   StreamAccumulator,
-  clipPreview,
 } from "./ptc.js";
 import { handleCommand } from "./commands.js";
 import { createAgentExecutor, createHierarchicalAgent, createPtcAgent, runAgentMessages } from "../agent/loop.js";
@@ -41,8 +47,19 @@ interface StreamChunk {
   ptcDispatch?: PtcDispatchEvent;
 }
 
-/** dynamic 区最多同时挂几条当轮卡片；超出部分提前落 <Static>，防止帧高失控 */
-const TURN_BUFFER_LIMIT = 8;
+/**
+ * dynamic 区最多同时挂几条当轮卡片。
+ *
+ * 不再写死常量：帧高必须小于终端行数（否则 Ink 的 eraseLines 被夹到首行，
+ * 输入框会跑到屏幕顶部、下方留一大片空白——见 layout.ts 顶部注释）。
+ * 每次 emit 现场按当前终端高度算，窗口 resize 也自然跟上（emit 是 ref 读取，无陈旧闭包）。
+ */
+function currentCardLimit(): number {
+  return computeDynamicBudget(terminalRows()).cardsLimit;
+}
+
+/** 思考指示动画帧（盲文点阵，几乎所有现代终端字体都有；等宽、不抖） */
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 interface AppProps {
   config: AppConfig;
@@ -79,6 +96,10 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
 
   const [running, setRunning] = useState(false);
   const [streamingText, setStreamingText] = useState("");
+  /** 思考指示动画帧序号（仅 running 时自增） */
+  const [spinnerFrame, setSpinnerFrame] = useState(0);
+  /** 本回合起始时刻（performance-free：仅用于显示已耗时） */
+  const turnStartRef = useRef(0);
   const [sessionName, setSessionName] = useState("Chat");
   const [agentMode, setAgentMode] = useState<AgentMode>(config.agentMode);
 
@@ -183,15 +204,19 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
   useEffect(() => { toolsRef.current = tools; }, [tools]);
 
   // Streaming token buffer — tokens accumulate here and are flushed to
-  // state on a 50 ms interval to prevent a re-render on every token
-  // (~20 fps instead of hundreds of renders per second).
+  // state on an interval to prevent a re-render on every token
+  // (~12 fps instead of hundreds of renders per second).
+  //
+  // 同一个 tick 顺带推进思考指示的动画帧：两者生命周期完全一致（都是 running），
+  // 分开起两个定时器只会多一倍重绘。
   const streamingBufferRef = useRef("");
 
   useEffect(() => {
     if (!running) return;
     const interval = setInterval(() => {
       setStreamingText(streamingBufferRef.current);
-    }, 50);
+      setSpinnerFrame((f) => (f + 1) % SPINNER_FRAMES.length);
+    }, 80);
     return () => clearInterval(interval);
   }, [running]);
 
@@ -244,10 +269,11 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
 
   /** 追加一张当轮卡片（只进 dynamic 区，不落 Static） */
   const emit = useCallback((msg: OutputMessage) => {
+    const limit = currentCardLimit();
     turnBufferRef.current = [...turnBufferRef.current, msg];
-    if (turnBufferRef.current.length > TURN_BUFFER_LIMIT) {
-      const overflow = turnBufferRef.current.slice(0, turnBufferRef.current.length - TURN_BUFFER_LIMIT);
-      turnBufferRef.current = turnBufferRef.current.slice(-TURN_BUFFER_LIMIT);
+    if (turnBufferRef.current.length > limit) {
+      const overflow = turnBufferRef.current.slice(0, turnBufferRef.current.length - limit);
+      turnBufferRef.current = turnBufferRef.current.slice(-limit);
       setStaticMessages((prev) => [...prev, ...overflow]);
     }
     setDynamicMessages(turnBufferRef.current);
@@ -351,6 +377,7 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
       ]);
       await memory.addUserMessage(value);
       setRunning(true);
+      turnStartRef.current = Date.now();
       streamingBufferRef.current = "";
       setStreamingText("");
       resetTurnBuffer();
@@ -505,6 +532,7 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
         // 预览是易失区，成功失败都在这里清（原来只在成功路径清 → 异常后旧预览会一直挂在输入框上方）
         streamingBufferRef.current = "";
         setStreamingText("");
+        turnStartRef.current = 0;
         setRunning(false);
       }
     },
@@ -522,15 +550,34 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
   //
   // Dynamic area  ← only this part is cleared/rewritten on re-render
   //   status line (1 line)
-  //   [当轮卡片] (0-N lines: 工具调用 / PTC 程序 / plan 卡片)
-  //   [streaming text] (0-N lines)
+  //   [当轮卡片] (0-{cardsLimit} 张: 工具调用 / PTC 程序 / plan 卡片)
+  //   [streaming text] (0-{previewRows} 行，markdown 渲染)
   //   [审批 / 提问卡片] (0-1 张)
-  //   > input (1-2 lines)
-  //   [Agent is thinking...] (0-1 lines)
+  //   [思考指示 / 等待确认] (0-1 行，**输入框上方**)
+  //   > input (3 lines)
   //
   // 当轮卡片与流式文本在**同一层**，所以整块原子重绘、顺序稳定；
   // 回合结束时卡片才整体落入 <Static>（见 commitTurnBuffer）。
+  //
+  // ★ 帧高纪律（2026-09-16）：整个 dynamic 区高度必须 < 终端行数。
+  //   超了 Ink 的 eraseLines 会被夹在屏幕首行 → 输入框跑到顶部 + 下方大片空白。
+  //   所以下面的卡片数、卡片正文行数、预览行数**全部**来自 computeDynamicBudget。
   // ------------------------------------------------------------------
+  const cols = terminalColumns();
+  const budget = computeDynamicBudget(terminalRows(), {
+    // 审批 / 提问卡片（带边框 3~6 行）出现时先从预算里扣掉
+    approvalRows: pendingRequest ? 6 : 0,
+  });
+  // 预览：源文本按「行预算」裁尾部（中文折行也算得准），再交给 markdown 渲染；
+  // 渲染会加 "│ " 排水沟/缩进，所以列宽先留出 4 列，宁可少给一行也不许溢出。
+  const previewSource = streamingText
+    ? tailByRows(streamingText, { rows: budget.previewRows, columns: Math.max(20, cols - 4) })
+    : "";
+  const spinner = SPINNER_FRAMES[spinnerFrame % SPINNER_FRAMES.length];
+  const elapsedSec = running && turnStartRef.current > 0
+    ? ((Date.now() - turnStartRef.current) / 1000).toFixed(1)
+    : "0.0";
+
   return (
     <Box flexDirection="column">
       <Static items={staticMessages}>
@@ -556,23 +603,21 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
 
         {/* 当轮卡片（dynamic）：回合收尾时整体落入 <Static>，中途不插队 */}
         {dynamicMessages.map((msg, i) => (
-          <MessageItem key={`dyn-${i}`} msg={msg} agentName={agentName} />
+          <MessageItem
+            key={`dyn-${i}`}
+            msg={msg}
+            agentName={agentName}
+            bodyRows={budget.cardBodyRows}
+            columns={Math.max(20, cols - 3)}
+          />
         ))}
 
-        {/* Streaming text (dynamic) */}
-        {streamingText ? (
+        {/* Streaming text (dynamic)：markdown 渲染 + 按行预算裁尾部 */}
+        {previewSource ? (
           <Box flexDirection="column" marginBottom={1}>
-            <Box paddingY={1}>
-              <Text bold color="#4FC3F7">
-                {agentName}:
-              </Text>
-            </Box>
+            <AgentLabel agentName={agentName} />
             <Box paddingLeft={2}>
-              <Text color="white">
-                {/* 预览可能很长（PTC 模式 agent 逐步说明）：只留尾部，但按整行切，
-                    绝不切出 `…ckage.json` 这种半截词 */}
-                {clipPreview(streamingText)}
-              </Text>
+              <MarkdownView text={previewSource} columns={Math.max(20, cols - 2)} maxCodeRows={budget.previewRows} />
             </Box>
           </Box>
         ) : null}
@@ -586,6 +631,20 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
           />
         ) : null}
 
+        {/* 思考指示：紧贴输入框**上方**（原来在输入框下面 → 输入框看着不在帧底）。
+            审批等待时改口径：那是等用户，不是模型在思考。 */}
+        {running ? (
+          <Box paddingX={1}>
+            {pendingRequest ? (
+              <Text color="yellow">{"⏸ 等待你的确认…"}</Text>
+            ) : (
+              <Text color="yellow">
+                {`${spinner} Agent is thinking… ${elapsedSec}s`}
+              </Text>
+            )}
+          </Box>
+        ) : null}
+
         {/* Input (dynamic) */}
         <Input
           onSubmit={onSubmit}
@@ -593,12 +652,6 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
           agentMode={agentMode}
           onToggleAgentMode={handleToggleAgentMode}
         />
-
-        {running ? (
-          <Box paddingX={1}>
-            <Text color="yellow">Agent is thinking...</Text>
-          </Box>
-        ) : null}
       </Box>
     </Box>
   );
