@@ -183,7 +183,11 @@ async function ask() {
   resetResults();
   progressPanel.hidden = false;
   answerPanel.hidden = false;
-  docIds.forEach((id) => addChip(id));
+  docIds.forEach((id) => {
+    const cb = docsEl.querySelector(`input[type=checkbox][value="${id}"]`);
+    const name = cb?.parentElement?.querySelector(".fname")?.textContent || id;
+    addChip(id, name);
+  });
 
   try {
     const res = await fetch(`/api/rag/ask?token=${TOKEN}`, {
@@ -214,7 +218,7 @@ async function ask() {
             if (chip) {
               chip.classList.add(ev.status);
               const tag = ev.status === "done" ? "✓" : ev.status === "empty" ? "空" : "✗";
-              chip.textContent = `${tag} ${chip.textContent}`;
+              chip.textContent = `${tag} ${ev.filename || chip.title}`;
             }
           } else if (ev.type === "sources") {
             renderSources(ev.sources || []);
@@ -237,11 +241,12 @@ async function ask() {
   }
 }
 
-function addChip(docId) {
+function addChip(docId, filename) {
   const chip = document.createElement("span");
   chip.className = "worker-chip";
-  chip.textContent = `${docId} 检索中…`;
-  chip.title = docId;
+  const label = filename || docId;
+  chip.textContent = `${label} 检索中…`;
+  chip.title = label;
   state.set(docId, chip);
   progressEl.appendChild(chip);
 }
