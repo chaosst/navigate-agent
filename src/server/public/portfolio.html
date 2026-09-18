@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>作品集 · 长图</title>
+<title>功能介绍 · navigate</title>
 <style>
   :root {
     --bg: #f8f9fa;
@@ -114,27 +114,27 @@
     <a href="/resume/chat">💬 简历问答</a>
     <a href="/resume/jd">🎯 JD匹配</a>
     <a href="/rag/ask">📑 多文档问答</a>
-    <a href="/portfolio" class="active">🎨 作品集</a>
+    <a href="/portfolio" class="active">🧩 功能介绍</a>
     <a href="/api/logout?next=/login" onclick="sessionStorage.removeItem('navigate_token')">🚪 退出</a>
   </div>
 
   <div class="card">
     <div class="head">
-      <h1>🎨 作品集长图</h1>
+      <h1>🧩 功能介绍</h1>
       <span class="meta" id="imgMeta"></span>
     </div>
     <p class="sub">navigate —— TUI 三模式 Agent 运行实况 + 自研评测数据，一图纵览。</p>
 
     <div class="poster-wrap" id="posterWrap" title="点击查看大图">
       <img id="poster" src="/portfolio/tui-portfolio.png" width="1440" height="4845"
-           alt="navigate 作品集长图：TUI auto→plan、delegate 委派、H5 并行问答截图 + 评测数据总览">
+           alt="navigate 功能介绍长图：TUI auto→plan、delegate 委派、H5 并行问答截图 + 评测数据总览">
       <span class="zoom-hint">点击看大图</span>
     </div>
     <div class="err hidden" id="err"></div>
 
     <div class="actions">
       <button class="btn btn-primary" id="zoomBtn">🔍 全屏查看</button>
-      <a class="btn" id="dlBtn" href="/portfolio/tui-portfolio.png" download="navigate-作品集长图.png">⬇ 保存长图</a>
+      <a class="btn" id="dlBtn" href="/portfolio/tui-portfolio.png" download="navigate-功能介绍.png">⬇ 保存长图</a>
     </div>
 
     <ul class="tips">
@@ -143,12 +143,12 @@
     </ul>
   </div>
 
-  <div class="footer">navigate · 作品集</div>
+  <div class="footer">navigate · 功能介绍</div>
 </div>
 
 <div class="lightbox" id="lightbox">
   <button class="close-btn" id="closeLb" type="button">✕ 关闭</button>
-  <img id="posterBig" src="/portfolio/tui-portfolio.png" alt="navigate 作品集长图（大图）">
+  <img id="posterBig" src="/portfolio/tui-portfolio.png" alt="navigate 功能介绍长图（大图）">
 </div>
 
 <script>

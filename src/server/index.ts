@@ -261,7 +261,7 @@ export function createRagServer(
     sendHtml(res, "rag-ask.html", { WIKI_URL: wikiPublicUrl });
   });
 
-  // 作品集长图（TUI 运行实况 + 评测数据；guest/admin 可用）
+  // 功能介绍长图（TUI 运行实况 + 评测数据；guest/admin 可用）
   // 注意：路由必须先于 express.static 注册，否则 /portfolio 会被静态目录重定向成 /portfolio/
   app.get("/portfolio", requirePage(ALL_ROLES), (_req, res) => {
     sendHtml(res, "portfolio.html", { WIKI_URL: wikiPublicUrl });

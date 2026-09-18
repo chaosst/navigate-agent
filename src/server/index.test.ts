@@ -90,7 +90,7 @@ describe("createRagServer login gating (e2e)", () => {
     expect(res.headers.get("location")).toContain("/login?next=");
   });
 
-  it("serves /portfolio (作品集长图) to an authenticated user", async () => {
+  it("serves /portfolio (功能介绍长图) to an authenticated user", async () => {
     const a = await loginAs(base, "admin", "secret");
     const res = await fetch(base + "/portfolio", { headers: { cookie: a.cookie } });
     expect(res.status).toBe(200);
