@@ -20,7 +20,7 @@
  *
  *   1. `tailByRows` —— 流式预览 / 卡片正文按「终端行」而非字符数裁剪；
  *   2. `computeDynamicBudget` —— 按终端高度分配卡片数、卡片正文行数、预览行数；
- *   3. 输入框固定在帧底（思考指示挪到其上方，不再占用输入框下方一行）。
+ *   3. 输入框固定在帧底（思考指示与状态行都在其上方，不再占用输入框下方一行）。
  *
  * 另外：`visualRows` 按**显示列宽**折行，中文/emoji 占 2 列，不能用 `line.length` 估。
  */
@@ -196,7 +196,13 @@ export function tailByRows(text: string, opts: TailClipOptions): string {
   return `${markerLine(dropped)}\n${lines.slice(i).join("\n")}`;
 }
 
-/** 动态区固定开销（不参与分配）：状态行 1 + 预览标题 1 + 预览下边距 1 + 输入框 3 + 思考指示 1 */
+/**
+ * 动态区固定开销（不参与分配）：预览标题 1 + 预览下边距 1 + 思考指示 1 +
+ * 状态行 1 + 输入框 3 = 7。
+ *
+ * 顺序（2026-09-18）：思考指示、状态行都在**预览之下、输入框之上**——常驻 chrome
+ * 必须待在帧底；挂在动态区顶部会被当轮流式输出挤到答案上方、跟着内容滚动。
+ */
 export const CHROME_ROWS = 7;
 
 export interface DynamicBudget {

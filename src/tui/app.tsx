@@ -656,11 +656,12 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
   //   ...
   //
   // Dynamic area  ← only this part is cleared/rewritten on re-render
-  //   status line (1 line)
   //   [当轮卡片] (0-{cardsLimit} 张: 工具调用 / PTC 程序 / plan 卡片)
   //   [streaming text] (0-{previewRows} 行，markdown 渲染)
   //   [审批 / 提问卡片] (0-1 张)
-  //   [思考指示 / 等待确认] (0-1 行，**输入框上方**)
+  //   [思考指示 / 等待确认] (0-1 行)
+  //   [状态行] (1 行，**紧贴输入框上方**——常驻 chrome 待在帧底，
+  //            挂在顶部会被当轮流式输出挤到答案上方)
   //   > input (3 lines)
   //
   // 当轮卡片与流式文本在**同一层**，所以整块原子重绘、顺序稳定；
@@ -685,6 +686,24 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
     ? ((Date.now() - turnStartRef.current) / 1000).toFixed(1)
     : "0.0";
 
+  // 状态行（会话名 / 模式 / 待确认）：常驻 chrome，**固定在输入框正上方**。
+  // 2026-09-18 反馈：它原先挂在动态区**顶部**，当轮流式输出一多就被挤到
+  // 答案上方、跟着内容滚动——看起来像是回合输出的一部分。常驻行必须待在帧底。
+  const statusLine = (
+    <Text dimColor>
+      {" "}Navigate Agent | {sessionName}
+      {agentMode === "auto" ? (
+        <Text color="cyan"> | 🔀 Auto Mode</Text>
+      ) : agentMode === "plan" ? (
+        <Text color="magenta"> | 🗺️ Plan Mode</Text>
+      ) : agentMode === "ptc" ? (
+        <Text color="magenta"> | 📦 PTC Mode</Text>
+      ) : null}
+      {pendingRequest ? <Text color="yellow"> | 等待你的确认</Text> : null}
+      {" "}(/help)
+    </Text>
+  );
+
   return (
     <Box flexDirection="column">
       <Static items={staticMessages}>
@@ -694,20 +713,6 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
       </Static>
 
       <Box flexDirection="column" paddingX={1}>
-        {/* Status line */}
-        <Text dimColor>
-          {" "}Navigate Agent | {sessionName}
-          {agentMode === "auto" ? (
-            <Text color="cyan"> | 🔀 Auto Mode</Text>
-          ) : agentMode === "plan" ? (
-            <Text color="magenta"> | 🗺️ Plan Mode</Text>
-          ) : agentMode === "ptc" ? (
-            <Text color="magenta"> | 📦 PTC Mode</Text>
-          ) : null}
-          {pendingRequest ? <Text color="yellow"> | 等待你的确认</Text> : null}
-          {" "}(/help)
-        </Text>
-
         {/* 当轮卡片（dynamic）：回合收尾时整体落入 <Static>，中途不插队。
             plan 卡多给 2 行正文预算（goal + 步骤状态比普通卡需要更多行，
             且 computeDynamicBudget 的槽位口径就是 cardBodyRows+2，不破坏帧高预算） */}
@@ -751,7 +756,7 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
           />
         ) : null}
 
-        {/* 思考指示：紧贴输入框**上方**（原来在输入框下面 → 输入框看着不在帧底）。
+        {/* 思考指示：在**状态行上方**（输入框 → 状态行 → 思考指示，自下而上）。
             审批等待时改口径：那是等用户，不是模型在思考。 */}
         {running ? (
           <Box paddingX={1}>
@@ -764,6 +769,9 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
             )}
           </Box>
         ) : null}
+
+        {/* 状态行：常驻 chrome，紧贴输入框上方（帧底锚点，不随当轮内容滚动） */}
+        {statusLine}
 
         {/* Input (dynamic) */}
         <Input
