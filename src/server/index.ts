@@ -261,6 +261,12 @@ export function createRagServer(
     sendHtml(res, "rag-ask.html", { WIKI_URL: wikiPublicUrl });
   });
 
+  // 作品集长图（TUI 运行实况 + 评测数据；guest/admin 可用）
+  // 注意：路由必须先于 express.static 注册，否则 /portfolio 会被静态目录重定向成 /portfolio/
+  app.get("/portfolio", requirePage(ALL_ROLES), (_req, res) => {
+    sendHtml(res, "portfolio.html", { WIKI_URL: wikiPublicUrl });
+  });
+
   // 写操作（上传/重新索引/删除）仅管理员：体验账号点按钮前端提示，服务端同样 403 兜底
   app.post("/api/upload", requireAdminApi, upload.single("file"), async (req, res) => {
     try {
@@ -631,11 +637,12 @@ export function createRagServer(
   });
 
   // 防止经 /index.html 等静态路径绕过登录门槛 → 重定向到带门槛的规范路由
-  app.get(["/index.html", "/resume.html", "/resume/chat.html", "/resume/jd.html", "/admin.html", "/rag-ask.html"], (req, res) => {
+  app.get(["/index.html", "/resume.html", "/resume/chat.html", "/resume/jd.html", "/admin.html", "/rag-ask.html", "/portfolio.html"], (req, res) => {
     const map: Record<string, string> = {
       "/index.html": "/", "/resume.html": "/resume",
       "/resume/chat.html": "/resume/chat", "/resume/jd.html": "/resume/jd",
       "/admin.html": "/admin", "/rag-ask.html": "/rag/ask",
+      "/portfolio.html": "/portfolio",
     };
     res.redirect(302, map[req.path] || "/");
   });

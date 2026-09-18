@@ -84,6 +84,38 @@ describe("createRagServer login gating (e2e)", () => {
     expect(res.headers.get("location")).toContain("/login?next=");
   });
 
+  it("redirects unauthenticated /portfolio to login", async () => {
+    const res = await fetch(base + "/portfolio", { redirect: "manual" });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toContain("/login?next=");
+  });
+
+  it("serves /portfolio (作品集长图) to an authenticated user", async () => {
+    const a = await loginAs(base, "admin", "secret");
+    const res = await fetch(base + "/portfolio", { headers: { cookie: a.cookie } });
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    // 长图必须挂在页面上，且服务端占位符已替换
+    expect(html).toContain("/portfolio/tui-portfolio.png");
+    expect(html).not.toContain("__WIKI_URL__");
+  });
+
+  it("redirects /portfolio.html to the gated route (no static bypass)", async () => {
+    const res = await fetch(base + "/portfolio.html", { redirect: "manual" });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/portfolio");
+  });
+
+  it("serves the portfolio long image as a static asset", async () => {
+    const res = await fetch(base + "/portfolio/tui-portfolio.png");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("image/png");
+    // 校验 PNG magic + 体积下限：文件漏拷/放错目录时不会静默「页面 200 但图裂」
+    const buf = Buffer.from(await res.arrayBuffer());
+    expect([...buf.subarray(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
+    expect(buf.length).toBeGreaterThan(100_000);
+  });
+
   it("rejects anonymous /api/resume/jd-match with 401", async () => {
     const res = await fetch(base + "/api/resume/jd-match", { method: "POST" });
     expect(res.status).toBe(401);
@@ -327,7 +359,7 @@ describe("guest (体验账号) role gating e2e", () => {
     expect(g.status).toBe(200);
     expect(g.data.role).toBe("guest");
 
-    for (const p of ["/", "/resume", "/resume/chat", "/resume/jd"]) {
+    for (const p of ["/", "/resume", "/resume/chat", "/resume/jd", "/portfolio"]) {
       const r = await fetch(base + p, { headers: { cookie: g.cookie } });
       expect(r.status, `page ${p} should be reachable by guest`).toBe(200);
     }

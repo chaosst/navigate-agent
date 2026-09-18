@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>作品集 · 长图</title>
+<style>
+  :root {
+    --bg: #f8f9fa;
+    --surface: #ffffff;
+    --text: #1a1a2e;
+    --text-muted: #6b7280;
+    --primary: #2563eb;
+    --primary-light: #eff6ff;
+    --border: #e5e7eb;
+    --shadow: rgba(0,0,0,0.06);
+    --radius: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --primary: #60a5fa;
+      --primary-light: #1e3a5f;
+      --border: #334155;
+      --shadow: rgba(0,0,0,0.3);
+    }
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 24px;
+  }
+  .container { max-width: 900px; margin: 0 auto; }
+
+  .nav-bar {
+    display: flex; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 24px;
+    justify-content: center; font-size: 0.9rem;
+  }
+  .nav-bar a { color: var(--text-muted); text-decoration: none; padding: 6px 14px; border-radius: 8px; }
+  .nav-bar a:hover, .nav-bar a.active { background: var(--primary-light); color: var(--primary); }
+
+  .card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px var(--shadow);
+  }
+  .head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin-bottom: 6px; }
+  .head h1 { font-size: 1.35rem; font-weight: 700; }
+  .head .meta { font-size: 0.8rem; color: var(--text-muted); }
+  .sub { font-size: 0.88rem; color: var(--text-muted); }
+
+  /* 长图：按容器宽度铺满，点击进全屏查看 */
+  .poster-wrap {
+    display: block; width: 100%; margin-top: 18px; padding: 0;
+    border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+    background: var(--bg); cursor: zoom-in; position: relative;
+  }
+  .poster-wrap img { display: block; width: 100%; height: auto; }
+  .poster-wrap .zoom-hint {
+    position: absolute; right: 10px; bottom: 10px;
+    background: rgba(17,24,39,.78); color: #fff; font-size: 0.72rem;
+    padding: 4px 10px; border-radius: 20px; pointer-events: none;
+  }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+  .btn {
+    display: inline-block; padding: 8px 18px; border-radius: 8px;
+    font-size: 0.85rem; font-weight: 500; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface);
+    color: var(--text); text-decoration: none; transition: all 0.15s;
+  }
+  .btn:hover { border-color: var(--primary); color: var(--primary); }
+  .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .btn-primary:hover { opacity: 0.9; color: #fff; }
+
+  .tips { margin-top: 14px; font-size: 0.78rem; color: var(--text-muted); }
+  .tips li { margin-left: 18px; }
+
+  .err { color: #dc2626; font-size: 0.85rem; margin-top: 12px; }
+  .hidden { display: none; }
+
+  /* 全屏查看：宽屏按原图 1440px 显示，窄屏固定 1100px（可横向拖动 + 双指放大） */
+  .lightbox {
+    display: none; position: fixed; inset: 0; z-index: 200;
+    background: rgba(8, 11, 19, 0.95); overflow: auto; -webkit-overflow-scrolling: touch;
+  }
+  .lightbox.open { display: block; }
+  .lightbox img { display: block; width: 100%; max-width: 1440px; margin: 0 auto; }
+  @media (max-width: 900px) { .lightbox img { width: 1100px; max-width: none; } }
+  .lightbox .close-btn {
+    position: fixed; top: 12px; right: 12px; z-index: 201;
+    background: rgba(255,255,255,.14); color: #fff; border: 1px solid rgba(255,255,255,.3);
+    border-radius: 20px; padding: 6px 16px; font-size: 0.85rem; cursor: pointer;
+  }
+  .lightbox .close-btn:hover { background: rgba(255,255,255,.26); }
+
+  .footer { text-align: center; color: var(--text-muted); font-size: 0.78rem; padding: 12px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="nav-bar">
+    <a href="/">📄 文档管理</a>
+    <a href="__WIKI_URL__" target="_blank" class="nav-wiki">📚 Wiki ↗</a>
+    <a href="/resume">👤 简历</a>
+    <a href="/resume/chat">💬 简历问答</a>
+    <a href="/resume/jd">🎯 JD匹配</a>
+    <a href="/rag/ask">📑 多文档问答</a>
+    <a href="/portfolio" class="active">🎨 作品集</a>
+    <a href="/api/logout?next=/login" onclick="sessionStorage.removeItem('navigate_token')">🚪 退出</a>
+  </div>
+
+  <div class="card">
+    <div class="head">
+      <h1>🎨 作品集长图</h1>
+      <span class="meta" id="imgMeta"></span>
+    </div>
+    <p class="sub">navigate —— TUI 三模式 Agent 运行实况 + 自研评测数据，一图纵览。</p>
+
+    <div class="poster-wrap" id="posterWrap" title="点击查看大图">
+      <img id="poster" src="/portfolio/tui-portfolio.png" width="1440" height="4845"
+           alt="navigate 作品集长图：TUI auto→plan、delegate 委派、H5 并行问答截图 + 评测数据总览">
+      <span class="zoom-hint">点击看大图</span>
+    </div>
+    <div class="err hidden" id="err"></div>
+
+    <div class="actions">
+      <button class="btn btn-primary" id="zoomBtn">🔍 全屏查看</button>
+      <a class="btn" id="dlBtn" href="/portfolio/tui-portfolio.png" download="navigate-作品集长图.png">⬇ 保存长图</a>
+    </div>
+
+    <ul class="tips">
+      <li>手机端：全屏后可横向拖动，或双指放大看细节</li>
+      <li>「保存长图」可直接存到本地，用于招聘平台作品附件</li>
+    </ul>
+  </div>
+
+  <div class="footer">navigate · 作品集</div>
+</div>
+
+<div class="lightbox" id="lightbox">
+  <button class="close-btn" id="closeLb" type="button">✕ 关闭</button>
+  <img id="posterBig" src="/portfolio/tui-portfolio.png" alt="navigate 作品集长图（大图）">
+</div>
+
+<script>
+  // Token from URL → sessionStorage；无 token 则跳登录页（与本站其它 H5 页一致）
+  const urlToken = new URLSearchParams(location.search).get("token");
+  if (urlToken) sessionStorage.setItem("navigate_token", urlToken);
+  const TOKEN = sessionStorage.getItem("navigate_token");
+  if (!TOKEN) {
+    location.href = "/login?next=" + encodeURIComponent(location.pathname + location.search);
+    throw new Error("no token");
+  }
+  // 导航链接带上 token（回跳时仍可直达）
+  document.querySelectorAll(".nav-bar a").forEach(function (a) {
+    const href = a.getAttribute("href");
+    if (href && !href.includes("token=") && href.startsWith("/")) a.setAttribute("href", href + "?token=" + TOKEN);
+  });
+  // 体验账号不展示 Wiki 入口（Wiki 仅管理员可访问，代理侧 403 兜底）
+  (async () => {
+    try {
+      const me = await (await fetch(`/api/me?token=${TOKEN}`)).json();
+      if (!me.isAdmin) document.querySelectorAll(".nav-wiki").forEach((el) => { el.style.display = "none"; });
+    } catch { /* 网络异常时保留入口 */ }
+  })();
+
+  const poster = document.getElementById("poster");
+  const lightbox = document.getElementById("lightbox");
+
+  // 图片加载成功后显示原始尺寸（失败则给出可读提示，不让用户对着空白卡片猜）
+  poster.addEventListener("load", () => {
+    document.getElementById("imgMeta").textContent =
+      `${poster.naturalWidth} × ${poster.naturalHeight}`;
+  });
+  poster.addEventListener("error", () => {
+    const e = document.getElementById("err");
+    e.textContent = "长图加载失败：请确认 /portfolio/tui-portfolio.png 已随镜像发布（构建期需拷贝 src/server/public）。";
+    e.classList.remove("hidden");
+  });
+
+  function openLightbox() {
+    lightbox.classList.add("open");
+    document.body.style.overflow = "hidden";
+  }
+  function closeLightbox() {
+    lightbox.classList.remove("open");
+    document.body.style.overflow = "";
+  }
+
+  document.getElementById("posterWrap").addEventListener("click", openLightbox);
+  document.getElementById("zoomBtn").addEventListener("click", openLightbox);
+  document.getElementById("closeLb").addEventListener("click", closeLightbox);
+  // 点击遮罩空白处关闭（点图片本身不关，避免拖动时误触）
+  lightbox.addEventListener("click", (e) => { if (e.target === lightbox) closeLightbox(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeLightbox(); });
+</script>
+</body>
+</html>
