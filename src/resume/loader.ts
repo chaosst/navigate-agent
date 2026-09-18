@@ -62,6 +62,16 @@ export async function loadResumeSource(deps?: LoaderDeps): Promise<ResumeSource 
   };
 
   if (exists(RESUME_FILE_MD)) {
+    // ⚠️ 两个源同时存在时优先级是有意的（md 可手工维护、diff 友好），但必须是**可见**的：
+    // docx 路径一旦被静默忽略，改 docx 的人只会看到「改了没有任何反应」，
+    // 与「没保存」在现象上无法区分 —— 留一条启动期日志作为唯一线索。
+    if (exists(RESUME_FILE_DOCX)) {
+      console.warn(
+        `[resume] 同时存在 ${RESUME_FILE_MD} 与 ${RESUME_FILE_DOCX}，` +
+          `按优先级只读取 ${RESUME_FILE_MD} —— ${RESUME_FILE_DOCX} 的改动不会生效` +
+          `（如需改回 docx：删除 ${RESUME_FILE_MD}）。`,
+      );
+    }
     return {
       text: readFile(RESUME_FILE_MD).toString("utf-8"),
       sourcePath: RESUME_FILE_MD,

@@ -108,6 +108,8 @@ describe("loadResumeSource", () => {
   const mdText = "# 简历 md 源\n\n## 工作经历\n";
 
   it("prefers resume.md when both md and docx exist", async () => {
+    // 该场景现在会打一条「docx 不会生效」的告警（由下一条用例断言），此处只静音
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const files = new Set([RESUME_FILE_MD, RESUME_FILE_DOCX]);
     const deps = {
       exists: (p: string) => files.has(p),
@@ -117,6 +119,26 @@ describe("loadResumeSource", () => {
     const src = await loadResumeSource(deps);
     expect(src).toEqual({ text: mdText, sourcePath: RESUME_FILE_MD, format: "md" });
     expect(deps.docxToMarkdown).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("md 与 docx 同时存在时告警，明确 docx 改动不会生效", async () => {
+    // 优先级本身没错，危险的是「静默」：改了 resume.docx 却看不见任何变化，
+    // 现象上等同于「改了没保存」。必须留一条可见线索。
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const files = new Set([RESUME_FILE_MD, RESUME_FILE_DOCX]);
+    const deps = {
+      exists: (p: string) => files.has(p),
+      readFile: (p: string) => Buffer.from(p === RESUME_FILE_MD ? mdText : "docx bytes"),
+      docxToMarkdown: vi.fn(async () => "converted"),
+    };
+
+    const src = await loadResumeSource(deps);
+
+    expect(src?.format).toBe("md");
+    expect(deps.docxToMarkdown).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("不会生效"));
+    warn.mockRestore();
   });
 
   it("converts docx via injected docxToMarkdown when only docx exists", async () => {

@@ -102,7 +102,9 @@
   .skill-tag:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
 
   /* Projects */
-  .project-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  /* auto-fit：条目数不同的两个项目分节都能排好 —— 2 条时两列，
+     1 条时该卡片自动铺满整行，不会在右侧留一块空白 */
+  .project-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
   @media (max-width: 600px) { .project-grid { grid-template-columns: 1fr; } }
   .project-card {
     border: 1px solid var(--border); border-radius: 8px; padding: 16px;

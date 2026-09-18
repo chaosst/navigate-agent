@@ -19,6 +19,7 @@
         "test:watch": "vitest --dir src",
         "mytest": "tsx src/test.ts",
         "mode:classify": "tsx scripts/classify-smoke.ts",
+        "resume:preview": "tsx scripts/preview-resume-page.ts",
         "eval": "tsx src/eval/index.ts",
         "perf": "npm run db:ensure && tsx src/perf/run.ts",
         "perf:mock": "npm run db:ensure && tsx src/perf/run.ts --mock"
