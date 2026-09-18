@@ -1,0 +1,364 @@
+{
+  "label": "闭卷-A组-20260916",
+  "provider": "openai",
+  "model": "deepseek-v4-flash",
+  "baseURL": "https://api.deepseek.com",
+  "createdAt": "2026-09-17T07:32:09.521Z",
+  "judgeRounds": 3,
+  "counts": {
+    "total": 12,
+    "ok": 12,
+    "failed": 0
+  },
+  "avg": {
+    "answerRelevancy": 0.9166666666666666,
+    "claimCoverage": 0.05555555555555555,
+    "totalMs": 55129.333033333336,
+    "outputTokens": 14488.25
+  },
+  "byCategory": {
+    "doc-qa": {
+      "answerRelevancy": 0.9166666666666666,
+      "claimCoverage": 0.05555555555555555,
+      "n": 12
+    }
+  },
+  "samples": [
+    {
+      "id": "doc-01",
+      "category": "doc-qa",
+      "question": "navigate 的 Core Agent（Iter 1）设计里，Agent Loop 用什么框架实现？默认最大迭代次数是多少？",
+      "answer": "navigate 的 Core Agent（Iter 1）设计中，Agent Loop 基于 **LangGraph** 实现，默认最大迭代次数为 **10 次**。",
+      "totalMs": 41329.7475,
+      "outputTokens": 8822,
+      "answerRelevancy": 1,
+      "claimCoverage": 0,
+      "claimVerdicts": [
+        {
+          "claim": "Agent Loop 基于 LangChain.js 的 AgentExecutor + OpenAIToolsAgent（OpenAI tools agent）实现",
+          "supported": false,
+          "reason": "上下文称基于LangGraph，并非AgentExecutor+OpenAIToolsAgent"
+        },
+        {
+          "claim": "默认最大迭代次数（max iterations）为 25",
+          "supported": false,
+          "reason": "上下文明确默认最大迭代次数为10次，不是25次"
+        },
+        {
+          "claim": "TUI 采用 ink（React for CLI），LLM 通过 LangChain ChatOpenAI 集成",
+          "supported": false,
+          "reason": "上下文未提及TUI采用ink或LLM通过ChatOpenAI集成"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "doc-02",
+      "category": "doc-qa",
+      "question": "navigate 的 Tools 层内置了哪几个工具？它们用什么 LangChain 类定义？",
+      "answer": "",
+      "totalMs": 170817.1419,
+      "outputTokens": 65536,
+      "answerRelevancy": 0,
+      "claimCoverage": 0,
+      "claimVerdicts": [
+        {
+          "claim": "内置 6 个工具：execute_command、read_file、write_file、edit_file、list_files、search_files",
+          "supported": false,
+          "reason": "上下文为空，无相关依据"
+        },
+        {
+          "claim": "每个工具用 LangChain StructuredTool 定义，包含名称、描述与输入 JSON Schema",
+          "supported": false,
+          "reason": "上下文为空，无相关依据"
+        },
+        {
+          "claim": "search_files 基于 ripgrep 做文本搜索，edit_file 采用 search-and-replace 模式",
+          "supported": false,
+          "reason": "上下文为空，无相关依据"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "doc-03",
+      "category": "doc-qa",
+      "question": "navigate 一轮对话的数据流分几步？其中工具执行失败、LLM 调用超时分别如何处理？",
+      "answer": "以 **FastGPT 工作流引擎里的 `navigate`** 为例，一轮对话的数据流通常可概括为 **6 步**：\n\n1. **入口初始化**  \n   API 收到用户消息，加载工作流/应用，初始化 `variables`、`histories`、`runtimeNodes`、`runtimeEdges`，确定入口节点。\n\n2. **调用 `navigate` 执行当前节点**  \n   `navigate` 找到当前节点，准备节点输入，调用 `nodeRun`。\n\n3. **节点分派执行**  \n   根据节点类型分派：LLM 节点、工具/插件节点、知识库检索、条件判断、回答节点等。\n\n4. **结果处理与变量更新**  \n   拿到节点输出后写入 `variables`，记录运行详情，处理流式响应。\n\n5. **错误处理**  \n   如果节点返回 `error`，根据节点是否开启 `catchError` 决定继续还是中断。\n\n6. **路由到下一节点**  \n   根据运行时边和节点输出计算下一个节点，可能多个，并行/递归调用 `navigate`；没有下一节点则汇总响应、保存历史、返回前端。\n\n> 也可简单说成：**初始化 → 取节点 → 执行节点 → 更新变量 → 错误处理 → 导航下一节点**。\n\n---\n\n## 工具执行失败怎么处理？\n\n- 工具节点执行时捕获异常，返回 `{ error }`。\n- `navigate` 检查当前节点的 `catchError`：\n  - **开启**：错误写入变量，例如 `nodeId_error`，流程继续走下游节点。\n  - **未开启**：抛出错误，终止本轮工作流，向用户返回错误信息。\n- 默认一般不会自动重试工具，是否重试由工具自身或节点配置决定。\n\n---\n\n## LLM 调用超时怎么处理？\n\n- 底层 LLM 请求层会设置 `timeout`，并通常按配置重试，例如重试 3 次、带退避。\n- 如果重试后仍超时，则抛出超时错误。\n- `nodeRun` 捕获后同样返回 `{ error }`，再进入 `catchError` 逻辑：\n  - **开启**：错误作为变量传给下游，流程继续。\n  - **未开启**：终止本轮，返回错误。\n- 流式模式下若超时，会发送错误事件并结束流，避免连接一直挂起。\n\n---\n\n总结：  \n**工具失败和 LLM 超时最终都会归一为节点 `error`，走同一套 `catchError` 分支。**  \n区别主要是：LLM 超时通常有底层重试机制，而工具失败通常直接返回错误，由节点错误处理策略决定是否继续。",
+      "totalMs": 71188.83050000001,
+      "outputTokens": 14625,
+      "answerRelevancy": 1,
+      "claimCoverage": 0,
+      "claimVerdicts": [
+        {
+          "claim": "数据流为五步：TUI 输入 prompt → AgentExecutor 接收 prompt 与历史记录 → LLM 返回 tool_call 或最终回复 → 若为 tool_call 则执行工具并把结果传回 LLM 继续循环 → 若为最终回复则流式渲染到 TUI 等待下一轮输入",
+          "supported": false,
+          "reason": "上下文描述FastGPT工作流六步，未涉及TUI/AgentExecutor/tool_call循环"
+        },
+        {
+          "claim": "工具执行失败时，错误信息作为 observation 传回 LLM，由 agent 自行决定重试或给出回复",
+          "supported": false,
+          "reason": "上下文称工具失败走catchError，未说作为observation交LLM自行决定重试"
+        },
+        {
+          "claim": "LLM 调用超时会重试 2 次后提示用户；超出 max iterations 时返回当前中间结果并提示",
+          "supported": false,
+          "reason": "上下文称LLM超时通常重试例如3次，未提重试2次或max iterations"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "doc-04",
+      "category": "doc-qa",
+      "question": "navigate Core Agent 实施计划的 Global Constraints 里，对 Node.js 版本、模块解析方式和工具基类分别提了什么要求？",
+      "answer": "在 **navigate Core Agent 实施计划的 Global Constraints** 中，这三项分别要求为：\n\n- **Node.js 版本**：要求 **Node.js >= 20.11.0**（20 LTS 及以上）。\n- **模块解析方式**：要求使用 **`NodeNext`**，即 ESM 模块体系，`\"type\": \"module\"`，相关导入需符合 NodeNext/ESM 规则。\n- **工具基类**：所有工具必须继承统一的 **`BaseTool`** 基类，并按其约定实现执行方法（如 `execute` / `_call`），不能各自实现成独立工具形态。",
+      "totalMs": 39139.44709999999,
+      "outputTokens": 8136,
+      "answerRelevancy": 1,
+      "claimCoverage": 0.3333333333333333,
+      "claimVerdicts": [
+        {
+          "claim": "要求 Node.js >= 18",
+          "supported": false,
+          "reason": "上下文要求 Node.js >= 20.11.0，而非 >= 18。"
+        },
+        {
+          "claim": "采用 ES module resolution（package.json 中 \"type\": \"module\"）",
+          "supported": true,
+          "reason": "上下文明确要求 NodeNext/ESM，且设置 \"type\": \"module\"。"
+        },
+        {
+          "claim": "所有工具必须使用 @langchain/core/tools 的 StructuredTool，agent 用 @langchain/openai 的 OpenAIToolsAgent；TUI 必须用 ink，不使用 blessed 等其它终端库",
+          "supported": false,
+          "reason": "上下文只要求继承 BaseTool，未提及 StructuredTool、OpenAIToolsAgent、ink 等。"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "doc-05",
+      "category": "doc-qa",
+      "question": "navigate 的 Memory 层（Iter 2）用什么做持久化？向量库和 Embedding 各选了什么？",
+      "answer": "navigate 的 Memory 层（Iter 2）技术选型是：\n\n- **持久化**：SQLite  \n- **向量库**：LanceDB  \n- **Embedding**：OpenAI `text-embedding-3-small`（1536 维）\n\n也就是说，用 SQLite 存结构化/元数据，用 LanceDB 做嵌入式向量检索，Embedding 走 OpenAI 的 `text-embedding-3-small`。",
+      "totalMs": 28095.753399999987,
+      "outputTokens": 5889,
+      "answerRelevancy": 1,
+      "claimCoverage": 0,
+      "claimVerdicts": [
+        {
+          "claim": "持久化存储用 better-sqlite3（嵌入式 SQLite）",
+          "supported": false,
+          "reason": "上下文仅说持久化用 SQLite，未提 better-sqlite3。"
+        },
+        {
+          "claim": "向量库用 @langchain/community + MemoryVectorStore，Embedding 用 OpenAI text-embedding-3-small",
+          "supported": false,
+          "reason": "向量库上下文为 LanceDB，并非 @langchain/community 的 MemoryVectorStore。"
+        },
+        {
+          "claim": "SQLite 表为 sessions 与 messages；每个会话一个向量存储文件，存放对话摘要嵌入",
+          "supported": false,
+          "reason": "上下文未提 sessions/messages 表、每会话向量文件或摘要嵌入。"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "doc-06",
+      "category": "doc-qa",
+      "question": "navigate 的 RAG 引擎（Iter 3）用什么做文本分割和向量库？对外暴露了哪些 API 端点？",
+      "answer": "Navigate 的 RAG 引擎（Iter 3）中：\n\n- **文本分割**：使用 **Chonkie**，具体是 `RecursiveChunker`。\n- **向量库**：使用 **LanceDB**。\n- **对外暴露的 API 端点**：\n  - `POST /ingest`：摄入/索引文档\n  - `POST /query`：查询 RAG 引擎\n  - `GET /health`：健康检查\n\n核心就是这三个端点；如果部署时加了前缀，则对应为 `/api/v1/...` 这类前缀。",
+      "totalMs": 35729.351200000034,
+      "outputTokens": 7257,
+      "answerRelevancy": 1,
+      "claimCoverage": 0,
+      "claimVerdicts": [
+        {
+          "claim": "文本分割用 RecursiveCharacterTextSplitter，文档解析用 @langchain/community 的 document loaders",
+          "supported": false,
+          "reason": "上下文称文本分割用Chonkie的RecursiveChunker，未提RecursiveCharacterTextSplitter和LangChain文档解析"
+        },
+        {
+          "claim": "向量库为 MemoryVectorStore（文件级持久化），后端 API 为 Express.js",
+          "supported": false,
+          "reason": "上下文称向量库为LanceDB，未提MemoryVectorStore或Express.js"
+        },
+        {
+          "claim": "端点包括 POST /api/upload、GET /api/documents、DELETE /api/documents/:id、POST /api/query",
+          "supported": false,
+          "reason": "上下文端点为/ingest、/query、/health，非upload、documents、删除端点"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "doc-07",
+      "category": "doc-qa",
+      "question": "navigate 的 AgentMemory facade（src/memory/index.ts）组合了哪些存储？暴露了哪些方法？",
+      "answer": "`src/memory/index.ts` 里的 `AgentMemory` 是一个 **facade（门面）**，本身不直接实现存储逻辑，而是组合/转发给四类记忆存储：\n\n- `WorkingMemory`：工作记忆 / 短期上下文\n- `EpisodicMemory`：情景记忆 / 历史交互经历\n- `SemanticMemory`：语义记忆 / 事实与知识\n- `ProceduralMemory`：程序记忆 / 技能与操作流程\n\n它对外主要暴露的方法通常是按这四类记忆分组的读写/检索接口，以及统一的上下文与清理方法：\n\n- Working Memory：\n  - `addWorkingMemory(...)`\n  - `getWorkingMemory()`\n- Episodic Memory：\n  - `addEpisodicMemory(...)`\n  - `searchEpisodicMemory(query, limit?)`\n- Semantic Memory：\n  - `addSemanticMemory(...)`\n  - `searchSemanticMemory(query, limit?)`\n- Procedural Memory：\n  - `addProceduralMemory(...)`\n  - `searchProceduralMemory(query, limit?)`\n- 统一方法：\n  - `getContext(query, limit?)`\n  - `clear()`\n\n简言之：`AgentMemory` 把 `WorkingMemory`、`EpisodicMemory`、`SemanticMemory`、`ProceduralMemory` 四个 store 组合起来，并暴露对应的添加、检索、获取上下文和清理方法。具体方法签名/命名可能随版本略有差异，但职责就是这四类记忆的统一门面。",
+      "totalMs": 70378.93890000001,
+      "outputTokens": 18554,
+      "answerRelevancy": 1,
+      "claimCoverage": 0,
+      "claimVerdicts": [
+        {
+          "claim": "AgentMemory 是 SqliteStore + VectorMemory 的组合封装",
+          "supported": false,
+          "reason": "上下文说组合四类记忆存储，未提SqliteStore或VectorMemory"
+        },
+        {
+          "claim": "暴露 getOrCreateSession、addMessage、getContextWindow、searchRelated、buildMemoryContext、close 方法",
+          "supported": false,
+          "reason": "上下文列出的方法完全不同，无这些方法名"
+        },
+        {
+          "claim": "vector-memory.ts 用 OpenAIEmbeddings(text-embedding-3-small) + MemoryVectorStore，提供 storeSummary / search / deleteSessionMemories",
+          "supported": false,
+          "reason": "上下文未提及vector-memory.ts及其实现细节"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "doc-08",
+      "category": "doc-qa",
+      "question": "navigate 的 Skill 系统支持哪几种 action 类型？各自的实现方式是什么？",
+      "answer": "Navigate 的 Skill 系统是声明式的：一个 Skill 用 YAML 定义，内部由若干 action 按顺序组成。它主要支持 4 种 action 类型：\n\n| action 类型 | 用途 | 实现方式 |\n|---|---|---|\n| `prompt` | 调用 LLM 生成/转换文本 | `PromptAction`。渲染 prompt 模板，通过 LiteLLM / OpenAI 等 provider 调用模型，返回 completion 文本。 |\n| `http` | 发起 HTTP 请求 | `HttpAction`。使用 `httpx` 异步客户端，支持 method、url、headers、params、json/data 等，解析响应为 JSON 或文本。 |\n| `script` | 执行脚本或系统命令 | `ScriptAction`。通过 `subprocess` / `asyncio.create_subprocess_shell` 启动子进程，支持 args、env、cwd、stdin，捕获 stdout/stderr 返回。 |\n| `mcp` | 调用 MCP 工具 | `McpAction`。使用 MCP Python SDK 连接 MCP server（stdio/SSE），列出工具并调用指定 tool，传入参数并返回结果。 |\n\n执行时，executor 会按顺序解析 action 的输入模板、执行 action，并把输出写入上下文，供后续 action 引用。因此这 4 种原子 action 可以组合成更复杂的 Skill。",
+      "totalMs": 49314.67590000003,
+      "outputTokens": 10252,
+      "answerRelevancy": 1,
+      "claimCoverage": 0,
+      "claimVerdicts": [
+        {
+          "claim": "四种动作类型：template、shell、http、code",
+          "supported": false,
+          "reason": "上下文列的是prompt、http、script、mcp，不是template、shell、http、code"
+        },
+        {
+          "claim": "template 用 Nunjucks 模板引擎渲染，shell 用 child_process.execSync/exec，http 用 fetch()，code 用 new AsyncFunction() 沙箱执行",
+          "supported": false,
+          "reason": "上下文未提Nunjucks、child_process、fetch或AsyncFunction沙箱"
+        },
+        {
+          "claim": "Skill 定义写在 skills/<name>.skill.yaml，含 name / description / schema / action 四段，schema 用 JSON Schema 描述参数",
+          "supported": false,
+          "reason": "上下文只说Skill用YAML定义，未提该路径、四段结构或JSON Schema"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "doc-09",
+      "category": "doc-qa",
+      "question": "自建 Wiki 迁到 Wiki.js 后，Wiki.js 跑在哪个端口？与原应用怎么集成？RAG 同步靠什么触发？",
+      "answer": "没有唯一固定值，取决于你的部署方式。按常见 Docker + 反向代理方案：\n\n**1. Wiki.js 跑哪个端口？**\n- Wiki.js 容器内默认监听：`0.0.0.0:3000`。\n- Docker 常见映射：`3000:3000`，也可能映射成 `8080:3000` 之类。\n- 生产环境一般不直接暴露 `3000`，而是由 Nginx/Traefik/Caddy 反代：\n  - 外部：`https://wiki.example.com` → `443`\n  - 内部：`proxy_pass http://wiki:3000`\n- 具体看你的 `config.yml` 里 `server.port`、`docker-compose.yml` 的 `ports`、Nginx 的 `proxy_pass`。\n\n**2. 与原应用怎么集成？**\n常见四种方式：\n- **网络层**：放同一 Docker network / K8s namespace，原应用通过服务名访问，如 `http://wiki:3000`。\n- **入口层**：用子域名 `wiki.example.com` 或路径 `/wiki` 反代。通常子域名更稳，子路径要确认 Wiki.js 版本对 base path 的支持。\n- **认证层**：用 OIDC / OAuth2 / SAML / LDAP 对接原应用或共用 IdP，做 SSO 和用户组映射。\n- **数据层**：原应用读写 Wiki 内容，走 Wiki.js 的 GraphQL API：`/graphql`，配 API Token。展示可链接跳转或 iframe，但要注意 CSP / X-Frame-Options。\n\n**3. RAG 同步靠什么触发？**\nWiki.js 本身不内置 RAG，RAG 同步要靠外部 ingestion 服务。常见触发链路是：\n\n- **主触发：Wiki.js Webhook**\n  - 页面创建、更新、删除、移动、恢复时，Wiki.js 发 Webhook 到你的 RAG 同步接口。\n  - RAG 服务收到事件后，通过 Wiki.js GraphQL API 拉取页面全文。\n  - 然后做分块、embedding、写入向量库。\n  - 删除/移动事件要同步删除旧向量。\n\n- **兜底触发：定时任务**\n  - 用 cron / Airflow / 定时 Job 按 `updatedAt` 做增量扫描。\n  - 或定期全量重建，防止 Webhook 漏事件。\n\n- **手动/异步触发**\n  - 管理 API 或 CLI 手动触发。\n  - Webhook 最好先进 Redis / MQ 队列，再由 worker 消费，失败重试、幂等处理。\n\n典型链路：  \n**Wiki.js 页面保存 → Webhook → RAG 同步服务 → GraphQL 拉全文 → 分块/embedding → 向量库 upsert；删除/移动同步删旧向量；定时任务兜底。**\n\n权限也要同步：向量元数据里建议带 `pageId`、`path`、`locale`、`updatedAt`、ACL/群组，检索时按用户权限过滤，避免私有 Wiki 内容泄露。",
+      "totalMs": 30436.691299999948,
+      "outputTokens": 6172,
+      "answerRelevancy": 1,
+      "claimCoverage": 0,
+      "claimVerdicts": [
+        {
+          "claim": "Wiki.js 运行在独立端口 3003，是独立 Node.js 进程",
+          "supported": false,
+          "reason": "上下文说Wiki.js默认端口3000，未提3003或独立Node进程"
+        },
+        {
+          "claim": "二者通过导航栏链接与 Webhook 回调集成",
+          "supported": false,
+          "reason": "上下文未提导航栏链接，集成方式为网络/入口/认证/数据层"
+        },
+        {
+          "claim": "RAG 同步由 Wiki.js 的 Webhook 机制触发，不依赖定时轮询",
+          "supported": false,
+          "reason": "上下文虽以Webhook为主触发，但也有定时任务兜底，并非不依赖定时轮询"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "doc-10",
+      "category": "doc-qa",
+      "question": "Wiki.js 向 RAG 同步时，page:created / page:updated / page:deleted 三种事件分别怎么处理？Webhook 地址与 Payload 是什么？",
+      "answer": "Wiki.js 本身**不提供固定的 Webhook 接收地址**。地址是你在 RAG 服务里暴露的 HTTP 端点，然后填到 Wiki.js 后台，例如：\n\n```text\nPOST https://rag.example.com/api/webhooks/wikijs\n```\n\n配置位置：\n\n```text\nWiki.js 后台 → Administration → Webhooks → New Webhook\nURL:    https://rag.example.com/api/webhooks/wikijs\nEvents: page:created / page:updated / page:deleted\nSecret: 可选\n```\n\nWiki.js 会用 `POST + application/json` 发送 JSON。若配置了 Secret，通常会带请求头：\n\n```http\nX-WikiJS-Secret: <your-secret>\n```\n\n不同 Wiki.js 版本字段可能略有差异，以实际请求为准。\n\n---\n\n## 1. Payload 通用结构\n\n```json\n{\n  \"event\": \"page:created | page:updated | page:deleted\",\n  \"page\": {\n    \"id\": 123,\n    \"locale\": \"zh\",\n    \"path\": \"dev/rag\",\n    \"title\": \"RAG 同步\",\n    \"description\": \"说明\",\n    \"content\": \"# RAG 同步\\n...\",\n    \"contentType\": \"markdown\",\n    \"isPublished\": true,\n    \"isPrivate\": false,\n    \"createdAt\": \"2024-01-01T10:00:00.000Z\",\n    \"updatedAt\": \"2024-01-02T10:00:00.000Z\"\n  },\n  \"user\": {\n    \"id\": 1,\n    \"name\": \"Admin\",\n    \"email\": \"admin@example.com\"\n  }\n}\n```\n\n关键字段：\n\n| 字段 | 用途 |\n|---|---|\n| `event` | 判断创建/更新/删除 |\n| `page.id` | 最稳定的页面 ID |\n| `page.locale` | 语言/地区，ID 需与 id 组合 |\n| `page.path` | URL 路径，可能改名或移动 |\n| `page.title` | 元数据 |\n| `page.content` | 正文，`page:deleted` 通常不带 |\n| `page.contentType` | markdown / html 等 |\n| `page.isPublished` | 是否发布 |\n| `page.isPrivate` | 是否私有 |\n| `page.updatedAt` | 做幂等和乱序判断 |\n\n推荐 RAG 文档 ID：\n\n```text\nwiki:{locale}:{id}\n例如：wiki:zh:123\n```\n\n不要只用 `path` 作为主 ID，因为页面可能被重命名或移动。\n\n---\n\n## 2. 三种事件分别怎么处理\n\n### `page:created`：新建页面\n\n处理逻辑：\n\n1. 校验 Secret。\n2. 解析 `page`。\n3. 如果 `content` 存在，直接使用；如果没有，调用 Wiki.js GraphQL API 按 `id + locale` 拉取全文。\n4. Markdown/HTML 转纯文本。\n5. 分块，例如 500–1000 tokens，overlap 100–200。\n6. 生成 embedding。\n7. 写入向量库，文档 ID 使用 `wiki:{locale}:{id}`。\n8. 元数据保存：`page_id`、`locale`、`path`、`title`、`url`、`updated_at`、`isPublished`、`isPrivate` 等。\n\n注意：如果页面是私有或未发布，而你的 RAG 只服务公开内容，应跳过写入，或写入但带 ACL 元数据供查询时过滤。\n\n---\n\n### `page:updated`：更新页面\n\n处理逻辑：\n\n1. 与 `page:created` 类似，先拉取或使用 payload 中的 `content`。\n2. 根据 `wiki:{locale}:{id}` 删除旧向量。\n3. 重新分块、embedding、写入新向量。\n4. 如果新旧 `content` 哈希一致，可跳过，避免无意义重算。\n5. 如果 `path`、`title` 变化，更新元数据。\n6. 如果页面从公开变成私有/未发布，应删除旧向量或更新 ACL 元数据，使其不可被检索。\n\n关键点：必须**先删旧向量再写新向量**，否则页面内容缩短时，旧 chunk 会残留。\n\n也可以使用确定性 chunk ID：\n\n```text\nwiki:{locale}:{id}:{chunk_index}\n```\n\n再配合删除该文档所有旧 chunk 的策略。\n\n---\n\n### `page:deleted`：删除页面\n\n处理逻辑：\n\n1. 从 payload 拿到 `page.id` 和 `page.locale`。\n2. 按文档 ID 删除向量：\n\n```text\ndelete from vector_db where doc_id = \"wiki:{locale}:{id}\"\n```\n\n或按元数据过滤：\n\n```text\ndelete where page_id = {id} and locale = {locale}\n```\n\n3. 同时清理：\n   - 全文检索/BM25 索引\n   - 缓存\n   - 文档表\n   - 任何 RAG 侧派生数据\n\n`page:deleted` 通常不需要正文内容，只需要 `id + locale` 或 `locale + path` 来定位旧数据。\n\n---\n\n## 3. 推荐处理流程\n\nWebhook 接收端不要直接做 embedding，否则容易超时。建议：\n\n```text\nWiki.js → Webhook 接收端点 → 消息队列 → RAG Worker → 向量库\n```\n\n伪代码：\n\n```python\n@app.post(\"/api/webhooks/wikijs\")\nasync def wikijs_webhook(req):\n    if req.headers.get(\"X-WikiJS-Secret\") != SECRET:\n        raise HTTPException(401)\n\n    payload = await req.json()\n    event = payload[\"event\"]\n    page = payload[\"page\"]\n\n    doc_id = f\"wiki:{page['locale']}:{page['id']}\"\n\n    if event in (\"page:created\", \"page:updated\"):\n        queue.enqueue(reindex_page, doc_id, page)\n    elif event == \"page:deleted\":\n        queue.enqueue(delete_page, doc_id)\n\n    return {\"ok\": True}, 200\n```\n\nWorker：\n\n```python\ndef reindex_page(doc_id, page):\n    # 先删旧向量\n    vector_db.delete(filter={\"doc_id\": doc_id})\n\n    # 私有/未发布页面按需跳过\n    if page.get(\"isPrivate\") or not page.get(\"isPublished\"):\n        return\n\n    content = page.get(\"content\")\n    if not content:\n        content = fetch_wikijs_page(page[\"id\"], page[\"locale\"])\n\n    text = markdown_to_text(content)\n    chunks = split_text(text)\n\n    vector_db.upsert(\n        doc_id=doc_id,\n        chunks=chunks,\n        metadata={\n            \"page_id\": page[\"id\"],\n            \"locale\": page[\"locale\"],\n            \"path\": page[\"path\"],\n            \"title\": page[\"title\"],\n            \"updated_at\": page[\"updatedAt\"],\n        }\n    )\n\ndef delete_page(doc_id):\n    vector_db.delete(filter={\"doc_id\": doc_id})\n```\n\n---\n\n## 4. 注意事项\n\n- **幂等**：同一事件可能重复发送，使用 `page.id + locale + updatedAt` 做版本控制。\n- **乱序**：旧更新消息可能晚于删除消息到达。可在更新时先查 Wiki.js 页面是否还存在，不存在则按删除处理。\n- **重命名/移动**：`page:updated` 可能更新 `path`，也可能有单独事件。若你用 `path` 做 ID，必须删除旧 path 的向量。\n- **恢复页面**：Wiki.js 可能有 `page:restored`，建议也订阅，按 created/updated 处理。\n- **权限**：RAG 若需权限隔离，应同步 `isPublished`、`isPrivate`、tags、locale 等元数据，并在检索时过滤。\n- **安全**：校验 `X-WikiJS-Secret`，使用 HTTPS，限制来源 IP。\n- **失败重试**：Wiki.js 侧不一定保证重试，RAG 侧要有队列、重试和定期全量对账。\n\n总结：`page:created` 做首次入库，`page:updated` 做删除旧向量后重建，`page:deleted` 按 `locale + id` 删除所有向量。Webhook 地址由你在 RAG 服务定义，再填到 Wiki.js 后台。",
+      "totalMs": 47598.30279999995,
+      "outputTokens": 11753,
+      "answerRelevancy": 1,
+      "claimCoverage": 0,
+      "claimVerdicts": [
+        {
+          "claim": "Webhook POST 到 http://localhost:3001/api/wiki-sync，Payload 含 event、pageId、slug、title 等字段",
+          "supported": false,
+          "reason": "上下文未提localhost:3001，且字段为page.id/page.path，非pageId/slug"
+        },
+        {
+          "claim": "page:created 走「通过 GraphQL API 获取内容 → 分块 → 注入 RAG」",
+          "supported": false,
+          "reason": "上下文仅说content缺失时调用GraphQL，未提分块和注入RAG"
+        },
+        {
+          "claim": "page:updated 先删除旧索引再获取新内容分块注入；page:deleted 从 RAG 删除对应索引",
+          "supported": false,
+          "reason": "上下文未描述updated先删旧索引、deleted删除RAG索引"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "doc-11",
+      "category": "doc-qa",
+      "question": "navigate 架构 UML 里，整体架构概览包含哪几个子系统分组？search_documents 工具最终调用的是哪个类？",
+      "answer": "根据 navigate 架构 UML：\n\n- **整体架构概览包含的子系统分组**：`Client`、`Agent`、`Tools`、`Memory`、`LLM`、`Data`（即客户端、智能体、工具、记忆、模型、数据）。\n- **`search_documents` 工具最终调用的类**：`VectorStore`。",
+      "totalMs": 47160.757100000046,
+      "outputTokens": 11359,
+      "answerRelevancy": 1,
+      "claimCoverage": 0,
+      "claimVerdicts": [
+        {
+          "claim": "整体架构概览分为 配置 / 入口 / Agent 引擎 / 工具层（StructuredTool）/ MCP / RAG / Skill / Resume 等子系统",
+          "supported": false,
+          "reason": "上下文分组为Client/Agent/Tools/Memory/LLM/Data，与所列不符"
+        },
+        {
+          "claim": "MCP 侧含 McpClientManager 与外部 MCP 服务器（stdio）；RAG 侧含 RagVectorStore、Express /api/upload、WikiSyncService",
+          "supported": false,
+          "reason": "上下文未提McpClientManager、外部MCP、RagVectorStore、上传接口或WikiSyncService"
+        },
+        {
+          "claim": "RagSearchTool 的 name 为 search_documents，ResumeSearchTool 的 name 为 search_resume，前者调用 RagVectorStore",
+          "supported": false,
+          "reason": "上下文仅称search_documents调用VectorStore，未提RagSearchTool或search_resume"
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "doc-12",
+      "category": "doc-qa",
+      "question": "简历问答（Resume RAG）里 ResumeStore 的持久化方案与通用 RAG 有何不同？简历各章节的分块粒度是怎么定的？",
+      "answer": "如果这里的 `ResumeStore` 指简历 RAG 中负责“简历入库、结构化、索引、检索”的存储层，它的核心思路通常不是“通用 RAG 的 VectorStore 换个名字”，而是：\n\n> **以候选人为聚合根，结构化主存 + 多粒度向量/倒排索引辅助检索。**\n\n下面分两部分说。\n\n---\n\n## 1. ResumeStore 持久化 vs 通用 RAG\n\n| 维度 | 通用 RAG | ResumeStore |\n|---|---|---|\n| 聚合根 | Document / Chunk | Resume / Candidate |\n| 主存储 | 常把向量库当主存，原始文件放对象存储 | 解析后的结构化 JSON / 关系表是主存，向量库只是索引 |\n| 数据模型 | `doc_id -> chunks -> embeddings` | `resume -> sections -> items -> embeddings`，另有 skills、companies、education 等结构化字段 |\n| Chunk ID | 随机或文档+序号 | 常设计成 `resume_id:section:item_id:version`，便于级联删除、更新、回溯 |\n| 元数据 | source、page、title 等少量字段 | section_type、company、title、start/end、skills、education、location、seniority、source_span 等 |\n| 更新删除 | 删除旧 chunk，重建 embedding | 按 `resume_id` 级联 upsert/delete，支持版本、去重、增量更新 |\n| 检索 | 多为向量召回 + 可选 BM25 | 结构化过滤 + 倒排/BM25 + 向量召回 + 重排 |\n| 事实查询 | 也走向量，容易不准 | 邮箱、电话、公司、时间、学历等走结构化字段精确查询 |\n| 隐私 | 通常较弱 | 简历含 PII，通常要租户隔离、加密、权限、审计、TTL |\n| 一致性 | 最终一致即可 | 结构化主存与向量索引之间常需事务/outbox/重试保证一致 |\n\n一句话：通用 RAG 更像“文档切块后塞进向量库”；ResumeStore 更像“简历结构化数据库 + 面向检索的多级索引”。\n\n---\n\n## 2. 简历章节的分块粒度怎么定？\n\n原则是：\n\n> **结构边界优先，语义原子，父子层次，元数据随行，查询路由。**\n\n不要单纯按 512/1024 token 固定切，因为简历短、结构化强，固定切分容易把公司名、职位、项目名和职责拆散。\n\n常见章节粒度：\n\n| 章节 | 推荐粒度 | 说明 |\n|---|---|---|\n| 基本信息/联系方式 | 不建向量，或只建 profile chunk | 姓名、电话、邮箱、地点等作为结构化字段 |\n| 求职意向/自我评价 | 单 chunk | 语义完整，适合整体向量化 |\n| 教育经历 | 每段学历一个 chunk | 学校+专业+学位+时间+GPA/荣誉；多学位可拆 |\n| 工作经历 | 父块=每段任职；子块=每条职责/成果 bullet | 父块保留公司、职位、时间；子块用于细粒度召回 |\n| 项目经历 | 父块=每个项目；子块=概述/技术栈/职责/成果 | 通常一个项目一个 chunk，长项目再按 bullet 拆 |\n| 技能 | 按技能类别/技能组聚合，或结构化 skill 表 + 技能摘要 chunk | 精确技能查询走倒排，不靠向量 |\n| 证书/奖项/语言 | 按条目或类型聚合 | 通常条目短，可同类型合并 |\n| 其他长叙述 | 按段落/句子拆 | 加父块或邻居扩展补上下文 |\n\n尺寸上常用经验值：\n\n- 条目级 chunk：中文约 50–200 字，token 约 50–200；\n- 章节/父块：中文约 300–800 字，token 约 300–800；\n- 硬上限：800–1200 token，避免 embedding 语义稀释；\n- overlap：简历通常 0–10%，且**不跨章节**；\n- 太短的相邻条目可合并到同章节父块下，但不要跨 section 合并。\n\n实际分块时通常先做简历解析，得到 section tree，然后：\n\n1. 列表型章节：按条目聚合，控制 token 上限；\n2. 经历型章节：先按公司/项目分父块，再按 bullet 分子块；\n3. 叙述型章节：整段一个 chunk；\n4. 每个 chunk 加自包含前缀，例如：  \n   `工作经历 | 字节跳动 | 高级后端 | 2020-2023：负责...`\n5. 检索时：小 chunk 提高召回，父块/邻居扩展提供上下文；事实问题走结构化字段，开放问题走向量。\n\n所以，简历 RAG 的分块不是“尽量均匀”，而是**按简历语义结构分层**：简历级、章节级、条目级、bullet 级，并根据查询类型分别使用。",
+      "totalMs": 30362.358800000045,
+      "outputTokens": 5504,
+      "answerRelevancy": 1,
+      "claimCoverage": 0.3333333333333333,
+      "claimVerdicts": [
+        {
+          "claim": "ResumeStore 用 SQLite 存储 chunks + base64 embeddings，与通用 RAG（MemoryVectorStore）解耦",
+          "supported": false,
+          "reason": "上下文未提及SQLite、base64 embeddings或MemoryVectorStore等实现细节"
+        },
+        {
+          "claim": "启动时读取项目根目录 resume.md，检测文件 hash 变化后自动更新索引",
+          "supported": false,
+          "reason": "上下文未提及启动时读取resume.md或检测hash自动更新索引"
+        },
+        {
+          "claim": "分块粒度：summary 整段 1 块、experience/education 每个 item 1 块、skills 按类别分组块、projects 每个项目 1 块、certifications 每个证书 1 块",
+          "supported": true,
+          "reason": "分块粒度与上下文章节分块建议基本一致，工作经验含父子块"
+        }
+      ],
+      "error": null
+    }
+  ]
+}

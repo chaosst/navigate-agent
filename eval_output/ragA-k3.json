@@ -1,0 +1,554 @@
+{
+  "createdAt": "2026-09-17T06:40:08.455Z",
+  "k": 3,
+  "sampleCount": 12,
+  "failedCount": 1,
+  "summary": {
+    "hitRate": {
+      "mean": 0.5454545454545454,
+      "min": 0,
+      "max": 1,
+      "validCount": 11
+    },
+    "mrr": {
+      "mean": 0.5454545454545454,
+      "min": 0,
+      "max": 1,
+      "validCount": 11
+    },
+    "ndcg": {
+      "mean": 0.48895525725037087,
+      "min": 0,
+      "max": 1,
+      "validCount": 11
+    },
+    "contextPrecision": {
+      "mean": 0.5454545454545454,
+      "min": 0,
+      "max": 1,
+      "validCount": 11
+    },
+    "contextRecall": {
+      "mean": 0.5151515151515151,
+      "min": 0,
+      "max": 1,
+      "validCount": 11
+    },
+    "faithfulness": {
+      "mean": 0.8844696969696971,
+      "min": 0.6,
+      "max": 1,
+      "validCount": 11
+    },
+    "answerRelevancy": {
+      "mean": 0.6363636363636364,
+      "min": 0,
+      "max": 1,
+      "validCount": 11
+    }
+  },
+  "samples": [
+    {
+      "sample": {
+        "id": "doc-01",
+        "category": "doc-qa",
+        "question": "navigate 的 Core Agent（Iter 1）设计里，Agent Loop 用什么框架实现？默认最大迭代次数是多少？",
+        "referenceClaims": [
+          "Agent Loop 基于 LangChain.js 的 AgentExecutor + OpenAIToolsAgent（OpenAI tools agent）实现",
+          "默认最大迭代次数（max iterations）为 25",
+          "TUI 采用 ink（React for CLI），LLM 通过 LangChain ChatOpenAI 集成"
+        ],
+        "relevantChunks": [
+          "89c8743c-5a3c-4293-b5f1-6d383f2b786c:0",
+          "0ae92788-b57b-bbf8-a4c6-9a1d02bb1b26:0"
+        ]
+      },
+      "contexts": [
+        {
+          "content": "---\ntitle: Core Agent - Iter 1 设计文档\ndate: 2026-07-07\nstatus: draft\n---\n\n# Core Agent - Iter 1 设计\n\n## 概述\n\n基于 LangChain + Node.js/TypeScript 构建一个交互式 agent 系统，核心功能包括 Agent Loop（ReAct 模式）、Function Call（工具调用）和终端 TUI 交互。这是三步分解中的第一个迭代。\n\n## 技术栈\n\n| 层 | 技术选择 |\n|---|---|\n| 语言 | TypeScript (Node.js) |\n| Agent 框架 | LangChain.js（AgentExecutor + OpenAI tools agent）|\n| LLM | OpenAI (GPT-4o)，通过 LangChain ChatOpenAI 集成 |\n| TUI | ink（React for CLI）|\n| 包管理 | npm / yarn |\n\n## 架构\n\n```\nTUI (ink/React)\n     │ 用户输入 / 流式输出\nAgent Loop (AgentExecutor)\n     │ 工具调用 / 结果\nTools Layer (Registry + 内置工具)\n     │\nOpenAI API (ChatOpenAI)\n```\n\n### 组件说明\n\n#### 1. Agent Loop（src/agent/）\n\n- **langchain.ts** — 初始化 ChatOpenAI 模型实例，配置 base URL、API key、model name\n- **loop.ts** — 创建 OpenAIToolsAgent + AgentExecutor，配置 streaming、max iterations（默认 25）、early stopping\n- **prompt.ts** — 构建 system prompt，包含 agent 人格定义、行为规则、工具使用约束\n- **types.ts** — AgentConfig、ToolResult 等类型定义\n\n#### 2. Function Call / Tools（src/tools/）",
+          "score": 0.01639344262295082,
+          "source": "2026-07-07-core-agent-design.md",
+          "docId": "0ae92788-b57b-bbf8-a4c6-9a1d02bb1b26",
+          "chunkIndex": 0
+        },
+        {
+          "content": "---\ntitle: Core Agent - Iter 1 设计文档\ndate: 2026-07-07\nstatus: draft\n---\n\n# Core Agent - Iter 1 设计\n\n## 概述\n\n基于 LangChain + Node.js/TypeScript 构建一个交互式 agent 系统，核心功能包括 Agent Loop（ReAct 模式）、Function Call（工具调用）和终端 TUI 交互。这是三步分解中的第一个迭代。\n\n## 技术栈\n\n| 层 | 技术选择 |\n|---|---|\n| 语言 | TypeScript (Node.js) |\n| Agent 框架 | LangChain.js（AgentExecutor + OpenAI tools agent）|\n| LLM | OpenAI (GPT-4o)，通过 LangChain ChatOpenAI 集成 |\n| TUI | ink（React for CLI）|\n| 包管理 | npm / yarn |\n\n## 架构\n\n```\nTUI (ink/React)\n     │ 用户输入 / 流式输出\nAgent Loop (AgentExecutor)\n     │ 工具调用 / 结果\nTools Layer (Registry + 内置工具)\n     │\nOpenAI API (ChatOpenAI)\n```\n\n### 组件说明\n\n#### 1. Agent Loop（src/agent/）\n\n- **langchain.ts** — 初始化 ChatOpenAI 模型实例，配置 base URL、API key、model name\n- **loop.ts** — 创建 OpenAIToolsAgent + AgentExecutor，配置 streaming、max iterations（默认 25）、early stopping\n- **prompt.ts** — 构建 system prompt，包含 agent 人格定义、行为规则、工具使用约束\n- **types.ts** — AgentConfig、ToolResult 等类型定义\n\n#### 2. Function Call / Tools（src/tools/）",
+          "score": 0.016129032258064516,
+          "source": "2026-07-07-core-agent-design.md",
+          "docId": "89c8743c-5a3c-4293-b5f1-6d383f2b786c",
+          "chunkIndex": 0
+        }
+      ],
+      "contextKeys": [
+        "0ae92788-b57b-bbf8-a4c6-9a1d02bb1b26:0",
+        "89c8743c-5a3c-4293-b5f1-6d383f2b786c:0"
+      ],
+      "answer": "在 navigate 的 **Core Agent（Iter 1）** 设计中，**Agent Loop 使用 LangChain.js 实现**，具体为：\n\n- 基于 **LangChain.js** 的 **AgentExecutor + OpenAIToolsAgent / OpenAI tools agent**\n- Agent Loop 采用 **ReAct 模式**\n- 在 `loop.ts` 中创建 `OpenAIToolsAgent + AgentExecutor`，并配置 streaming、max iterations、early stopping\n\n**默认最大迭代次数：25 次**。",
+      "metrics": {
+        "hitRate": 1,
+        "mrr": 1,
+        "ndcg": 1,
+        "contextPrecision": 1,
+        "contextRecall": 1,
+        "faithfulness": 1,
+        "answerRelevancy": 1
+      }
+    },
+    {
+      "sample": {
+        "id": "doc-02",
+        "category": "doc-qa",
+        "question": "navigate 的 Tools 层内置了哪几个工具？它们用什么 LangChain 类定义？",
+        "referenceClaims": [
+          "内置 6 个工具：execute_command、read_file、write_file、edit_file、list_files、search_files",
+          "每个工具用 LangChain StructuredTool 定义，包含名称、描述与输入 JSON Schema",
+          "search_files 基于 ripgrep 做文本搜索，edit_file 采用 search-and-replace 模式"
+        ],
+        "relevantChunks": [
+          "89c8743c-5a3c-4293-b5f1-6d383f2b786c:1",
+          "0ae92788-b57b-bbf8-a4c6-9a1d02bb1b26:1"
+        ]
+      },
+      "contexts": [
+        {
+          "content": "---\ntitle: Wiki 知识库 + OpenCode Skill 系统设计文档\ndate: 2026-07-10\nstatus: draft\n---\n\n# Wiki 知识库 + OpenCode Skill 系统设计\n\n## 概述\n\n在现有的 Navigate Agent 项目中新增两个子系统：\n\n1. **Wiki 知识库** — 支持在 Web 浏览器中编写/编辑 Markdown 文章，按分类组织，文章自动注入 RAG 索引，Agent 通过 `search_documents` 工具直接检索\n2. **OpenCode Skill 系统** — 支持通过 YAML 文件定义可复用的技能（Skills），在运行时动态加载为 Agent 的 `StructuredTool`\n\n---\n\n## 一、Wiki 知识库\n\n### 1. 架构\n\n```\nWeb 编辑器 ←→ Express API ←→ WikiStore (SQLite)\n                                    │\n                             同步到 RAG\n                                    ↓\n                          RagVectorStore (现有)\n                                    │\n                     Agent: search_documents 工具\n```\n\n### 2. 数据模型\n\n```typescript\n// src/wiki/types.ts",
+          "score": 0.01639344262295082,
+          "source": "2026-07-10-wiki-skill-design.md",
+          "docId": "2b32c6eb-47d2-4e2d-825a-9b8d43a6eba5",
+          "chunkIndex": 0
+        }
+      ],
+      "contextKeys": [
+        "2b32c6eb-47d2-4e2d-825a-9b8d43a6eba5:0"
+      ],
+      "answer": "根据提供的上下文，Navigate Agent 的 Tools 层内置工具信息如下：\n\n- **已知内置工具**：`search_documents`\n  - 用途：Agent 通过该工具直接检索 RAG 索引中的文档（来自 Wiki 知识库）。\n\n- **LangChain 类定义**：\n  - 上下文中提到，OpenCode Skill 系统支持通过 YAML 文件定义可复用技能，并在运行时动态加载为 Agent 的 `StructuredTool`。\n  - 但上下文**没有明确说明** `search_documents` 或其他 Tools 层内置工具具体使用哪个 LangChain 类定义。\n\n因此，基于当前上下文，无法完整列出 Navigate Tools 层的所有内置工具，也无法确定它们分别由哪个 LangChain 类定义。只能确认存在 `search_documents` 工具，并提及了 `StructuredTool` 类用于动态加载技能。",
+      "metrics": {
+        "hitRate": 0,
+        "mrr": 0,
+        "ndcg": 0,
+        "contextPrecision": 0,
+        "contextRecall": 0,
+        "faithfulness": 0.625,
+        "answerRelevancy": 0.5
+      }
+    },
+    {
+      "sample": {
+        "id": "doc-03",
+        "category": "doc-qa",
+        "question": "navigate 一轮对话的数据流分几步？其中工具执行失败、LLM 调用超时分别如何处理？",
+        "referenceClaims": [
+          "数据流为五步：TUI 输入 prompt → AgentExecutor 接收 prompt 与历史记录 → LLM 返回 tool_call 或最终回复 → 若为 tool_call 则执行工具并把结果传回 LLM 继续循环 → 若为最终回复则流式渲染到 TUI 等待下一轮输入",
+          "工具执行失败时，错误信息作为 observation 传回 LLM，由 agent 自行决定重试或给出回复",
+          "LLM 调用超时会重试 2 次后提示用户；超出 max iterations 时返回当前中间结果并提示"
+        ],
+        "relevantChunks": [
+          "89c8743c-5a3c-4293-b5f1-6d383f2b786c:2",
+          "0ae92788-b57b-bbf8-a4c6-9a1d02bb1b26:2"
+        ]
+      },
+      "contexts": [
+        {
+          "content": "## 数据流\n\n1. 用户通过 TUI 输入 prompt\n2. AgentExecutor 接收 prompt + 历史记录\n3. LLM 返回 tool_call 或最终回复\n4. 若为 tool_call：执行对应工具 → 结果传回 LLM → 继续循环\n5. 若为最终回复：流式渲染到 TUI，等待下一轮用户输入\n\n## 错误处理\n\n- 工具执行失败：错误信息作为 observation 传回 LLM，让 agent 自行决定重试或给出回复\n- LLM 调用超时：重试 2 次后提示用户\n- 超出 max iterations：agent 返回当前中间结果并提示\n\n## 未包含在 Iter 1（后续迭代覆盖）\n\n- 对话持久化（Iter 2 Memory）\n- RAG 检索（Iter 3）\n- 文档上传 RAG 页面（Iter 3）",
+          "score": 0.01639344262295082,
+          "source": "2026-07-07-core-agent-design.md",
+          "docId": "89c8743c-5a3c-4293-b5f1-6d383f2b786c",
+          "chunkIndex": 2
+        }
+      ],
+      "contextKeys": [
+        "89c8743c-5a3c-4293-b5f1-6d383f2b786c:2"
+      ],
+      "answer": "### navigate 一轮对话的数据流\n\n共 **5 步**：\n\n1. 用户通过 TUI 输入 prompt  \n2. AgentExecutor 接收 prompt + 历史记录  \n3. LLM 返回 tool_call 或最终回复  \n4. 若为 tool_call：执行对应工具 → 结果传回 LLM → 继续循环  \n5. 若为最终回复：流式渲染到 TUI，等待下一轮用户输入  \n\n### 错误处理\n\n- **工具执行失败**：错误信息作为 observation 传回 LLM，让 agent 自行决定重试或给出回复。  \n- **LLM 调用超时**：重试 2 次后提示用户。",
+      "metrics": {
+        "hitRate": 1,
+        "mrr": 1,
+        "ndcg": 0.6131471927654584,
+        "contextPrecision": 1,
+        "contextRecall": 1,
+        "faithfulness": 0.9,
+        "answerRelevancy": 1
+      }
+    },
+    {
+      "sample": {
+        "id": "doc-04",
+        "category": "doc-qa",
+        "question": "navigate Core Agent 实施计划的 Global Constraints 里，对 Node.js 版本、模块解析方式和工具基类分别提了什么要求？",
+        "referenceClaims": [
+          "要求 Node.js >= 18",
+          "采用 ES module resolution（package.json 中 \"type\": \"module\"）",
+          "所有工具必须使用 @langchain/core/tools 的 StructuredTool，agent 用 @langchain/openai 的 OpenAIToolsAgent；TUI 必须用 ink，不使用 blessed 等其它终端库"
+        ],
+        "relevantChunks": [
+          "73c09568-fcac-4d36-a74f-380c8982f997:1"
+        ]
+      },
+      "contexts": [
+        {
+          "content": "---\ntitle: Core Agent - Iter 1 设计文档\ndate: 2026-07-07\nstatus: draft\n---\n\n# Core Agent - Iter 1 设计\n\n## 概述\n\n基于 LangChain + Node.js/TypeScript 构建一个交互式 agent 系统，核心功能包括 Agent Loop（ReAct 模式）、Function Call（工具调用）和终端 TUI 交互。这是三步分解中的第一个迭代。\n\n## 技术栈\n\n| 层 | 技术选择 |\n|---|---|\n| 语言 | TypeScript (Node.js) |\n| Agent 框架 | LangChain.js（AgentExecutor + OpenAI tools agent）|\n| LLM | OpenAI (GPT-4o)，通过 LangChain ChatOpenAI 集成 |\n| TUI | ink（React for CLI）|\n| 包管理 | npm / yarn |\n\n## 架构\n\n```\nTUI (ink/React)\n     │ 用户输入 / 流式输出\nAgent Loop (AgentExecutor)\n     │ 工具调用 / 结果\nTools Layer (Registry + 内置工具)\n     │\nOpenAI API (ChatOpenAI)\n```\n\n### 组件说明\n\n#### 1. Agent Loop（src/agent/）\n\n- **langchain.ts** — 初始化 ChatOpenAI 模型实例，配置 base URL、API key、model name\n- **loop.ts** — 创建 OpenAIToolsAgent + AgentExecutor，配置 streaming、max iterations（默认 25）、early stopping\n- **prompt.ts** — 构建 system prompt，包含 agent 人格定义、行为规则、工具使用约束\n- **types.ts** — AgentConfig、ToolResult 等类型定义\n\n#### 2. Function Call / Tools（src/tools/）",
+          "score": 0.01639344262295082,
+          "source": "2026-07-07-core-agent-design.md",
+          "docId": "0ae92788-b57b-bbf8-a4c6-9a1d02bb1b26",
+          "chunkIndex": 0
+        },
+        {
+          "content": "---\ntitle: Core Agent - Iter 1 设计文档\ndate: 2026-07-07\nstatus: draft\n---\n\n# Core Agent - Iter 1 设计\n\n## 概述\n\n基于 LangChain + Node.js/TypeScript 构建一个交互式 agent 系统，核心功能包括 Agent Loop（ReAct 模式）、Function Call（工具调用）和终端 TUI 交互。这是三步分解中的第一个迭代。\n\n## 技术栈\n\n| 层 | 技术选择 |\n|---|---|\n| 语言 | TypeScript (Node.js) |\n| Agent 框架 | LangChain.js（AgentExecutor + OpenAI tools agent）|\n| LLM | OpenAI (GPT-4o)，通过 LangChain ChatOpenAI 集成 |\n| TUI | ink（React for CLI）|\n| 包管理 | npm / yarn |\n\n## 架构\n\n```\nTUI (ink/React)\n     │ 用户输入 / 流式输出\nAgent Loop (AgentExecutor)\n     │ 工具调用 / 结果\nTools Layer (Registry + 内置工具)\n     │\nOpenAI API (ChatOpenAI)\n```\n\n### 组件说明\n\n#### 1. Agent Loop（src/agent/）\n\n- **langchain.ts** — 初始化 ChatOpenAI 模型实例，配置 base URL、API key、model name\n- **loop.ts** — 创建 OpenAIToolsAgent + AgentExecutor，配置 streaming、max iterations（默认 25）、early stopping\n- **prompt.ts** — 构建 system prompt，包含 agent 人格定义、行为规则、工具使用约束\n- **types.ts** — AgentConfig、ToolResult 等类型定义\n\n#### 2. Function Call / Tools（src/tools/）",
+          "score": 0.016129032258064516,
+          "source": "2026-07-07-core-agent-design.md",
+          "docId": "89c8743c-5a3c-4293-b5f1-6d383f2b786c",
+          "chunkIndex": 0
+        }
+      ],
+      "contextKeys": [
+        "0ae92788-b57b-bbf8-a4c6-9a1d02bb1b26:0",
+        "89c8743c-5a3c-4293-b5f1-6d383f2b786c:0"
+      ],
+      "answer": "根据当前 RAG 检索到的上下文，**没有找到**“Core Agent 实施计划的 Global Constraints”这一部分内容，因此无法提取其中对 Node.js 版本、模块解析方式和工具基类的要求。\n\n现有上下文仅包含《Core Agent - Iter 1 设计文档》的内容，其中与问题相关的信息为：\n\n- **Node.js**：技术栈中写明使用 `TypeScript (Node.js)`，但未给出具体的 Node.js 版本要求。\n- **模块解析方式**：上下文中未提及 ESM、CommonJS 或其他模块解析配置。\n- **工具基类**：仅提到 Tools Layer（Registry + 内置工具），但未说明工具基类的具体约束、接口或继承规范。\n\n因此，针对 Node.js 版本、模块解析方式和工具基类的要求，当前上下文不足以回答。",
+      "metrics": {
+        "hitRate": 0,
+        "mrr": 0,
+        "ndcg": 0,
+        "contextPrecision": 0,
+        "contextRecall": 0,
+        "faithfulness": 1,
+        "answerRelevancy": 0
+      }
+    },
+    {
+      "sample": {
+        "id": "doc-05",
+        "category": "doc-qa",
+        "question": "navigate 的 Memory 层（Iter 2）用什么做持久化？向量库和 Embedding 各选了什么？",
+        "referenceClaims": [
+          "持久化存储用 better-sqlite3（嵌入式 SQLite）",
+          "向量库用 @langchain/community + MemoryVectorStore，Embedding 用 OpenAI text-embedding-3-small",
+          "SQLite 表为 sessions 与 messages；每个会话一个向量存储文件，存放对话摘要嵌入"
+        ],
+        "relevantChunks": [
+          "8ebcfb03-b533-4ed5-8f87-2389e934ba39:0"
+        ]
+      },
+      "contexts": [
+        {
+          "content": "---\ntitle: Memory + RAG - Iter 2 & 3 设计文档\ndate: 2026-07-07\nstatus: draft\n---\n\n# Memory (Iter 2) + RAG (Iter 3) 设计\n\n## Iter 2: Memory\n\n基于 better-sqlite3 + LangChain 构建记忆层，支持会话持久化与向量记忆检索。\n\n### 技术栈\n\n| 层 | 选择 |\n|---|---|\n| 持久化存储 | better-sqlite3（嵌入式 SQLite） |\n| 向量库 | @langchain/community + MemoryVectorStore |\n| Embedding | OpenAI text-embedding-3-small |\n| 记忆管理 | 自定义 AgentMemory 封装 |\n\n### 架构\n\n`\nAgent Loop\n    | serialize / deserialize\nAgentMemory\n    |--- SqliteStore      ← 会话历史 CRUD\n    |--- VectorMemory     ← 向量记忆 检索/存储\n`\n\n### 数据流\n\n1. 每次对话结束 → 写入 SQLite（会话 ID + 消息对）\n2. 异步生成摘要 → 存入向量库\n3. 新对话 → 检索相关记忆 → 注入 system prompt\n\n### 存储结构\n\nSQLite 表：\n- sessions — id, name, created_at, updated_at\n- messages — id, session_id, role, content, created_at\n\n向量库：每个会话一个向量存储文件，存储对话摘要嵌入。\n\n## Iter 3: RAG\n\n基于 LangChain 文档加载器 + 向量检索构建 RAG 引擎，附带独立 HTML 上传管理页。\n\n### 技术栈",
+          "score": 0.01639344262295082,
+          "source": "2026-07-07-memory-rag-design.md",
+          "docId": "8ebcfb03-b533-4ed5-8f87-2389e934ba39",
+          "chunkIndex": 0
+        },
+        {
+          "content": "向量库：每个会话一个向量存储文件，存储对话摘要嵌入。\n\n## Iter 3: RAG\n\n基于 LangChain 文档加载器 + 向量检索构建 RAG 引擎，附带独立 HTML 上传管理页。\n\n### 技术栈\n\n| 层 | 选择 |\n|---|---|\n| 文档解析 | @langchain/community document loaders |\n| 文本分割 | RecursiveCharacterTextSplitter |\n| 向量库 | MemoryVectorStore（文件级持久化） |\n| Embedding | OpenAI text-embedding-3-small |\n| 上传页面 | 纯 HTML + JS |\n| 后端 API | Express.js |\n\n### 架构\n\n`\nTUI Agent → RAG 检索工具\nRAG Engine\n    |-- loader.ts       ← 文档加载 + 分割\n    |-- vectorstore.ts  ← 向量库 CRUD\n    |-- retriever.ts    ← 检索 + 上下文拼接\n\nWeb Server\n    |-- index.ts        ← Express API\n    |-- public/\n        |-- index.html  ← 上传管理页面\n`\n\n### API 端点\n\n| 方法 | 路径 | 说明 |\n|---|---|---|\n| POST | /api/upload | 上传文档 |\n| GET | /api/documents | 文档列表 |\n| DELETE | /api/documents/:id | 删除文档 |\n| POST | /api/query | RAG 查询测试 |",
+          "score": 0.016129032258064516,
+          "source": "2026-07-07-memory-rag-design.md",
+          "docId": "8ebcfb03-b533-4ed5-8f87-2389e934ba39",
+          "chunkIndex": 1
+        }
+      ],
+      "contextKeys": [
+        "8ebcfb03-b533-4ed5-8f87-2389e934ba39:0",
+        "8ebcfb03-b533-4ed5-8f87-2389e934ba39:1"
+      ],
+      "answer": "根据设计文档，**Memory 层（Iter 2）** 的技术选型如下：\n\n| 层 | 选择 |\n|---|---|\n| 持久化存储 | **better-sqlite3**（嵌入式 SQLite） |\n| 向量库 | **@langchain/community + MemoryVectorStore** |\n| Embedding | **OpenAI text-embedding-3-small** |\n| 记忆管理 | 自定义 **AgentMemory** 封装 |\n\n具体说明：\n\n- **持久化**：使用 `better-sqlite3` 做持久化存储，通过 `SqliteStore` 负责会话历史 CRUD。SQLite 表包括：\n  - `sessions`：id, name, created_at, updated_at\n  - `messages`：id, session_id, role, content, created_at\n- **向量库**：选用 `@langchain/community` + `MemoryVectorStore`。每个会话对应一个向量存储文件，用于存储对话摘要嵌入。\n- **Embedding**：选用 `OpenAI text-embedding-3-small`。\n\n数据流上，每次对话结束会写入 SQLite（会话 ID + 消息对），并异步生成摘要存入向量库；新对话时会检索相关记忆并注入 system prompt。",
+      "metrics": {
+        "hitRate": 1,
+        "mrr": 1,
+        "ndcg": 1,
+        "contextPrecision": 1,
+        "contextRecall": 1,
+        "faithfulness": 1,
+        "answerRelevancy": 1
+      }
+    },
+    {
+      "sample": {
+        "id": "doc-06",
+        "category": "doc-qa",
+        "question": "navigate 的 RAG 引擎（Iter 3）用什么做文本分割和向量库？对外暴露了哪些 API 端点？",
+        "referenceClaims": [
+          "文本分割用 RecursiveCharacterTextSplitter，文档解析用 @langchain/community 的 document loaders",
+          "向量库为 MemoryVectorStore（文件级持久化），后端 API 为 Express.js",
+          "端点包括 POST /api/upload、GET /api/documents、DELETE /api/documents/:id、POST /api/query"
+        ],
+        "relevantChunks": [
+          "8ebcfb03-b533-4ed5-8f87-2389e934ba39:1"
+        ]
+      },
+      "contexts": [
+        {
+          "content": "向量库：每个会话一个向量存储文件，存储对话摘要嵌入。\n\n## Iter 3: RAG\n\n基于 LangChain 文档加载器 + 向量检索构建 RAG 引擎，附带独立 HTML 上传管理页。\n\n### 技术栈\n\n| 层 | 选择 |\n|---|---|\n| 文档解析 | @langchain/community document loaders |\n| 文本分割 | RecursiveCharacterTextSplitter |\n| 向量库 | MemoryVectorStore（文件级持久化） |\n| Embedding | OpenAI text-embedding-3-small |\n| 上传页面 | 纯 HTML + JS |\n| 后端 API | Express.js |\n\n### 架构\n\n`\nTUI Agent → RAG 检索工具\nRAG Engine\n    |-- loader.ts       ← 文档加载 + 分割\n    |-- vectorstore.ts  ← 向量库 CRUD\n    |-- retriever.ts    ← 检索 + 上下文拼接\n\nWeb Server\n    |-- index.ts        ← Express API\n    |-- public/\n        |-- index.html  ← 上传管理页面\n`\n\n### API 端点\n\n| 方法 | 路径 | 说明 |\n|---|---|---|\n| POST | /api/upload | 上传文档 |\n| GET | /api/documents | 文档列表 |\n| DELETE | /api/documents/:id | 删除文档 |\n| POST | /api/query | RAG 查询测试 |",
+          "score": 0.01639344262295082,
+          "source": "2026-07-07-memory-rag-design.md",
+          "docId": "8ebcfb03-b533-4ed5-8f87-2389e934ba39",
+          "chunkIndex": 1
+        },
+        {
+          "content": "---\ntitle: Memory + RAG - Iter 2 & 3 设计文档\ndate: 2026-07-07\nstatus: draft\n---\n\n# Memory (Iter 2) + RAG (Iter 3) 设计\n\n## Iter 2: Memory\n\n基于 better-sqlite3 + LangChain 构建记忆层，支持会话持久化与向量记忆检索。\n\n### 技术栈\n\n| 层 | 选择 |\n|---|---|\n| 持久化存储 | better-sqlite3（嵌入式 SQLite） |\n| 向量库 | @langchain/community + MemoryVectorStore |\n| Embedding | OpenAI text-embedding-3-small |\n| 记忆管理 | 自定义 AgentMemory 封装 |\n\n### 架构\n\n`\nAgent Loop\n    | serialize / deserialize\nAgentMemory\n    |--- SqliteStore      ← 会话历史 CRUD\n    |--- VectorMemory     ← 向量记忆 检索/存储\n`\n\n### 数据流\n\n1. 每次对话结束 → 写入 SQLite（会话 ID + 消息对）\n2. 异步生成摘要 → 存入向量库\n3. 新对话 → 检索相关记忆 → 注入 system prompt\n\n### 存储结构\n\nSQLite 表：\n- sessions — id, name, created_at, updated_at\n- messages — id, session_id, role, content, created_at\n\n向量库：每个会话一个向量存储文件，存储对话摘要嵌入。\n\n## Iter 3: RAG\n\n基于 LangChain 文档加载器 + 向量检索构建 RAG 引擎，附带独立 HTML 上传管理页。\n\n### 技术栈",
+          "score": 0.016129032258064516,
+          "source": "2026-07-07-memory-rag-design.md",
+          "docId": "8ebcfb03-b533-4ed5-8f87-2389e934ba39",
+          "chunkIndex": 0
+        }
+      ],
+      "contextKeys": [
+        "8ebcfb03-b533-4ed5-8f87-2389e934ba39:1",
+        "8ebcfb03-b533-4ed5-8f87-2389e934ba39:0"
+      ],
+      "answer": "navigate 的 RAG 引擎（Iter 3）中：\n\n- **文本分割**：使用 `RecursiveCharacterTextSplitter`\n- **向量库**：使用 `MemoryVectorStore`（文件级持久化）\n\n对外暴露的 API 端点如下：\n\n| 方法 | 路径 | 说明 |\n|---|---|---|\n| POST | `/api/upload` | 上传文档 |\n| GET | `/api/documents` | 文档列表 |\n| DELETE | `/api/documents/:id` | 删除文档 |\n| POST | `/api/query` | RAG 查询测试 |\n\n这些端点由 Express.js 后端 API 提供。",
+      "metrics": {
+        "hitRate": 1,
+        "mrr": 1,
+        "ndcg": 1,
+        "contextPrecision": 1,
+        "contextRecall": 1,
+        "faithfulness": 0.9166666666666666,
+        "answerRelevancy": 1
+      }
+    },
+    {
+      "sample": {
+        "id": "doc-07",
+        "category": "doc-qa",
+        "question": "navigate 的 AgentMemory facade（src/memory/index.ts）组合了哪些存储？暴露了哪些方法？",
+        "referenceClaims": [
+          "AgentMemory 是 SqliteStore + VectorMemory 的组合封装",
+          "暴露 getOrCreateSession、addMessage、getContextWindow、searchRelated、buildMemoryContext、close 方法",
+          "vector-memory.ts 用 OpenAIEmbeddings(text-embedding-3-small) + MemoryVectorStore，提供 storeSummary / search / deleteSessionMemories"
+        ],
+        "relevantChunks": [
+          "7403d61a-7cc1-a9af-9685-f270947ef2dc:1",
+          "80a0c3cc-5ced-4ae1-80f8-54da842b0bd3:1"
+        ]
+      },
+      "contexts": [
+        {
+          "content": "# Resume RAG — 简历展示与问答系统\n\n**日期**: 2026-07-07\n**状态**: 设计稿（待审批）\n**版本**: 1.0\n\n---\n\n## 1. 概述\n\n在现有的 Navigate Agent 项目中，利用 RAG 技术实现个人简历的展示与智能问答。提供三种交互方式：**Agent CLI 对话**、**精美 Web 简历展示页**、**Web 简历问答聊天页**。\n\n### 目标\n\n- 用户可以通过自然语言向 agent 询问简历内容\n- 简历以精美的响应式页面在浏览器展示\n- 简历问答聊天页面支持推荐问题、流式输出\n- 简历数据独立持久化存储，不依赖内存向量库\n\n---\n\n## 2. 整体架构\n\n```\nresume.md (源文件)\n    │ 解析\n    ▼\nResumeParser ──→ ResumeData (结构化 JSON)\n    │               │\n    │               ▼\n    │          ResumeStore (SQLite 持久化)\n    │           ├── 文本块 + OpenAI Embeddings + 元数据(所属章节)\n    │           ├── 结构化 ResumeData (JSON 存 SQLite)\n    │           └── 版本管理(文件 hash 检测变更)\n    │\n    ├──► Agent: search_resume 工具\n    │           - 按关键词搜索所有内容\n    │           - 按章节过滤 (experience / education / skills …)\n    │\n    ├──► API (Express 路由)\n    │     GET  /api/resume          → 完整结构化简历数据\n    │     POST /api/resume/chat     → SSE 流式对话\n    │\n    └──► Web 页面\n          GET /resume       → 简历展示页\n          GET /resume/chat  → 简历问答聊天页\n```\n\n### 关键设计决策",
+          "score": 0.01639344262295082,
+          "source": "resume-rag-简历展示与问答系统.md",
+          "docId": "38d4b4a4-3d26-c940-a8c1-c298c467d245",
+          "chunkIndex": 0
+        }
+      ],
+      "contextKeys": [
+        "38d4b4a4-3d26-c940-a8c1-c298c467d245:0"
+      ],
+      "answer": "# 关于 AgentMemory facade 的问题\n\n根据当前 RAG 检索到的上下文，**无法回答该问题**。\n\n## 检索结果分析\n\n检索到的上下文是一份 **《Resume RAG — 简历展示与问答系统》设计稿（v1.0，2026-07-07）**，其内容主要涵盖：\n\n- **系统概述**：利用 RAG 技术实现个人简历的展示与智能问答\n- **整体架构**：`resume.md` → `ResumeParser` → `ResumeData` → `ResumeStore`（SQLite 持久化）\n- **交互方式**：Agent CLI 对话、Web 简历展示页、Web 简历问答聊天页\n- **相关存储**：`ResumeStore`（SQLite），包含文本块 + OpenAI Embeddings + 元数据、结构化 ResumeData、版本管理\n- **API 路由**：`GET /api/resume`、`POST /api/resume/chat`\n- **Web 页面**：`GET /resume`、`GET /resume/chat`\n\n## 缺失信息\n\n上述上下文中：\n\n- ❌ 未提及 `src/memory/index.ts` 文件\n- ❌ 未提及 `AgentMemory` facade\n- ❌ 未说明该 facade 组合了哪些存储\n- ❌ 未说明该 facade 暴露了哪些方法\n\n## 建议\n\n若需回答此问题，请补充以下相关上下文的检索结果：\n\n1. `src/memory/index.ts` 的源码或相关文档\n2. `AgentMemory` facade 的设计说明\n3. 其组合的底层存储（如向量库、关系库、缓存等）的定义\n\n在获得这些内容之前，为避免编造，无法给出准确答案。",
+      "metrics": {
+        "hitRate": 0,
+        "mrr": 0,
+        "ndcg": 0,
+        "contextPrecision": 0,
+        "contextRecall": 0,
+        "faithfulness": 0.9,
+        "answerRelevancy": 0
+      }
+    },
+    {
+      "sample": {
+        "id": "doc-08",
+        "category": "doc-qa",
+        "question": "navigate 的 Skill 系统支持哪几种 action 类型？各自的实现方式是什么？",
+        "referenceClaims": [
+          "四种动作类型：template、shell、http、code",
+          "template 用 Nunjucks 模板引擎渲染，shell 用 child_process.execSync/exec，http 用 fetch()，code 用 new AsyncFunction() 沙箱执行",
+          "Skill 定义写在 skills/<name>.skill.yaml，含 name / description / schema / action 四段，schema 用 JSON Schema 描述参数"
+        ],
+        "relevantChunks": [
+          "2b32c6eb-47d2-4e2d-825a-9b8d43a6eba5:5",
+          "2b32c6eb-47d2-4e2d-825a-9b8d43a6eba5:6"
+        ]
+      },
+      "contexts": [
+        {
+          "content": "---\ntitle: Wiki 知识库 + OpenCode Skill 系统设计文档\ndate: 2026-07-10\nstatus: draft\n---\n\n# Wiki 知识库 + OpenCode Skill 系统设计\n\n## 概述\n\n在现有的 Navigate Agent 项目中新增两个子系统：\n\n1. **Wiki 知识库** — 支持在 Web 浏览器中编写/编辑 Markdown 文章，按分类组织，文章自动注入 RAG 索引，Agent 通过 `search_documents` 工具直接检索\n2. **OpenCode Skill 系统** — 支持通过 YAML 文件定义可复用的技能（Skills），在运行时动态加载为 Agent 的 `StructuredTool`\n\n---\n\n## 一、Wiki 知识库\n\n### 1. 架构\n\n```\nWeb 编辑器 ←→ Express API ←→ WikiStore (SQLite)\n                                    │\n                             同步到 RAG\n                                    ↓\n                          RagVectorStore (现有)\n                                    │\n                     Agent: search_documents 工具\n```\n\n### 2. 数据模型\n\n```typescript\n// src/wiki/types.ts",
+          "score": 0.01639344262295082,
+          "source": "2026-07-10-wiki-skill-design.md",
+          "docId": "2b32c6eb-47d2-4e2d-825a-9b8d43a6eba5",
+          "chunkIndex": 0
+        }
+      ],
+      "contextKeys": [
+        "2b32c6eb-47d2-4e2d-825a-9b8d43a6eba5:0"
+      ],
+      "answer": "根据当前提供的 RAG 检索上下文，**无法确定 navigate 的 Skill 系统支持哪几种 action 类型及其实现方式**。\n\n上下文中关于 OpenCode Skill 系统的信息仅有概述级描述：\n\n> **OpenCode Skill 系统** — 支持通过 YAML 文件定义可复用的技能（Skills），在运行时动态加载为 Agent 的 `StructuredTool`\n\n除此之外，上下文没有展开说明：\n\n- Skill 系统具体支持哪些 `action` 类型；\n- 每种 `action` 类型的定义方式；\n- 每种 `action` 类型的运行时实现方式。\n\n因此，基于现有上下文只能知道 Skill 系统支持通过 YAML 定义技能，并在运行时加载为 Agent 的 `StructuredTool`，但无法回答 action 类型分类及各自实现细节。",
+      "metrics": {
+        "hitRate": 0,
+        "mrr": 0,
+        "ndcg": 0,
+        "contextPrecision": 0,
+        "contextRecall": 0,
+        "faithfulness": 1,
+        "answerRelevancy": 0
+      }
+    },
+    {
+      "sample": {
+        "id": "doc-09",
+        "category": "doc-qa",
+        "question": "自建 Wiki 迁到 Wiki.js 后，Wiki.js 跑在哪个端口？与原应用怎么集成？RAG 同步靠什么触发？",
+        "referenceClaims": [
+          "Wiki.js 运行在独立端口 3003，是独立 Node.js 进程",
+          "二者通过导航栏链接与 Webhook 回调集成",
+          "RAG 同步由 Wiki.js 的 Webhook 机制触发，不依赖定时轮询"
+        ],
+        "relevantChunks": [
+          "f037973e-08db-4223-9e5e-6479b6cd315d:3"
+        ]
+      },
+      "contexts": [
+        {
+          "content": "导航栏其他链接保持不动。\n\n---\n\n## 5. RAG 同步机制\n\n### 整体流程\n\n```\n用户编辑/创建/删除 Wiki 页面\n        │\n        ▼\n  Wiki.js 保存到 SQLite\n        │\n        ├── 触发 Webhook POST\n        │    URL: http://localhost:3001/api/wiki-sync\n        │    Payload: { event, pageId, slug, title, ... }\n        │\n        ▼\n  Navigate App 接收 Webhook\n        │\n        ├── page:created  → 通过 GraphQL API 获取内容 → 分块 → 注入 RAG\n        ├── page:updated  → 删除旧索引 → 获取新内容 → 分块 → 注入 RAG\n        └── page:deleted  → 从 RAG 删除对应索引\n```\n\n### 新增文件：`src/wiki-sync/service.ts`\n\n```typescript\n/**\n * Wiki.js → RAG 同步服务\n * \n * 职责：\n * 1. 接收 Wiki.js Webhook 事件\n * 2. 通过 Wiki.js GraphQL API 获取页面内容\n * 3. 分块后同步到 RagVectorStore\n */\n\nexport class WikiSyncService {\n  private wikiApiUrl: string;\n  private wikiApiToken: string;\n  private ragStore: RagVectorStore;",
+          "score": 0.01639344262295082,
+          "source": "2026-07-11-wiki-js-migration-design.md",
+          "docId": "f037973e-08db-4223-9e5e-6479b6cd315d",
+          "chunkIndex": 5
+        },
+        {
+          "content": "### 6. RAG 自动同步机制\n\n```\n保存/更新文章:\n  WikiStore.save()\n    ├── 写入 SQLite\n    ├── 将 contentMd 通过 loadDocument() 分块\n    ├── 若是更新 → 调用 RagVectorStore.deleteDoc(docId=wiki:articleId)\n    ├── 调用 RagVectorStore.addChunks() 注入新索引\n    └── 返回文章对象\n\n删除文章:\n  WikiStore.delete()\n    ├── 从 SQLite 删除\n    ├── 从 RagVectorStore 移除索引 (deleteDoc)\n    └── 返回成功\n```\n\n需要为 `RagVectorStore` 补充 `deleteDoc(docId)` 方法。\n\n### 7. 导航整合\n\n在现有页面导航栏中增加 Wiki 入口：\n- `/` (RAG 文档管理) → 增加「📚 Wiki」链接\n- `/wiki` 页面 → 包含「📄 文档管理」「👤 简历」链接\n\n---\n\n## 二、OpenCode Skill 系统\n\n### 1. 架构\n\n```\nskills/*.skill.yaml\n        │\nSkillRegistry.scan()\n        │\n  ┌─────┴─────┐\n  │ YAML 解析  │\n  │ Schema 校验 │\n  └─────┬─────┘\n        │\nSkillFactory.toTool()\n        │\n  ┌─────┴─────┐\n  │ SkillTool  │  (StructuredTool)\n  │ action     │\n  │  dispatch  │\n  └─────┬─────┘\n        │\n 注入 AgentExecutor\n```\n\n### 2. Skill YAML 格式",
+          "score": 0.016129032258064516,
+          "source": "2026-07-10-wiki-skill-design.md",
+          "docId": "2b32c6eb-47d2-4e2d-825a-9b8d43a6eba5",
+          "chunkIndex": 4
+        }
+      ],
+      "contextKeys": [
+        "f037973e-08db-4223-9e5e-6479b6cd315d:5",
+        "2b32c6eb-47d2-4e2d-825a-9b8d43a6eba5:4"
+      ],
+      "answer": "根据提供的 RAG 上下文，回答如下：\n\n## Wiki.js 端口\n上下文中未明确说明 Wiki.js 自身运行的端口。  \n但可以确定原应用（接收 Webhook 的 Navigate App）运行在 **3001 端口**，因为 Wiki.js 触发 Webhook 的目标地址是：\n\n```\nhttp://localhost:3001/api/wiki-sync\n```\n\n## 与原应用集成方式\nWiki.js 通过 **Webhook** 与原应用集成，具体流程：\n\n1. 用户编辑/创建/删除 Wiki 页面。\n2. Wiki.js 将内容保存到 SQLite。\n3. Wiki.js 触发 Webhook POST 请求到原应用：\n   - URL：`http://localhost:3001/api/wiki-sync`\n   - Payload：`{ event, pageId, slug, title, ... }`\n4. 原应用（Navigate App）接收 Webhook 后，根据事件类型处理：\n   - `page:created` → 通过 Wiki.js GraphQL API 获取内容 → 分块 → 注入 RAG\n   - `page:updated` → 删除旧索引 → 获取新内容 → 分块 → 注入 RAG\n   - `page:deleted` → 从 RAG 删除对应索引\n5. 原应用侧新增了 `src/wiki-sync/service.ts`，实现 `WikiSyncService` 类，包含 `wikiApiUrl`、`wikiApiToken`、`ragStore` 等属性，用于接收 Webhook 并调用 Wiki.js GraphQL API 完成同步。\n\n## RAG 同步触发机制\n迁移到 Wiki.js 后，RAG 同步主要靠 **Wiki.js 的 Webhook 触发**：\n\n- 用户在 Wiki.js 中编辑/创建/删除页面 → Wiki.js 保存到 SQLite → 触发 Webhook POST 到原应用 → 原应用接收后调用 GraphQL API 获取内容并同步到 RAG。\n\n此外，上下文中还提到原应用内部 `WikiStore.save()` / `WikiStore.delete()` 也会直接调用 `RagVectorStore` 的 `deleteDoc` 和 `addChunks` 进行自动同步（见 context2），但这属于原应用自身的文章存储机制；在迁移到 Wiki.js 后，主要的同步触发方式是上述 Webhook。",
+      "metrics": {
+        "hitRate": 0,
+        "mrr": 0,
+        "ndcg": 0,
+        "contextPrecision": 0,
+        "contextRecall": 0.6666666666666666,
+        "faithfulness": 0.6,
+        "answerRelevancy": 0.5
+      }
+    },
+    {
+      "sample": {
+        "id": "doc-10",
+        "category": "doc-qa",
+        "question": "Wiki.js 向 RAG 同步时，page:created / page:updated / page:deleted 三种事件分别怎么处理？Webhook 地址与 Payload 是什么？",
+        "referenceClaims": [
+          "Webhook POST 到 http://localhost:3001/api/wiki-sync，Payload 含 event、pageId、slug、title 等字段",
+          "page:created 走「通过 GraphQL API 获取内容 → 分块 → 注入 RAG」",
+          "page:updated 先删除旧索引再获取新内容分块注入；page:deleted 从 RAG 删除对应索引"
+        ],
+        "relevantChunks": [
+          "f037973e-08db-4223-9e5e-6479b6cd315d:5"
+        ]
+      },
+      "contexts": [
+        {
+          "content": "导航栏其他链接保持不动。\n\n---\n\n## 5. RAG 同步机制\n\n### 整体流程\n\n```\n用户编辑/创建/删除 Wiki 页面\n        │\n        ▼\n  Wiki.js 保存到 SQLite\n        │\n        ├── 触发 Webhook POST\n        │    URL: http://localhost:3001/api/wiki-sync\n        │    Payload: { event, pageId, slug, title, ... }\n        │\n        ▼\n  Navigate App 接收 Webhook\n        │\n        ├── page:created  → 通过 GraphQL API 获取内容 → 分块 → 注入 RAG\n        ├── page:updated  → 删除旧索引 → 获取新内容 → 分块 → 注入 RAG\n        └── page:deleted  → 从 RAG 删除对应索引\n```\n\n### 新增文件：`src/wiki-sync/service.ts`\n\n```typescript\n/**\n * Wiki.js → RAG 同步服务\n * \n * 职责：\n * 1. 接收 Wiki.js Webhook 事件\n * 2. 通过 Wiki.js GraphQL API 获取页面内容\n * 3. 分块后同步到 RagVectorStore\n */\n\nexport class WikiSyncService {\n  private wikiApiUrl: string;\n  private wikiApiToken: string;\n  private ragStore: RagVectorStore;",
+          "score": 0.01639344262295082,
+          "source": "2026-07-11-wiki-js-migration-design.md",
+          "docId": "f037973e-08db-4223-9e5e-6479b6cd315d",
+          "chunkIndex": 5
+        },
+        {
+          "content": "### 6. RAG 自动同步机制\n\n```\n保存/更新文章:\n  WikiStore.save()\n    ├── 写入 SQLite\n    ├── 将 contentMd 通过 loadDocument() 分块\n    ├── 若是更新 → 调用 RagVectorStore.deleteDoc(docId=wiki:articleId)\n    ├── 调用 RagVectorStore.addChunks() 注入新索引\n    └── 返回文章对象\n\n删除文章:\n  WikiStore.delete()\n    ├── 从 SQLite 删除\n    ├── 从 RagVectorStore 移除索引 (deleteDoc)\n    └── 返回成功\n```\n\n需要为 `RagVectorStore` 补充 `deleteDoc(docId)` 方法。\n\n### 7. 导航整合\n\n在现有页面导航栏中增加 Wiki 入口：\n- `/` (RAG 文档管理) → 增加「📚 Wiki」链接\n- `/wiki` 页面 → 包含「📄 文档管理」「👤 简历」链接\n\n---\n\n## 二、OpenCode Skill 系统\n\n### 1. 架构\n\n```\nskills/*.skill.yaml\n        │\nSkillRegistry.scan()\n        │\n  ┌─────┴─────┐\n  │ YAML 解析  │\n  │ Schema 校验 │\n  └─────┬─────┘\n        │\nSkillFactory.toTool()\n        │\n  ┌─────┴─────┐\n  │ SkillTool  │  (StructuredTool)\n  │ action     │\n  │  dispatch  │\n  └─────┬─────┘\n        │\n 注入 AgentExecutor\n```\n\n### 2. Skill YAML 格式",
+          "score": 0.016129032258064516,
+          "source": "2026-07-10-wiki-skill-design.md",
+          "docId": "2b32c6eb-47d2-4e2d-825a-9b8d43a6eba5",
+          "chunkIndex": 4
+        }
+      ],
+      "contextKeys": [
+        "f037973e-08db-4223-9e5e-6479b6cd315d:5",
+        "2b32c6eb-47d2-4e2d-825a-9b8d43a6eba5:4"
+      ],
+      "answer": "## Wiki.js 向 RAG 同步机制\n\n### 整体流程\n\n用户编辑/创建/删除 Wiki 页面后，Wiki.js 会先保存到 SQLite，然后触发 Webhook POST，由 Navigate App 接收并处理同步。\n\n### Webhook 地址与 Payload\n\n- **Webhook 地址**：`http://localhost:3001/api/wiki-sync`\n- **Payload**：`{ event, pageId, slug, title, ... }`\n\n### 三种事件的处理方式\n\n- **`page:created`**\n  - 通过 GraphQL API 获取内容\n  - 分块\n  - 注入 RAG\n\n- **`page:updated`**\n  - 删除旧索引\n  - 获取新内容\n  - 分块\n  - 注入 RAG\n\n- **`page:deleted`**\n  - 从 RAG 删除对应索引\n\n### 补充说明\n\n新增文件 `src/wiki-sync/service.ts`，其职责包括：\n\n1. 接收 Wiki.js Webhook 事件\n2. 通过 Wiki.js GraphQL API 获取页面内容\n3. 分块后同步到 `RagVectorStore`\n\n在自动同步机制中，更新文章时会调用 `RagVectorStore.deleteDoc(docId=wiki:articleId)` 删除旧索引，再调用 `RagVectorStore.addChunks()` 注入新索引；删除文章时会从 `RagVectorStore` 移除索引（`deleteDoc`）。",
+      "metrics": {
+        "hitRate": 1,
+        "mrr": 1,
+        "ndcg": 1,
+        "contextPrecision": 1,
+        "contextRecall": 1,
+        "faithfulness": 0.85,
+        "answerRelevancy": 1
+      }
+    },
+    {
+      "sample": {
+        "id": "doc-11",
+        "category": "doc-qa",
+        "question": "navigate 架构 UML 里，整体架构概览包含哪几个子系统分组？search_documents 工具最终调用的是哪个类？",
+        "referenceClaims": [
+          "整体架构概览分为 配置 / 入口 / Agent 引擎 / 工具层（StructuredTool）/ MCP / RAG / Skill / Resume 等子系统",
+          "MCP 侧含 McpClientManager 与外部 MCP 服务器（stdio）；RAG 侧含 RagVectorStore、Express /api/upload、WikiSyncService",
+          "RagSearchTool 的 name 为 search_documents，ResumeSearchTool 的 name 为 search_resume，前者调用 RagVectorStore"
+        ],
+        "relevantChunks": [
+          "5392e643-9810-9013-e235-4ac6816894b5:0",
+          "5392e643-9810-9013-e235-4ac6816894b5:1",
+          "5392e643-9810-9013-e235-4ac6816894b5:5",
+          "fb8696b3-ef9d-4f73-aaeb-8a72b1aa15ab:0",
+          "fb8696b3-ef9d-4f73-aaeb-8a72b1aa15ab:1",
+          "fb8696b3-ef9d-4f73-aaeb-8a72b1aa15ab:5"
+        ]
+      },
+      "contexts": [
+        {
+          "content": "# Navigate Agent 架构 UML 图\n\n> 生成时间: 2026-07-12 | Mermaid v8.8.2+\n\n---\n\n## 1. 整体架构概览\n\n```mermaid\ngraph TB\n    subgraph \"配置\"\n        ENV[\".env / MCP_SERVERS\"]\n        SKILL_FILES[\"skills/*.skill.yaml\"]\n    end\n\n    subgraph \"入口\"\n        INDEX[\"src/index.ts main()\"]\n        CFG[\"src/config/index.ts loadConfig()\"]\n    end\n\n    subgraph \"Agent 引擎\"\n        LLM[\"ChatOpenAI\"]\n        LOOP[\"AgentExecutor\"]\n        PROMPT[\"System Prompt\"]\n    end\n\n    subgraph \"工具层 (StructuredTool)\"\n        FILE_TOOLS[\"Shell / Read / Write / Edit\"]\n        SEARCH_TOOLS[\"ListFiles / SearchFiles\"]\n        MCP_TOOLS[\"McpWrappedTool (来自 MCP 服务器)\"]\n        RAG_TOOL[\"RagSearchTool (search_documents)\"]\n        RES_TOOL[\"ResumeSearchTool (search_resume)\"]\n        SKILL_TOOLS[\"SkillTool (来自 YAML)\"]\n    end\n\n    subgraph \"MCP\"\n        MCP_MGR[\"McpClientManager\"]\n        MCP_SRV[\"外部 MCP 服务器 (stdio)\"]\n    end",
+          "score": 0.01639344262295082,
+          "source": "architecture-uml.md",
+          "docId": "fb8696b3-ef9d-4f73-aaeb-8a72b1aa15ab",
+          "chunkIndex": 0
+        },
+        {
+          "content": "# Navigate Agent 架构 UML 图\n\n> 生成时间: 2026-07-12 | Mermaid v8.8.2+\n\n---\n\n## 1. 整体架构概览\n\n```mermaid\ngraph TB\n    subgraph \"配置\"\n        ENV[\".env / MCP_SERVERS\"]\n        SKILL_FILES[\"skills/*.skill.yaml\"]\n    end\n\n    subgraph \"入口\"\n        INDEX[\"src/index.ts main()\"]\n        CFG[\"src/config/index.ts loadConfig()\"]\n    end\n\n    subgraph \"Agent 引擎\"\n        LLM[\"ChatOpenAI\"]\n        LOOP[\"AgentExecutor\"]\n        PROMPT[\"System Prompt\"]\n    end\n\n    subgraph \"工具层 (StructuredTool)\"\n        FILE_TOOLS[\"Shell / Read / Write / Edit\"]\n        SEARCH_TOOLS[\"ListFiles / SearchFiles\"]\n        MCP_TOOLS[\"McpWrappedTool (来自 MCP 服务器)\"]\n        RAG_TOOL[\"RagSearchTool (search_documents)\"]\n        RES_TOOL[\"ResumeSearchTool (search_resume)\"]\n        SKILL_TOOLS[\"SkillTool (来自 YAML)\"]\n    end\n\n    subgraph \"MCP\"\n        MCP_MGR[\"McpClientManager\"]\n        MCP_SRV[\"外部 MCP 服务器 (stdio)\"]\n    end",
+          "score": 0.016129032258064516,
+          "source": "architecture-uml.md",
+          "docId": "5392e643-9810-9013-e235-4ac6816894b5",
+          "chunkIndex": 0
+        }
+      ],
+      "contextKeys": [
+        "fb8696b3-ef9d-4f73-aaeb-8a72b1aa15ab:0",
+        "5392e643-9810-9013-e235-4ac6816894b5:0"
+      ],
+      "answer": "根据提供的 Navigate Agent 架构 UML 图，相关信息如下：\n\n## 1. 整体架构概览包含的子系统分组\n\n整体架构概览中包含以下 5 个子系统分组（subgraph）：\n\n- **配置**\n- **入口**\n- **Agent 引擎**\n- **工具层 (StructuredTool)**\n- **MCP**\n\n## 2. `search_documents` 工具对应的类\n\n在“工具层 (StructuredTool)”分组中，`search_documents` 对应的节点为：\n\n```mermaid\nRAG_TOOL[\"RagSearchTool (search_documents)\"]\n```\n\n因此，`search_documents` 工具最终对应/调用的是 **`RagSearchTool`** 类。",
+      "metrics": {
+        "hitRate": 1,
+        "mrr": 1,
+        "ndcg": 0.7653606369886217,
+        "contextPrecision": 1,
+        "contextRecall": 0,
+        "faithfulness": 0.9375,
+        "answerRelevancy": 1
+      }
+    },
+    {
+      "sample": {
+        "id": "doc-12",
+        "category": "doc-qa",
+        "question": "简历问答（Resume RAG）里 ResumeStore 的持久化方案与通用 RAG 有何不同？简历各章节的分块粒度是怎么定的？",
+        "referenceClaims": [
+          "ResumeStore 用 SQLite 存储 chunks + base64 embeddings，与通用 RAG（MemoryVectorStore）解耦",
+          "启动时读取项目根目录 resume.md，检测文件 hash 变化后自动更新索引",
+          "分块粒度：summary 整段 1 块、experience/education 每个 item 1 块、skills 按类别分组块、projects 每个项目 1 块、certifications 每个证书 1 块"
+        ],
+        "relevantChunks": [
+          "38d4b4a4-3d26-c940-a8c1-c298c467d245:1",
+          "38d4b4a4-3d26-c940-a8c1-c298c467d245:2"
+        ]
+      },
+      "contexts": [],
+      "contextKeys": [],
+      "answer": "402 Insufficient Balance",
+      "failed": "402 Insufficient Balance",
+      "metrics": {
+        "hitRate": 0,
+        "mrr": 0,
+        "ndcg": 0,
+        "contextPrecision": null,
+        "contextRecall": null,
+        "faithfulness": 0,
+        "answerRelevancy": 0
+      }
+    }
+  ]
+}

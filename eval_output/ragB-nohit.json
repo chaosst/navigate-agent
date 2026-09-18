@@ -1,0 +1,275 @@
+{
+  "createdAt": "2026-09-17T07:18:00.487Z",
+  "k": 5,
+  "sampleCount": 6,
+  "failedCount": 0,
+  "summary": {
+    "hitRate": {
+      "mean": 0,
+      "min": 0,
+      "max": 0,
+      "validCount": 6
+    },
+    "mrr": {
+      "mean": 0,
+      "min": 0,
+      "max": 0,
+      "validCount": 6
+    },
+    "ndcg": {
+      "mean": 0,
+      "min": 0,
+      "max": 0,
+      "validCount": 6
+    },
+    "contextPrecision": null,
+    "contextRecall": {
+      "mean": 0.4166666666666667,
+      "min": 0,
+      "max": 1,
+      "validCount": 6
+    },
+    "faithfulness": {
+      "mean": 0.9666666666666667,
+      "min": 0.8,
+      "max": 1,
+      "validCount": 6
+    },
+    "answerRelevancy": {
+      "mean": 0.08333333333333333,
+      "min": 0,
+      "max": 0.5,
+      "validCount": 6
+    }
+  },
+  "samples": [
+    {
+      "sample": {
+        "id": "miss-01",
+        "category": "no-hit",
+        "question": "《里斯本条约》第 3 章主要讲了什么内容？",
+        "referenceClaims": [
+          "明确说明检索到的上下文中不存在《里斯本条约》的相关内容",
+          "不编造条约章节条款的具体内容"
+        ],
+        "relevantChunks": []
+      },
+      "contexts": [
+        {
+          "content": "异步初始化耗时任务：譬如服务端接口获取远程数据场景，优先加载本地缓存、DB数据\n\n子线程处理耗时任务，避免阻塞主线程，本地DB数据加载等场景\n\n功耗控制\n\n后台任务超时限制：首页数据拉取的超时限制\n\n数据库、文件、图片数据使用完后及时释放\n\n避免死循环\n\n版本与维护\n\nAPI 管理\n\n其他模块不引用的类方法，需及时设为私有方法，以便更好地管理方法的调用链路，提高维护性\n\n将要弃用的方法、类等，需要提前打上@deprecated\n\n方法变动需向后兼容性保证（至少 3 个版本）\n\n对其他业务模块暴露的方法需在ui层的/exports里进行定义\n\n日志规范\n\n分级输出（DEBUG/INFO/ERROR）\n\n避免在循环内打印info/error日志\n\n关键路径埋点（启动、页面打开）\n\n\n\n\n\n开发规范的优秀案例分享\n\n组件复用案例：首页列表\n\n自定义网络请求装饰器实现请求定义的声明",
+          "score": 0.01639344262295082,
+          "source": "OHOS开发指南.docx",
+          "docId": "4995a1ff-2984-4c68-ad00-3e03fc07d379",
+          "chunkIndex": 3
+        }
+      ],
+      "contextKeys": [
+        "4995a1ff-2984-4c68-ad00-3e03fc07d379:3"
+      ],
+      "answer": "根据提供的 RAG 检索结果，上下文中未包含《里斯本条约》第 3 章的相关内容。\n\n现有上下文主要涉及以下软件开发主题：\n- 异步初始化耗时任务\n- 功耗控制\n- 版本与维护\n- 日志规范\n- 开发规范的优秀案例分享\n\n这些内容与《里斯本条约》无关，因此无法基于当前上下文回答《里斯本条约》第 3 章主要讲了什么内容。",
+      "metrics": {
+        "hitRate": 0,
+        "mrr": 0,
+        "ndcg": 0,
+        "contextPrecision": null,
+        "contextRecall": 0.5,
+        "faithfulness": 1,
+        "answerRelevancy": 0
+      }
+    },
+    {
+      "sample": {
+        "id": "miss-02",
+        "category": "no-hit",
+        "question": "navigate 项目里 Kubernetes Helm chart 的 values.yaml 把副本数配成了多少？",
+        "referenceClaims": [
+          "明确说明上下文中没有 Helm / Kubernetes 相关的部署配置信息",
+          "不给出任何具体的副本数值"
+        ],
+        "relevantChunks": []
+      },
+      "contexts": [
+        {
+          "content": "# Navigate Agent 架构 UML 图\n\n> 生成时间: 2026-07-12 | Mermaid v8.8.2+\n\n---\n\n## 1. 整体架构概览\n\n```mermaid\ngraph TB\n    subgraph \"配置\"\n        ENV[\".env / MCP_SERVERS\"]\n        SKILL_FILES[\"skills/*.skill.yaml\"]\n    end\n\n    subgraph \"入口\"\n        INDEX[\"src/index.ts main()\"]\n        CFG[\"src/config/index.ts loadConfig()\"]\n    end\n\n    subgraph \"Agent 引擎\"\n        LLM[\"ChatOpenAI\"]\n        LOOP[\"AgentExecutor\"]\n        PROMPT[\"System Prompt\"]\n    end\n\n    subgraph \"工具层 (StructuredTool)\"\n        FILE_TOOLS[\"Shell / Read / Write / Edit\"]\n        SEARCH_TOOLS[\"ListFiles / SearchFiles\"]\n        MCP_TOOLS[\"McpWrappedTool (来自 MCP 服务器)\"]\n        RAG_TOOL[\"RagSearchTool (search_documents)\"]\n        RES_TOOL[\"ResumeSearchTool (search_resume)\"]\n        SKILL_TOOLS[\"SkillTool (来自 YAML)\"]\n    end\n\n    subgraph \"MCP\"\n        MCP_MGR[\"McpClientManager\"]\n        MCP_SRV[\"外部 MCP 服务器 (stdio)\"]\n    end",
+          "score": 0.01639344262295082,
+          "source": "architecture-uml.md",
+          "docId": "fb8696b3-ef9d-4f73-aaeb-8a72b1aa15ab",
+          "chunkIndex": 0
+        },
+        {
+          "content": "# Navigate Agent 架构 UML 图\n\n> 生成时间: 2026-07-12 | Mermaid v8.8.2+\n\n---\n\n## 1. 整体架构概览\n\n```mermaid\ngraph TB\n    subgraph \"配置\"\n        ENV[\".env / MCP_SERVERS\"]\n        SKILL_FILES[\"skills/*.skill.yaml\"]\n    end\n\n    subgraph \"入口\"\n        INDEX[\"src/index.ts main()\"]\n        CFG[\"src/config/index.ts loadConfig()\"]\n    end\n\n    subgraph \"Agent 引擎\"\n        LLM[\"ChatOpenAI\"]\n        LOOP[\"AgentExecutor\"]\n        PROMPT[\"System Prompt\"]\n    end\n\n    subgraph \"工具层 (StructuredTool)\"\n        FILE_TOOLS[\"Shell / Read / Write / Edit\"]\n        SEARCH_TOOLS[\"ListFiles / SearchFiles\"]\n        MCP_TOOLS[\"McpWrappedTool (来自 MCP 服务器)\"]\n        RAG_TOOL[\"RagSearchTool (search_documents)\"]\n        RES_TOOL[\"ResumeSearchTool (search_resume)\"]\n        SKILL_TOOLS[\"SkillTool (来自 YAML)\"]\n    end\n\n    subgraph \"MCP\"\n        MCP_MGR[\"McpClientManager\"]\n        MCP_SRV[\"外部 MCP 服务器 (stdio)\"]\n    end",
+          "score": 0.016129032258064516,
+          "source": "architecture-uml.md",
+          "docId": "5392e643-9810-9013-e235-4ac6816894b5",
+          "chunkIndex": 0
+        }
+      ],
+      "contextKeys": [
+        "fb8696b3-ef9d-4f73-aaeb-8a72b1aa15ab:0",
+        "5392e643-9810-9013-e235-4ac6816894b5:0"
+      ],
+      "answer": "根据提供的 RAG 检索上下文，**没有找到**关于 navigate 项目里 Kubernetes Helm chart 的 `values.yaml` 中副本数配置的信息。\n\n上下文中仅包含 Navigate Agent 的架构 UML 图，涉及配置、入口、Agent 引擎、工具层、MCP 等模块，并未提及 Helm chart、`values.yaml` 或副本数（replicaCount）相关内容。因此无法从现有上下文中得出答案。",
+      "metrics": {
+        "hitRate": 0,
+        "mrr": 0,
+        "ndcg": 0,
+        "contextPrecision": null,
+        "contextRecall": 0.5,
+        "faithfulness": 1,
+        "answerRelevancy": 0
+      }
+    },
+    {
+      "sample": {
+        "id": "miss-03",
+        "category": "no-hit",
+        "question": "OHOS 开发指南里规定的最低 API 版本号是多少？",
+        "referenceClaims": [
+          "说明取到的 OHOS 相关文档中并未给出最低 API 版本号这一信息",
+          "不编造版本号数值"
+        ],
+        "relevantChunks": []
+      },
+      "contexts": [
+        {
+          "content": "OHOS开发指南\n\n代码与设计规范\n\n编程语言规范\n\n类型声明强制化\n\nArkTs遵循Ts一样的强制类型要求，要求开发者显式、精确地声明变量、函数参数、返回值（建议）、类属性、接口等的类型，但ArkTs会更加严格一些，编译器（Hvigor/TypeScript Compiler）会进行严格的类型检查，任何违反类型约束的操作都会在编译阶段被捕获并报错，阻止代码进入运行阶段。\n\n由于引用npm库代码可以避开编译器的检查，会导致一些sdk代码不够规范。但在基座新版工程能力升级后，sdk的代码的引用从npm切换到本地，后续sdk的代码编译需要完全符合规范，否则本地编译后失败。\n\n为什么要类型强制化\n\n提升代码健壮性与稳定性：\n\n增强代码可读性与可维护性\n\n提升开发效率 (IDE 智能感知)\n\n具体的一些规范\n\n异步操作统一使用：Promise.then/async/await\n\nets文件禁止使用any、unknow类型，包括隐式any\n\n类型断言：一些未知的对象类型object/Object类型，类型断言时需谨慎\n\n类型守卫： 使用 typeof、instanceof、in 操作符或自定义函数来缩小 object/Object类型或联合类型的范围\n\n建议显式声明所有变量、常量、类属性\n\n建议显式声明函数参数和返回值类型、\n\n尽量使用接口 (interface) 或类型别名 (type) 定义复杂对象结构\n\n1）组件@Prop、@Link变量如果是对象类型时，让组件传参更明确，提高可读性\n\n2）类暴露的公共方法入参与返回值\n\n利用联合类型 (|)、字面量类型、枚举 (enum) 表达精确范围\n\n比如一些固定的状态、类型、错误码等，可以让代码可读性更强，便于维护\n\n\n\n目录结构与命名\n\n模块化分层设计\n\nSdk：/contacts_core/\n\n/db\t\t\t\t\t数据库\n\n/utils\t\t\t\t\t工具库\n\n/services\t\t\t\t业务实现\n\n/network\t\t\t\t网络请求实现\n\n/network/services\t\t网络请求声明\n\n/controller\t\t\t接口层\n\n/data\t\t\t\t\t数据定义\n\n/task\t\t\t\t\tworker线程\n\n/taskpool\t\t\t\ttaskpool线程\n\nUi层：/mobile/\n\n/page\t\t\t\tui页面",
+          "score": 0.01639344262295082,
+          "source": "OHOS开发指南.docx",
+          "docId": "4995a1ff-2984-4c68-ad00-3e03fc07d379",
+          "chunkIndex": 0
+        }
+      ],
+      "contextKeys": [
+        "4995a1ff-2984-4c68-ad00-3e03fc07d379:0"
+      ],
+      "answer": "根据提供的 OHOS 开发指南上下文，**未包含关于最低 API 版本号的规定或说明**。\n\n当前上下文主要涉及代码与设计规范、类型声明强制化、目录结构与命名等内容，并未提及 API 版本号相关要求。因此，无法从给定信息中确定 OHOS 开发指南规定的最低 API 版本号。",
+      "metrics": {
+        "hitRate": 0,
+        "mrr": 0,
+        "ndcg": 0,
+        "contextPrecision": null,
+        "contextRecall": 0.5,
+        "faithfulness": 1,
+        "answerRelevancy": 0
+      }
+    },
+    {
+      "sample": {
+        "id": "miss-04",
+        "category": "no-hit",
+        "question": "燕云十六声里重剑普攻造成的击退距离具体是多少数值？",
+        "referenceClaims": [
+          "说明上下文中只有对硬直 / 击退机制的文字描述，没有具体距离数值",
+          "不编造具体数值"
+        ],
+        "relevantChunks": []
+      },
+      "contexts": [
+        {
+          "content": "测试首日提到的重剑普攻没击退的问题，当时没测清楚，今天下来能看到怪物受击有伴随着动作位置轻微击退，但触发判断条件有问题，只要敌人在出招，这个受击硬直和击退效果就会消失，让攻击反馈断断续续，体验很差。综合我这几天对2.0战斗的各种小试验，基本就是现在的战斗设计没有把硬直状态玩透导致的，容我慢慢说明一下。\n\n需要把硬直分为弱硬直和强硬直\n\n弱硬直：短时间的硬直，非霸体、破体、格挡状态下，普通招式正常击中后造成的硬直，比如普攻造成的硬直，但暂时游戏内近战普攻的硬直做得还是太短，玩家击中反馈刚到达就没了，基本就是这个效果\n\n强硬直：时间稍长的硬直，属于强控状态，在非霸体状态下，特定招式正常击中后造成的硬直，建议特定招式的最后一段只有在破体状态下才能造成强硬直，目的是为了在非破体状态下，1v1有更多的操作空间。\n\n\n\n修正硬直的判断\n\n就如前言所说，修复敌人在出招，受击硬直和击退效果消失的问题，让打击感变流畅\n\n\n\n抓取技、强控多段技设计太少\n\n招式设计上，每个武器应该都需要配备一到两个抓取技、强控多段技（也许每个武器可以设计很多这种技能，但比武的时候必须限制配备数，pvp时的武学自由必须建立在一定的规则下，不然平衡会被骂死），强控多段技造成的就是第一点说的一定规则下的强硬直，抓取技的控制时间是根据招式动作时长而定。\n\n\n\n反击技需要预判，解控技能任何情况下cd够了都可用\n\n有些内容我还未体验到，不清楚现在设计如何，但希望设计是上述那样。\n\n\n\n希望每个门派都有破体值更高的技能\n\n希望是非锁定目标技能，这样可以让pvp切磋更有策略性和操作性。\n\n\n\n破体或虚弱后的敌人不应该站着不动被打\n\n破体状态下应该是能正常行动的，只是处于极容易被控被强硬直，虚弱可以是不行动，但这两种状态下不应该击退、硬直、击飞等效果都全部消失，这也是一个严重影响打击感的地方。\n\n\n\n霸体状态应该当做增益状态显示出来\n\n只是不可消除，现在看是没有显示的\n\n\n\n丐帮内功拳法改成远近结合",
+          "score": 0.01639344262295082,
+          "source": "测试建议2.docx",
+          "docId": "f3544e4a-a562-45b3-bbec-0d432c3a45b3",
+          "chunkIndex": 0
+        },
+        {
+          "content": "希望是非锁定目标技能，这样可以让pvp切磋更有策略性和操作性。\n\n\n\n破体或虚弱后的敌人不应该站着不动被打\n\n破体状态下应该是能正常行动的，只是处于极容易被控被强硬直，虚弱可以是不行动，但这两种状态下不应该击退、硬直、击飞等效果都全部消失，这也是一个严重影响打击感的地方。\n\n\n\n霸体状态应该当做增益状态显示出来\n\n只是不可消除，现在看是没有显示的\n\n\n\n丐帮内功拳法改成远近结合\n\n这点我上一次已经有提到，建议的主要原因是纯远程的输出定位暂时从四武器来看一个输出轻剑远程就够了，加上奶轻剑也是另类的远程打法，远程不宜太多；另外加上拳法没有拳拳到肉受击硬直的反馈，打击感是不会上去的，远近结合算是一种创新的定位，通过近战轻微击退和弱硬直的直观反馈，打击感会上去。建议左普攻近战内功输出，右普攻远程内功输出；通过冲刺技或者内力拉人的技能让远和近的技能衔接更顺畅，同时增加操作性；另外建议护手打法增加腿法攻击的招式。\n\n同时可以考虑增加特定资源，通过资源的变化来设计类似普攻是否刷新cd并进入强化状态来实现近战多段打击的流畅性。\n\n另外想吐槽一下降龙十八掌的特效太炫了，希望减弱一些特效，让招式设计回归到打击感上面来定位这套武学的高价值。\n\n\n\n远程职业的打击感\n\n就轻剑而言，打击感还是不足，普攻依然需要触发弱硬直，设定某些技能在某些状态下（自身有特定buff、或敌方有特定debuff）最后一段是强硬直，因为远程职业不宜设计冲刺技能，所以需要从让远程职业在pvp里保持不让敌人近身这个设计点出发来设计技能，通过间歇的强硬直来换取更多的距离空间。\n\n\n\n副武器设定建议在pvp进行一定的限制，这样平衡会更好做一点\n\nPVP默认取消绝学镜头",
+          "score": 0.016129032258064516,
+          "source": "测试建议2.docx",
+          "docId": "f3544e4a-a562-45b3-bbec-0d432c3a45b3",
+          "chunkIndex": 1
+        }
+      ],
+      "contextKeys": [
+        "f3544e4a-a562-45b3-bbec-0d432c3a45b3:0",
+        "f3544e4a-a562-45b3-bbec-0d432c3a45b3:1"
+      ],
+      "answer": "根据提供的上下文，**无法确定“重剑普攻造成的击退距离”具体是多少数值**。\n\n上下文只提到：\n\n- 重剑普攻**不是完全没有击退**，怪物受击时会有“伴随着动作位置轻微击退”。\n- 但该效果存在触发判断问题：**只要敌人在出招，受击硬直和击退效果就会消失**，导致攻击反馈断断续续。\n\n因此，资料中没有给出具体的击退距离数值。",
+      "metrics": {
+        "hitRate": 0,
+        "mrr": 0,
+        "ndcg": 0,
+        "contextPrecision": null,
+        "contextRecall": 1,
+        "faithfulness": 0.8,
+        "answerRelevancy": 0.5
+      }
+    },
+    {
+      "sample": {
+        "id": "miss-05",
+        "category": "no-hit",
+        "question": "navigate 在 2026 年 12 月发布的下一个版本里新增了哪些功能？",
+        "referenceClaims": [
+          "说明库内只有历史设计文档，不含未来版本计划",
+          "不编造尚未发布的版本功能"
+        ],
+        "relevantChunks": []
+      },
+      "contexts": [
+        {
+          "content": "# Wiki 知识库迁移：自建系统 → Wiki.js\n\n**日期**: 2026-07-11\n**状态**: 设计稿（待审批）\n**版本**: 1.0\n\n---\n\n## 1. 概述\n\n将现有自建的 Wiki 知识库（SQLite + 内联 HTML 页面）替换为 **Wiki.js**——GitHub 上最成熟的开源 Wiki 系统（Node.js + Vue.js 技术栈）。\n\n### 为什么要换\n\n| 对比维度 | 当前自建 Wiki | Wiki.js |\n|---------|-------------|---------|\n| 编辑器 | 简陋的正则 Markdown 渲染 | WYSIWYG + Markdown 双模式 |\n| 目录组织 | 单层分类 | 无限层级树形目录 |\n| 全文搜索 | SQL LIKE 搜索 | 内置 Elasticsearch 级搜索 |\n| 版本管理 | 基础的 revision 记录 | 完整的版本对比/回滚 |\n| 附件 | 不支持 | 拖拽上传图片/文件 |\n| 权限 | 无 | 群组/角色/页面级权限 |\n| 多语言 | 仅中文 | 支持 30+ 语言 |\n| 维护成本 | 自己维护全部代码 | 社区成熟，持续更新 |\n\n---\n\n## 2. 架构",
+          "score": 0.01639344262295082,
+          "source": "2026-07-11-wiki-js-migration-design.md",
+          "docId": "f037973e-08db-4223-9e5e-6479b6cd315d",
+          "chunkIndex": 0
+        }
+      ],
+      "contextKeys": [
+        "f037973e-08db-4223-9e5e-6479b6cd315d:0"
+      ],
+      "answer": "根据当前提供的 RAG 检索上下文，**无法回答该问题**。\n\n现有上下文仅包含一份关于 **“Wiki 知识库迁移：自建系统 → Wiki.js”** 的设计稿，其中：\n\n- 日期为 **2026-07-11**\n- 状态为 **设计稿（待审批）**\n- 版本为 **1.0**\n- 内容主要对比自建 Wiki 与 Wiki.js 的差异，并涉及迁移架构\n\n上下文中**没有提及**：\n\n- `navigate` 这一产品或项目\n- `navigate` 在 **2026 年 12 月**发布的版本\n- 该版本新增的任何功能\n\n因此，依据现有上下文无法生成关于“navigate 在 2026 年 12 月发布的下一个版本新增功能”的答案。",
+      "metrics": {
+        "hitRate": 0,
+        "mrr": 0,
+        "ndcg": 0,
+        "contextPrecision": null,
+        "contextRecall": 0,
+        "faithfulness": 1,
+        "answerRelevancy": 0
+      }
+    },
+    {
+      "sample": {
+        "id": "miss-06",
+        "category": "no-hit",
+        "question": "我上一次会话里让你改的那个文件名是什么？",
+        "referenceClaims": [
+          "说明无法从当前检索上下文中得知历史会话的细节",
+          "不编造文件名"
+        ],
+        "relevantChunks": []
+      },
+      "contexts": [
+        {
+          "content": "向量库：每个会话一个向量存储文件，存储对话摘要嵌入。\n\n## Iter 3: RAG\n\n基于 LangChain 文档加载器 + 向量检索构建 RAG 引擎，附带独立 HTML 上传管理页。\n\n### 技术栈\n\n| 层 | 选择 |\n|---|---|\n| 文档解析 | @langchain/community document loaders |\n| 文本分割 | RecursiveCharacterTextSplitter |\n| 向量库 | MemoryVectorStore（文件级持久化） |\n| Embedding | OpenAI text-embedding-3-small |\n| 上传页面 | 纯 HTML + JS |\n| 后端 API | Express.js |\n\n### 架构\n\n`\nTUI Agent → RAG 检索工具\nRAG Engine\n    |-- loader.ts       ← 文档加载 + 分割\n    |-- vectorstore.ts  ← 向量库 CRUD\n    |-- retriever.ts    ← 检索 + 上下文拼接\n\nWeb Server\n    |-- index.ts        ← Express API\n    |-- public/\n        |-- index.html  ← 上传管理页面\n`\n\n### API 端点\n\n| 方法 | 路径 | 说明 |\n|---|---|---|\n| POST | /api/upload | 上传文档 |\n| GET | /api/documents | 文档列表 |\n| DELETE | /api/documents/:id | 删除文档 |\n| POST | /api/query | RAG 查询测试 |",
+          "score": 0.01639344262295082,
+          "source": "2026-07-07-memory-rag-design.md",
+          "docId": "8ebcfb03-b533-4ed5-8f87-2389e934ba39",
+          "chunkIndex": 1
+        },
+        {
+          "content": "---\ntitle: Memory + RAG - Iter 2 & 3 设计文档\ndate: 2026-07-07\nstatus: draft\n---\n\n# Memory (Iter 2) + RAG (Iter 3) 设计\n\n## Iter 2: Memory\n\n基于 better-sqlite3 + LangChain 构建记忆层，支持会话持久化与向量记忆检索。\n\n### 技术栈\n\n| 层 | 选择 |\n|---|---|\n| 持久化存储 | better-sqlite3（嵌入式 SQLite） |\n| 向量库 | @langchain/community + MemoryVectorStore |\n| Embedding | OpenAI text-embedding-3-small |\n| 记忆管理 | 自定义 AgentMemory 封装 |\n\n### 架构\n\n`\nAgent Loop\n    | serialize / deserialize\nAgentMemory\n    |--- SqliteStore      ← 会话历史 CRUD\n    |--- VectorMemory     ← 向量记忆 检索/存储\n`\n\n### 数据流\n\n1. 每次对话结束 → 写入 SQLite（会话 ID + 消息对）\n2. 异步生成摘要 → 存入向量库\n3. 新对话 → 检索相关记忆 → 注入 system prompt\n\n### 存储结构\n\nSQLite 表：\n- sessions — id, name, created_at, updated_at\n- messages — id, session_id, role, content, created_at\n\n向量库：每个会话一个向量存储文件，存储对话摘要嵌入。\n\n## Iter 3: RAG\n\n基于 LangChain 文档加载器 + 向量检索构建 RAG 引擎，附带独立 HTML 上传管理页。\n\n### 技术栈",
+          "score": 0.016129032258064516,
+          "source": "2026-07-07-memory-rag-design.md",
+          "docId": "8ebcfb03-b533-4ed5-8f87-2389e934ba39",
+          "chunkIndex": 0
+        }
+      ],
+      "contextKeys": [
+        "8ebcfb03-b533-4ed5-8f87-2389e934ba39:1",
+        "8ebcfb03-b533-4ed5-8f87-2389e934ba39:0"
+      ],
+      "answer": "根据提供的 RAG 检索结果，**没有找到关于“上一次会话中让你改的文件名”的任何信息**。\n\n现有上下文只包含 Memory + RAG 的设计文档，涉及以下内容：\n\n- Memory 层：基于 `better-sqlite3` + LangChain，支持会话持久化与向量记忆检索\n- RAG 引擎：基于 LangChain 文档加载器 + 向量检索\n- 技术栈、架构、API 端点、存储结构等\n\n其中没有提及用户曾要求修改某个具体文件名的记录。因此，无法依据当前上下文确定你所说的那个文件名。",
+      "metrics": {
+        "hitRate": 0,
+        "mrr": 0,
+        "ndcg": 0,
+        "contextPrecision": null,
+        "contextRecall": 0,
+        "faithfulness": 1,
+        "answerRelevancy": 0
+      }
+    }
+  ]
+}
