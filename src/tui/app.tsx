@@ -32,7 +32,12 @@ import { ModeRouter, type RouteDecision, type RoutableMode } from "../agent/mode
 import { Tracer } from "../agent/tracer.js";
 import { ToolStatsRegistry } from "../tools/stats-registry.js"
 import { ToolFilter } from "../tools/tool-filter.js"
-import { updatePlanMessage } from "./plan-utils.js"
+import { updatePlanMessage, PLAN_MESSAGE_MARKER } from "./plan-utils.js"
+import {
+  capTurnCards,
+  pushToolCallStart,
+  settleToolCall,
+} from "./turn-cards.js"
 import {
   delegateCardKey,
   delegateFinalLine,
@@ -283,26 +288,24 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
   // 落盘时机是这一组函数的唯一职责，别在回合中途直接 setStaticMessages。
   // ------------------------------------------------------------------
 
-  /** 追加一张当轮卡片（只进 dynamic 区，不落 Static） */
+  /**
+   * 追加一张当轮卡片（只进 dynamic 区，不落 Static）。
+   *
+   * 超预算时在 buffer 内**折叠**最老的普通工具卡（turn-cards.capTurnCards），
+   * 绝不回合中途写 <Static>——中途插 Static 会让终端滚动、Ink 擦错区域，
+   * 状态行重复多行 / 画面跳顶都源于此。整轮卡片在 commitTurnBuffer 统一落盘。
+   */
   const emit = useCallback((msg: OutputMessage) => {
-    const limit = currentCardLimit();
-    turnBufferRef.current = [...turnBufferRef.current, msg];
-    if (turnBufferRef.current.length > limit) {
-      const overflow = turnBufferRef.current.slice(0, turnBufferRef.current.length - limit);
-      turnBufferRef.current = turnBufferRef.current.slice(-limit);
-      setStaticMessages((prev) => [...prev, ...overflow]);
-    }
+    turnBufferRef.current = capTurnCards([...turnBufferRef.current, msg], currentCardLimit());
     setDynamicMessages(turnBufferRef.current);
   }, []);
 
-  /** 结算当轮最后一张「进行中」卡片（工具调用结束时把 running 换成结果） */
-  const settleRunningCard = useCallback((patch: (msg: OutputMessage) => OutputMessage) => {
-    let idx = -1;
-    for (let i = turnBufferRef.current.length - 1; i >= 0; i--) {
-      if (turnBufferRef.current[i].running) { idx = i; break; }
-    }
-    if (idx < 0) return;
-    turnBufferRef.current = turnBufferRef.current.map((m, i) => (i === idx ? patch(m) : m));
+  /**
+   * 结算一次普通工具调用（同上：只动 buffer，不碰 <Static>）。
+   * 同名连续调用合并成一张 ×N 卡（turn-cards.settleToolCall）。
+   */
+  const settleTool = useCallback((tool: string, detailLine: string) => {
+    turnBufferRef.current = settleToolCall(turnBufferRef.current, tool, detailLine);
     setDynamicMessages(turnBufferRef.current);
   }, []);
 
@@ -496,10 +499,13 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
           // normal：沿用 executorRef（agentMode=auto 时上方 effect 已构建 normal 实例）
         }
         if (autoChip) {
-          setStaticMessages((prev) => [
-            ...prev,
-            { role: "system", content: autoChip, timestamp: new Date() },
-          ]);
+          // 升档提示走当轮卡片，回合收尾统一落 <Static>——
+          // 回合中途 setStaticMessages 会让终端滚动、Ink 擦错区域（状态行重复的根源）
+          emit({
+            role: "system",
+            content: autoChip,
+            timestamp: new Date(),
+          });
         }
         // ---- 三种模式共用同一套 chunk 渲染 ----
         // 卡片 → 当轮缓冲（回合收尾才落 <Static>）；叙述 → 动态预览。
@@ -556,12 +562,8 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
               }
               continue;
             }
-            emit({
-              role: "tool",
-              content: `Calling: ${step.action.tool}\n→ ${String(step.observation).slice(0, 200)}`,
-              name: step.action.tool,
-              timestamp: new Date(),
-            });
+            // 普通工具：同名连续调用合并成 ×N 卡（不再一次调用一张卡刷屏）
+            settleTool(step.action.tool, `→ ${String(step.observation).slice(0, 200)}`);
           }
         };
 
@@ -586,24 +588,19 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
               // delegate：子 agent 活动由事件卡实时展示（onDelegateEvent 订阅），
               // 且这里的 step 到达时执行已完成——running 卡没有意义，结果在 onToolEnd 并入
               if (tool === "delegate") return;
-              emit({
-                role: "tool",
-                content: `Calling: ${tool}\n${JSON.stringify(input, null, 2)}`,
-                name: tool,
-                timestamp: new Date(),
-                running: true,
-              });
+              turnBufferRef.current = capTurnCards(
+                pushToolCallStart(turnBufferRef.current, tool, JSON.stringify(input, null, 2)),
+                currentCardLimit(),
+              );
+              setDynamicMessages(turnBufferRef.current);
             },
             onToolEnd(result) {
               if (result.tool === "delegate") {
                 settleDelegateResult(result.output);
                 return;
               }
-              settleRunningCard((msg) => ({
-                ...msg,
-                running: false,
-                content: `→ ${result.output}`,
-              }));
+              // 同名连续调用在 settleToolCall 里合并成 ×N 卡
+              settleTool(result.tool, `→ ${result.output}`);
             },
             onPreview(token) {
               streamAcc.push({ outputPreview: token });
@@ -711,23 +708,36 @@ export function App({ config, memory, agentName = "Agent", llm, tools, systemPro
           {" "}(/help)
         </Text>
 
-        {/* 当轮卡片（dynamic）：回合收尾时整体落入 <Static>，中途不插队 */}
+        {/* 当轮卡片（dynamic）：回合收尾时整体落入 <Static>，中途不插队。
+            plan 卡多给 2 行正文预算（goal + 步骤状态比普通卡需要更多行，
+            且 computeDynamicBudget 的槽位口径就是 cardBodyRows+2，不破坏帧高预算） */}
         {dynamicMessages.map((msg, i) => (
           <MessageItem
             key={`dyn-${i}`}
             msg={msg}
             agentName={agentName}
-            bodyRows={budget.cardBodyRows}
+            bodyRows={
+              typeof msg.content === "string" && msg.content.startsWith(PLAN_MESSAGE_MARKER)
+                ? budget.cardBodyRows + 2
+                : budget.cardBodyRows
+            }
             columns={Math.max(20, cols - 3)}
           />
         ))}
 
-        {/* Streaming text (dynamic)：markdown 渲染 + 按行预算裁尾部 */}
-        {previewSource ? (
-          <Box flexDirection="column" marginBottom={1}>
+        {/* Streaming text (dynamic)：markdown 渲染 + 按行预算裁尾部。
+            固定 height：流式时每帧文字增减不再推挤下方（思考指示/输入框不再上下震动）；
+            maxRows 是渲染后的块级行数硬保证（markdown 会扩展，tailByRows 只钳源文本）。 */}
+        {running || previewSource ? (
+          <Box flexDirection="column" marginBottom={1} height={budget.previewRows + 1}>
             <AgentLabel agentName={agentName} />
             <Box paddingLeft={2}>
-              <MarkdownView text={previewSource} columns={Math.max(20, cols - 2)} maxCodeRows={budget.previewRows} />
+              <MarkdownView
+                text={previewSource}
+                columns={Math.max(20, cols - 2)}
+                maxCodeRows={budget.previewRows}
+                maxRows={budget.previewRows}
+              />
             </Box>
           </Box>
         ) : null}

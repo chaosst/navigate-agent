@@ -8,6 +8,7 @@ import {
   type MdBlock,
   type MdInline,
 } from "./markdown.js";
+import { visualRows } from "./layout.js";
 
 export interface MarkdownViewProps {
   text: string;
@@ -17,6 +18,12 @@ export interface MarkdownViewProps {
   maxCodeRows?: number;
   /** 正文颜色 */
   color?: string;
+  /**
+   * 渲染行数硬上限（终端行）：只保留尾部放得下的块，被裁部分在头部给一行省略标记。
+   * 流式预览专用——上游 tailByRows 只钳**源文本**行数，markdown 渲染会扩展
+   * （代码块 +头尾/margin、块间空行），不设上限帧高会顶破动态区预算。
+   */
+  maxRows?: number;
 }
 
 const ACCENT = "#4FC3F7";
@@ -205,23 +212,95 @@ function Block({
 }
 
 /**
+ * 估算单个块渲染后的终端行数。**宁高不低**：多估只会提前裁剪，少估会爆帧。
+ * 与 Block 渲染一一对应（标题/列表/引用带前缀，代码块 +头尾+margin+余量）。
+ */
+export function estimateBlockRows(block: MdBlock, columns: number, codeCap: number): number {
+  switch (block.kind) {
+    case "blank":
+    case "rule":
+      return 1;
+    case "heading":
+      return visualRows(`${"#".repeat(Math.min(block.level, 3))} ${block.text}`, columns);
+    case "paragraph":
+      return visualRows(block.text, columns);
+    case "list":
+      return block.items.reduce((n, it) => n + visualRows(`${"  ".repeat(it.depth)}• ${it.text}`, columns), 0);
+    case "quote":
+      return block.text.split("\n").reduce((n, line) => n + visualRows(`▌ ${line}`, columns), 0);
+    case "code":
+      // 头 1 + 正文 ≤codeCap + 尾/省略标记 1 + margin 1
+      return Math.min(block.lines.length, Math.max(1, codeCap)) + 3;
+    case "table":
+      // 表头 1 + 行 + margin 1 + 余量 1
+      return block.rows.length + 3;
+    default:
+      return 1;
+  }
+}
+
+export interface KeepTailResult {
+  blocks: MdBlock[];
+  /** 被裁掉的块数；-1 = 保底只留末块、不渲染头部标记 */
+  dropped: number;
+}
+
+/**
+ * 从尾部往前挑能放进 maxRows 的块（流式预览只关心最新内容）。
+ * 预留 1 行给头部省略标记；连单个末块都放不进 maxRows-1 时，
+ * 保底留最后一块且不渲染标记（上游 tailByRows 已把源文本钳在预算内）。
+ */
+export function keepTailBlocks(
+  blocks: MdBlock[],
+  maxRows: number,
+  columns: number,
+  codeCap: number,
+): KeepTailResult {
+  const select = (budget: number): number => {
+    let used = 0;
+    let i = blocks.length;
+    while (i > 0) {
+      const r = estimateBlockRows(blocks[i - 1], columns, codeCap);
+      if (used + r > budget) break;
+      used += r;
+      i--;
+    }
+    return i;
+  };
+
+  if (maxRows <= 0 || blocks.length === 0) return { blocks, dropped: 0 };
+  if (select(maxRows) === 0) return { blocks, dropped: 0 };
+
+  const idxWithNote = select(maxRows - 1);
+  if (idxWithNote < blocks.length) return { blocks: blocks.slice(idxWithNote), dropped: idxWithNote };
+  return { blocks: blocks.slice(-1), dropped: -1 };
+}
+
+/**
  * markdown 文本 → Ink 渲染。
  *
  * 用在两处：`<Static>` 里的最终回答（全量渲染），以及动态区的流式预览
- * （调用方先用 `tailByRows` 把源文本裁到行预算内，再交给这里）。
+ * （调用方先用 `tailByRows` 把源文本裁到行预算内，再交给这里；
+ * 传 `maxRows` 时再按渲染后的块级行数做第二道硬保证）。
  */
 export function MarkdownView({
   text,
   columns = 80,
   maxCodeRows = 40,
   color = "white",
+  maxRows,
 }: MarkdownViewProps): React.ReactElement {
-  const blocks = parseBlocks(text);
+  const parsed = parseBlocks(text);
   const width = Math.max(20, columns);
+  // 代码块行数上限与 maxRows 联动：单块估算（cap+3）不得超 maxRows-1
+  const codeCap = maxRows ? Math.max(1, Math.min(maxCodeRows, maxRows - 4)) : maxCodeRows;
+  const kept = maxRows ? keepTailBlocks(parsed, maxRows, width, codeCap) : { blocks: parsed, dropped: 0 };
+  const headNote = kept.dropped > 0 ? `⋯ 前面已省略 ${kept.dropped} 块` : null;
   return (
     <Box flexDirection="column">
-      {blocks.map((block, i) => (
-        <Block key={i} block={block} columns={width} maxCodeRows={maxCodeRows} color={color} />
+      {headNote ? <Text dimColor>{headNote}</Text> : null}
+      {kept.blocks.map((block, i) => (
+        <Block key={i} block={block} columns={width} maxCodeRows={codeCap} color={color} />
       ))}
     </Box>
   );

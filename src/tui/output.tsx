@@ -2,6 +2,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import { MarkdownView } from "./markdown-view.js";
 import { tailByRows, terminalColumns } from "./layout.js";
+import { PLAN_MESSAGE_MARKER } from "./plan-utils.js";
 
 export interface OutputMessage {
   role: "user" | "assistant" | "system" | "tool";
@@ -12,6 +13,8 @@ export interface OutputMessage {
   expanded?: boolean;
   /** 稳定卡片 key：同名卡片原地更新用（如 delegate 事件卡），不参与渲染 */
   key?: string;
+  /** 合并/折叠计数（×N 连续工具调用、折叠卡累计），供 turn-cards 逻辑读写 */
+  callCount?: number;
   /** PTC 变体：携带结构化数据，MessageItem 据此渲染专用卡片 */
   ptc?:
     | { kind: "program"; data: PtcProgramView }
@@ -161,12 +164,23 @@ export function MessageItem({ msg, agentName = "Agent", bodyRows, columns }: Mes
       );
     }
 
-    case "system":
+    case "system": {
+      // plan 卡在动态区必须钳行数：多步计划 + 结果预览不裁的话轻松十几行，
+      // 动态帧高超过终端行数 → Ink 擦帧失效（状态行重复 / 画面跳顶，见 layout.ts）。
+      // <Static> 历史区不传 bodyRows，保持全量。
+      if (bodyRows && bodyRows > 0 && msg.content.startsWith(PLAN_MESSAGE_MARKER)) {
+        return (
+          <Box flexDirection="column" marginBottom={1}>
+            <Text color="yellow">{toolBodyText(msg.content, bodyRows, cols)}</Text>
+          </Box>
+        );
+      }
       return (
         <Box flexDirection="column" marginBottom={1}>
           <Text color="yellow">  {msg.content}</Text>
         </Box>
       );
+    }
 
     default:
       // 最终回答：走 markdown 渲染（标题 / 列表 / 表格 / 代码块 / 行内样式），
