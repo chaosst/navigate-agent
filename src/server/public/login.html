@@ -81,6 +81,8 @@
 <script>
   const params = new URLSearchParams(location.search);
   const next = params.get("next") || "/";
+  // 渠道标识（一人一链接用，如 /login?src=tencent-hr）：随登录请求回传，服务端记进访客记录
+  const src = params.get("src") || "";
 
   // 剥离 next 里的 token 参数：旧 token 会覆盖有效登录态，造成登录死循环
   function cleanNext(u) {
@@ -164,7 +166,7 @@
     e.preventDefault();
     const username = document.getElementById("username").value.trim();
     const password = document.getElementById("password").value;
-    const body = { username, password, next };
+    const body = { username, password, next, src };
     if (challengeId) {
       body.challengeId = challengeId;
       body.code = codeInput.value.trim();
@@ -209,7 +211,7 @@
       const res = await fetch("/api/login/guest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ next }),
+        body: JSON.stringify({ next, src }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "游客入口暂不可用");

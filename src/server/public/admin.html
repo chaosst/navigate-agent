@@ -44,6 +44,22 @@
   .msg.ok { color: var(--ok); }
   .msg.err { color: var(--danger); }
   .hint { font-size: 0.8rem; color: var(--muted); }
+  .hint code { background: #f3f4f6; padding: 1px 4px; border-radius: 4px; }
+  /* 访客记录 */
+  .filters { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin: 10px 0 4px; }
+  .filters label { display: inline-flex; gap: 6px; align-items: center; font-size: 0.85rem; color: #374151; margin: 0; cursor: pointer; }
+  .filters input[type="checkbox"] { width: auto; margin: 0; }
+  .filters button { margin-top: 0; padding: 6px 14px; font-size: 0.82rem; }
+  table.visits { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin-top: 10px; }
+  table.visits th, table.visits td { border-bottom: 1px solid var(--border); padding: 7px 8px; text-align: left; vertical-align: top; }
+  table.visits th { background: #f9fafb; white-space: nowrap; font-weight: 600; }
+  table.visits code { font-size: 0.8rem; }
+  .dim { color: var(--muted); }
+  .small { font-size: 0.75rem; }
+  .warn { color: #b45309; }
+  .badge { background: #eff6ff; color: var(--primary); border-radius: 999px; padding: 1px 7px; font-size: 0.72rem; }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; font-size: 0.85rem; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -81,6 +97,32 @@
     <button id="saveBtn">保存新密码</button>
     <div class="msg" id="msg"></div>
     <div class="hint">重置后即时生效；已登录的体验账号会话最长 30 分钟后过期。持久化于 rag_data/h5-users.json（环境变量仅在文件缺失时生效）。</div>
+  </div>
+
+  <div class="card" id="visitsCard">
+    <h2>🕵️ 访客记录</h2>
+    <div class="sub">
+      谁登录过本站 · IP · 属地。游客入口是**所有人共用的一个 guest 账号**，
+      应用日志里分不出个体，所以这里按**每次登录事件**单独记账。
+    </div>
+    <div class="me" id="visitStats">加载中…</div>
+    <div class="filters">
+      <label><input type="checkbox" id="fGuest" checked> 只看游客</label>
+      <label><input type="checkbox" id="fBots"> 含脚本 / 爬虫</label>
+      <label id="selfWrap"><input type="checkbox" id="fSelf" checked> 隐藏我自己</label>
+      <button id="refreshVisits">刷新</button>
+      <button id="resolveVisits">补全属地</button>
+    </div>
+    <table class="visits" id="visitSummary"><tr><td class="dim">加载中…</td></tr></table>
+    <details>
+      <summary>明细（最近 100 条登录事件）</summary>
+      <table class="visits" id="visitEvents"></table>
+    </details>
+    <div class="msg" id="visitMsg"></div>
+    <div class="hint">
+      「隐藏我自己」依据环境变量 TRAFFIC_SELF_IPS（填你的公网 IP，或 <code>1.2.3.0/24</code> 网段形式）。
+      属地来自 ip-api.com，失败会留空 —— IP 始终在库里，点「补全属地」可重试。
+    </div>
   </div>
 </div>
 
@@ -163,6 +205,109 @@
       saveBtn.disabled = false;
     }
   });
+
+  // ─────────────────────────── 访客记录 ───────────────────────────
+  const visitStats = document.getElementById("visitStats");
+  const visitSummary = document.getElementById("visitSummary");
+  const visitEvents = document.getElementById("visitEvents");
+  const visitMsg = document.getElementById("visitMsg");
+  const fGuest = document.getElementById("fGuest");
+  const fBots = document.getElementById("fBots");
+  const fSelf = document.getElementById("fSelf");
+  const selfWrap = document.getElementById("selfWrap");
+
+  function fmtTs(iso) {
+    const d = new Date(iso);
+    if (!iso || isNaN(d.getTime())) return iso || "";
+    const p = (n) => String(n).padStart(2, "0");
+    return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) +
+      " " + p(d.getHours()) + ":" + p(d.getMinutes());
+  }
+  function orDash(v) { return v ? esc(v) : '<span class="dim">—</span>'; }
+  function emptyVisits(text) {
+    visitSummary.innerHTML = '<tr><td class="dim">' + text + "</td></tr>";
+    visitEvents.innerHTML = "";
+  }
+
+  async function loadVisits() {
+    visitMsg.textContent = "";
+    const kind = fGuest.checked ? "guest" : "all";
+    const bots = fBots.checked ? "1" : "0";
+    try {
+      const res = await fetch("/api/admin/visits?kind=" + kind + "&bots=" + bots + "&token=" + TOKEN);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        visitStats.textContent = data.error || ("加载失败（HTTP " + res.status + "）");
+        emptyVisits("无权限或接口不可用");
+        return;
+      }
+      if (!data.enabled) {
+        visitStats.textContent = data.reason || "访客记录未装配";
+        emptyVisits("未装配");
+        return;
+      }
+      const s = data.stats;
+      visitStats.innerHTML =
+        "独立访客 <b>" + s.ips + "</b> 个 · 登录 <b>" + s.events + "</b> 次 · 近 24 小时 <b>" + s.recent24h + "</b> 次" +
+        (s.pendingGeo ? ' · <span class="warn">' + s.pendingGeo + " 个 IP 待补属地</span>" : "");
+      selfWrap.style.display = s.selfIpsConfigured ? "" : "none";
+
+      let rows = data.summary || [];
+      if (fSelf.checked && s.selfIpsConfigured) rows = rows.filter((r) => !r.self);
+
+      visitSummary.innerHTML = rows.length === 0
+        ? '<tr><td class="dim">还没有访客记录</td></tr>'
+        : "<tr><th>属地</th><th>IP</th><th>设备 / 渠道</th><th>首次</th><th>最近</th><th>次数</th></tr>" +
+          rows.map((r) =>
+            "<tr>" +
+              "<td>" + orDash(r.region) + (r.isp ? '<div class="dim small">' + esc(r.isp) + "</div>" : "") + "</td>" +
+              "<td><code>" + esc(r.ip) + "</code>" + (r.self ? ' <span class="badge">我自己</span>' : "") +
+                (r.ipPrefix ? '<div class="dim small">' + esc(r.ipPrefix) + "</div>" : "") + "</td>" +
+              "<td>" + orDash(r.device) + (r.src ? '<div class="dim small">src=' + esc(r.src) + "</div>" : "") + "</td>" +
+              "<td>" + fmtTs(r.firstTs) + "</td><td>" + fmtTs(r.lastTs) + "</td><td>" + r.hits + "</td>" +
+            "</tr>").join("");
+
+      const evs = data.events || [];
+      visitEvents.innerHTML = evs.length === 0
+        ? '<tr><td class="dim">暂无明细</td></tr>'
+        : "<tr><th>时间</th><th>类型</th><th>属地</th><th>IP</th><th>账号</th><th>落点</th><th>设备</th></tr>" +
+          evs.map((e) => {
+            // 属地可能为 null（未解析 / 解析失败）——拼接前必须判空，否则会渲染出字符串 "null"
+            const region = e.region ? e.region + (e.geoSource === "local" ? "（未出网）" : "") : "";
+            return "<tr>" +
+              "<td>" + fmtTs(e.ts) + "</td>" +
+              "<td>" + (e.kind === "guest" ? "游客" : "账号") + "</td>" +
+              "<td>" + orDash(region) + "</td>" +
+              "<td><code>" + esc(e.ip) + "</code></td>" +
+              "<td>" + orDash(e.username) + "</td>" +
+              "<td>" + orDash(e.landing) + "</td>" +
+              "<td>" + orDash(e.device) + (e.isBot ? ' <span class="dim small">(脚本)</span>' : "") + "</td>" +
+            "</tr>";
+          }).join("");
+    } catch (err) {
+      visitMsg.textContent = "加载失败：" + (err.message || "未知错误");
+    }
+  }
+
+  document.getElementById("refreshVisits").addEventListener("click", loadVisits);
+  fGuest.addEventListener("change", loadVisits);
+  fBots.addEventListener("change", loadVisits);
+  fSelf.addEventListener("change", loadVisits);
+  document.getElementById("resolveVisits").addEventListener("click", async () => {
+    visitMsg.textContent = "正在后台补全属地…（每个 IP 间隔 1.2s，避开接口限流）";
+    try {
+      const res = await fetch("/api/admin/visits/resolve?token=" + TOKEN, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return void (visitMsg.textContent = data.error || "补全失败");
+      if (!data.started) return void (visitMsg.textContent = "已有一个补全任务在跑，稍后刷新即可");
+      visitMsg.textContent = "待补 " + data.pending + " 个 IP，已在后台解析；约 10 秒后点「刷新」查看";
+      setTimeout(loadVisits, 12000);
+    } catch (err) {
+      visitMsg.textContent = "网络错误：" + (err.message || "未知");
+    }
+  });
+
+  loadVisits();
 </script>
 </body>
 </html>

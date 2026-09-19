@@ -21,6 +21,10 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=builder /app/dist dist/
 # ★ tsc 不复制静态资源，必须手动补上，否则登录页/简历页 404
 COPY --from=builder /app/src/server/public dist/server/public/
+# ★ tsc 也不复制 .sql —— 少了这行 migrate() 会走「No migrations directory found, skipping」，
+# 生产环境永远不会建表（scripts/init-pg.sql 只装 extension，注释里写明表结构由迁移脚本创建）。
+# 全部迁移都写成幂等（IF NOT EXISTS / DO 块守卫），对已有库重跑是空转，故可安全启用。
+COPY --from=builder /app/src/storage/migrations dist/storage/migrations/
 # 运行期要读的只读文件
 COPY skills/ skills/
 # resume.* —— 简历源允许 md（手工维护）或 docx（loader 自动转 markdown），

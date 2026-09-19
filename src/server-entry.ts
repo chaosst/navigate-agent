@@ -29,6 +29,7 @@ import { ToolStatsRegistry } from "./tools/stats-registry.js";
 import { PermissionWrapper } from "./tools/permission.js";
 import { ReadOnlyToolFilter } from "./tools/tool-filter.js";
 import { buildApproval, resolveApprovalMode } from "./tools/human-channel.js";
+import { createVisitLog } from "./server/visit-log.js";
 
 async function main() {
   const config = loadConfig();
@@ -172,6 +173,10 @@ async function main() {
 
   // 跨文档并行问答：worker 并发数走环境变量（server-entry 已 import "dotenv/config"）
   const maxConcurrency = Math.max(1, Number(process.env.MAX_PARALLEL_WORKERS ?? 4));
+
+  // 访客记录：游客入口是共用账号，应用日志分不出个体 —— 这里按登录事件落库（IP + 属地）。
+  // 写入 fire-and-forget（DB 抖动只丢一条观测记录，不会让人登不进来）；属地异步补写。
+  const visitLog = createVisitLog(pool);
   createRagServer(
     ragStore,
     3001,
@@ -183,6 +188,7 @@ async function main() {
     {
       parallelAsk: (question: string, docIds: string[]) =>
         answerAcrossDocs({ question, docIds, store: ragStore, llm, maxConcurrency }),
+      visitLog,
     },
   );
 

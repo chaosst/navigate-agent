@@ -24,6 +24,7 @@ import { ContextManager } from "../memory/context-manager.js";
 import { sourcesFromChunk } from "./sse-sources.js";
 import { ResumeTooLongError, type JdMatchResult } from "../resume/jd-analyzer.js";
 import { buildRagAskHandler, type AskFn } from "./rag-ask.js";
+import type { VisitKind, VisitLog } from "./visit-log.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -46,6 +47,17 @@ interface DocMeta {
   indexedAt: Date;
   /** rag_uploads/ 下的文件名（随机 hex），用于 reindex */
   storedFilename?: string;
+}
+
+/**
+ * Express 的 trust proxy 跳数（H5_TRUST_PROXY_HOPS，默认 1 = 只信任最近一跳反代）。
+ * 0 / false → 关闭（直连部署）；非法值回退默认，避免一个笔误悄悄退化成「全不信任」。
+ */
+function trustProxyHops(): number | false {
+  const raw = (process.env.H5_TRUST_PROXY_HOPS ?? "1").trim().toLowerCase();
+  if (raw === "0" || raw === "false" || raw === "off") return false;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 1 ? n : 1;
 }
 
 /** API error helper */
@@ -114,9 +126,20 @@ export function createRagServer(
   apiAuth?: ApiKeyAuthConfig,
   resumeExecutor?: AgentExecutor,
   jdAnalyzer?: { analyze(jd: string): Promise<JdMatchResult> },
-  deps?: { parallelAsk?: AskFn },
+  deps?: { parallelAsk?: AskFn; visitLog?: VisitLog },
 ) {
   const app = express();
+
+  // 反代（Caddy）之后必须信任 X-Forwarded-For，否则 req.ip 恒为**代理容器**的地址：
+  //   ① 访客记录（visit_events）里所有 IP 都是 172.x —— 「谁来过」无从分辨；
+  //   ② 登录防爆破按 IP 计数会把全网访客当成同一个人 —— 任意一人失败 5 次就锁住所有人，
+  //      而条件式校验码（失败 ≥2 触发）也会对所有人一起亮起。
+  // 取 1（只信任最近一跳）而非 true：XFF 是客户端可伪造的头，只信一跳时 Express 取 XFF 的
+  // **最右**一项 —— 那正是 Caddy 写进去的真实客户端地址（无论它是替换还是追加 XFF，最右恒为真）。
+  // 直连部署（无代理）设 H5_TRUST_PROXY_HOPS=0 关闭。
+  // 注：API_TRUST_PROXY=true 时 mountMcpRoutes 会把它放宽为 true（MCP 的 IP 白名单需要）。
+  app.set("trust proxy", trustProxyHops());
+
   const upload = multer({ dest: "rag_uploads/" });
   const docMeta = new Map<string, DocMeta>();
   const metaDir = "rag_data";
@@ -171,7 +194,7 @@ export function createRagServer(
   // 主站公网地址（如 https://example.com）：wiki 代理未登录时跳转公网登录页
   const publicBaseUrl = (process.env.H5_PUBLIC_BASE_URL || "").replace(/\/+$/, "");
   const proxyOrigins = [...new Set([wikiPublicUrl, `http://localhost:${wikiProxyPort}`])];
-  mountLoginRoutes(app, { proxyOrigins });
+  mountLoginRoutes(app, { proxyOrigins, visitLog: deps?.visitLog });
 
   /** 渲染 H5 页面并注入服务端变量（__WIKI_URL__ 等占位符） */
   function sendHtml(res: express.Response, file: string, vars: Record<string, string>): void {
@@ -611,6 +634,50 @@ export function createRagServer(
     updateUserPassword(guest.username, password);
     console.log(`[users] 体验账号 "${guest.username}" 密码已由管理员重置`);
     res.json({ ok: true, username: guest.username });
+  });
+
+  // === 访客记录（仅管理员）：谁登过游客入口 · IP · 属地 ===
+  // 游客入口（/api/login/guest）是**共用账号**，应用日志分不出个体；这里按登录事件回放。
+  app.get("/api/admin/visits", requireAdminApi, async (req, res) => {
+    const visitLog = deps?.visitLog;
+    if (!visitLog) {
+      return res.json({
+        enabled: false,
+        reason: "访客记录未装配（需要 PostgreSQL 连接池 —— 见 server-entry 里的 createVisitLog）",
+        summary: [],
+        events: [],
+        stats: { events: 0, ips: 0, recent24h: 0, pendingGeo: 0, selfIpsConfigured: false },
+      });
+    }
+    // 默认只看游客：自己平时用 admin 登录，不该混进「谁来看过」的名单
+    const kindRaw = typeof req.query.kind === "string" ? req.query.kind : "";
+    const kind: VisitKind | "all" = kindRaw === "all" || kindRaw === "login" ? kindRaw : "guest";
+    const includeBots = req.query.bots === "1";
+    try {
+      const query = { kind, includeBots };
+      const [summary, events, stats] = await Promise.all([
+        visitLog.summary({ ...query, limit: 200 }),
+        visitLog.listRecent({ ...query, limit: 100 }),
+        visitLog.stats(query),
+      ]);
+      res.json({ enabled: true, kind, includeBots, stats, summary, events });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  // 补全缺失属地：属地要调外部接口且有限额（20 个 IP 串行 > 20s），同步等会让页面像卡死 ——
+  // 后台跑，前端刷新即可看到结果。IP 一直在库里，补不补都不丢数据。
+  app.post("/api/admin/visits/resolve", requireAdminApi, async (_req, res) => {
+    const visitLog = deps?.visitLog;
+    if (!visitLog) return res.status(503).json({ error: "访客记录未装配" });
+    try {
+      const pending = await visitLog.pendingGeoCount();
+      const started = visitLog.backfill(20);
+      res.json({ pending, started });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
   });
 
   app.post("/api/resume/jd-match", requireToken, async (req, res) => {

@@ -6,6 +6,7 @@ import { tokenManager, TOKEN_TTL_MS } from "./token.js";
 import { AUTH_COOKIE, getCookie, serializeCookie, getToken, deriveCookieDomain, stripTokenQuery } from "./auth-helpers.js";
 import { authenticate, findGuest, type H5User } from "./users.js";
 import { challengeStore, mountChallengeRoutes, SID_COOKIE } from "./login-challenge.js";
+import { clientIpOf, type VisitLog } from "./visit-log.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -94,11 +95,42 @@ export function allowNext(next: unknown, proxyOrigins: string | string[] = []): 
   return "/";
 }
 
-export function mountLoginRoutes(app: express.Express, opts: { proxyOrigin?: string; proxyOrigins?: string[] }): void {
+export function mountLoginRoutes(app: express.Express, opts: { proxyOrigin?: string; proxyOrigins?: string[]; visitLog?: VisitLog }): void {
   const proxyOrigins = [
     ...(opts.proxyOrigins ?? []),
     ...(opts.proxyOrigin ? [opts.proxyOrigin] : []),
   ];
+
+  /** 渠道标识：登录页 ?src=xxx（前端随 POST body 回传，也兼容 query 直传） */
+  function srcOf(req: express.Request): string {
+    if (typeof req.query.src === "string") return req.query.src.slice(0, 200);
+    const body = (req.body ?? {}) as { src?: unknown };
+    return typeof body.src === "string" ? body.src.slice(0, 200) : "";
+  }
+
+  /**
+   * 记一次登录事件（观测用途）。游客入口与账号登录都记，kind 区分 ——
+   * 这样「游客里除了我还有谁」能一眼看出来，而自己的 admin 登录不会混进游客名单。
+   * record() 自身 fire-and-forget 且吞错，不会影响登录响应。
+   */
+  function logVisit(
+    req: express.Request,
+    kind: "guest" | "login",
+    username: string,
+    role: string,
+    landing: string,
+  ): void {
+    opts.visitLog?.record({
+      kind,
+      username,
+      role,
+      ip: clientIpOf(req),
+      ua: req.headers["user-agent"] ?? "",
+      referer: req.headers.referer ?? "",
+      src: srcOf(req),
+      landing,
+    });
+  }
 
   // 登录页（公开）
   app.get("/login", (_req, res) => {
@@ -113,7 +145,7 @@ export function mountLoginRoutes(app: express.Express, opts: { proxyOrigin?: str
   // 提交仍会被强制校验码；此接口让前端提前展示输入区，避免"看不到校验码"的错位体验。
   // 仅返回布尔，不泄露账号是否存在；与 /api/login 的 needChallenge 判定完全同源。
   app.get("/api/login/challenge-needed", (req, res) => {
-    const ip = req.ip ?? req.socket?.remoteAddress ?? "unknown";
+    const ip = clientIpOf(req);
     const username = typeof req.query.username === "string" ? req.query.username.trim() : "";
     res.setHeader("Cache-Control", "no-store");
     res.json({ needChallenge: needsChallenge(ip, username) });
@@ -122,7 +154,7 @@ export function mountLoginRoutes(app: express.Express, opts: { proxyOrigin?: str
   // 登录：校验账号 → 发携带身份（username/role）的 token + 种 httpOnly cookie
   // 防爆破顺序：① 双维锁定(429) → ② 可疑流量需条件式校验码 → ③ 账号校验 → ④ 成功清计数
   app.post("/api/login", (req, res) => {
-    const ip = req.ip ?? req.socket?.remoteAddress ?? "unknown";
+    const ip = clientIpOf(req);
     const { username, password, next, challengeId, code } = (req.body ?? {}) as {
       username?: unknown; password?: unknown; next?: unknown; challengeId?: unknown; code?: unknown;
     };
@@ -161,6 +193,9 @@ export function mountLoginRoutes(app: express.Express, opts: { proxyOrigin?: str
     clearAttempts(ip, userKey);
     const token = tokenManager.generate({ username: user.username, role: user.role });
     const domain = deriveCookieDomain(req.hostname);
+    const landing = allowNext(next, proxyOrigins);
+    // 账号登录也记（kind=login）：这样「游客里除了我还有谁」时，自己的 admin 记录不会混进来
+    logVisit(req, user.role === "guest" ? "guest" : "login", user.username, user.role, landing);
     res.setHeader("Set-Cookie", serializeCookie(AUTH_COOKIE, token, {
       maxAgeSec: TOKEN_TTL_MS / 1000,
       httpOnly: true,
@@ -168,7 +203,7 @@ export function mountLoginRoutes(app: express.Express, opts: { proxyOrigin?: str
       secure: process.env.H5_COOKIE_SECURE === "true",
       domain,
     }));
-    res.json({ token, role: user.role, expiresIn: Math.floor(TOKEN_TTL_MS / 1000), next: allowNext(next, proxyOrigins) });
+    res.json({ token, role: user.role, expiresIn: Math.floor(TOKEN_TTL_MS / 1000), next: landing });
   });
 
   // 游客/面试官一键体验：服务端按 guest 账号直接发会话（免密码）。
@@ -176,7 +211,7 @@ export function mountLoginRoutes(app: express.Express, opts: { proxyOrigin?: str
   //           ② 独立于账号/校验码路径，仅走 IP 维度限流（guest 只读，滥用面小）；
   //           ③ 未配置体验账号时返回 503，错误信息给出配置方式。
   app.post("/api/login/guest", (req, res) => {
-    const ip = req.ip ?? req.socket?.remoteAddress ?? "unknown";
+    const ip = clientIpOf(req);
     const guest = findGuest();
     if (!guest) {
       return res.status(503).json({
@@ -191,6 +226,9 @@ export function mountLoginRoutes(app: express.Express, opts: { proxyOrigin?: str
     const { next } = (req.body ?? {}) as { next?: unknown };
     const token = tokenManager.generate({ username: guest.username, role: guest.role });
     const domain = deriveCookieDomain(req.hostname);
+    const landing = allowNext(next, proxyOrigins);
+    // 「除我之外还有谁来过」的主战场：游客入口是共用账号，只有这条记录能区分个体
+    logVisit(req, "guest", guest.username, guest.role, landing);
     res.setHeader("Set-Cookie", serializeCookie(AUTH_COOKIE, token, {
       maxAgeSec: TOKEN_TTL_MS / 1000,
       httpOnly: true,
@@ -198,7 +236,7 @@ export function mountLoginRoutes(app: express.Express, opts: { proxyOrigin?: str
       secure: process.env.H5_COOKIE_SECURE === "true",
       domain,
     }));
-    res.json({ token, role: guest.role, expiresIn: Math.floor(TOKEN_TTL_MS / 1000), next: allowNext(next, proxyOrigins) });
+    res.json({ token, role: guest.role, expiresIn: Math.floor(TOKEN_TTL_MS / 1000), next: landing });
   });
 
   // 登出：吊销 token + 清 cookie（带相同 domain 才能清掉跨子域 cookie）
