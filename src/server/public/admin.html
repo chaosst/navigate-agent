@@ -22,7 +22,14 @@
   .nav-bar a:hover { background: #eef2ff; color: var(--primary); }
   .nav-bar a.active { background: #eff6ff; color: var(--primary); font-weight: 600; }
   .nav-bar .spacer { margin-left: auto; }
-  .container { max-width: 660px; margin: 32px auto; padding: 0 16px; }
+  /* 本页含两张多列数据表（访客汇总 6 列 / 明细 7 列），660px 会把单元格挤成竖排 —— 放宽到 1120px */
+  .container { max-width: 1120px; margin: 32px auto; padding: 0 16px; }
+  /* 顶部两张卡（身份 / 体验账号）在窄屏单列、宽屏并排：表单控件不会随页面一起被拉伸 */
+  .top-grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 16px; }
+  .top-grid > .card { margin-bottom: 0; }
+  @media (min-width: 960px) {
+    .top-grid { grid-template-columns: 2fr 3fr; align-items: start; }
+  }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin-bottom: 16px; }
   h1 { font-size: 1.25rem; margin-bottom: 4px; }
   h2 { font-size: 1.05rem; margin-bottom: 4px; }
@@ -77,6 +84,7 @@
 </div>
 
 <div class="container">
+  <div class="top-grid">
   <div class="card">
     <h1>⚙️ 账号管理</h1>
     <div class="sub">管理员专属 · 体验账号（给 HR / 面试官）密码重置</div>
@@ -97,6 +105,7 @@
     <button id="saveBtn">保存新密码</button>
     <div class="msg" id="msg"></div>
     <div class="hint">重置后即时生效；已登录的体验账号会话最长 30 分钟后过期。持久化于 rag_data/h5-users.json（环境变量仅在文件缺失时生效）。</div>
+  </div>
   </div>
 
   <div class="card" id="visitsCard">
