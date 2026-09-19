@@ -16,7 +16,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { loadResumeSource } from "../src/resume/loader.js";
 import { parseResumeText } from "../src/resume/parser.js";
-import type { ResumeData } from "../src/resume/types.js";
+import { mountResumePage } from "../src/server/__tests__/resume-page-harness.js";
 
 const HTML_PATH = path.resolve(process.cwd(), "src/server/public/resume.html");
 const OUT = path.resolve(process.argv[2] ?? "rag_data/resume-page-preview.html");
@@ -37,53 +37,10 @@ for (const s of data.sections) {
   console.log(`  [${s.type.padEnd(10)}] ${s.title}（${s.items.length} 条）`);
 }
 
-// ——— 用页面真实脚本渲染（与 resume-render.test.ts 同一套 fake DOM 手法） ———
-const escapeText = (s: string): string =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-class FakeEl {
-  textContent = "";
-  renderedHtml: string | null = null;
-  set innerHTML(v: string) {
-    this.renderedHtml = v;
-    this.textContent = "";
-  }
-  get innerHTML(): string {
-    return escapeText(this.textContent);
-  }
-}
-
+// ——— 用页面真实脚本渲染（fake DOM shim 与 resume-render.test.ts 共用一份：
+//     页面脚本新增 DOM 调用时必须只在这一处补，否则两边会静默漂移） ———
 const pageHtml = readFileSync(HTML_PATH, "utf-8");
-const scriptMatch = pageHtml.match(/<script>([\s\S]*?)<\/script>/);
-if (!scriptMatch) throw new Error("resume.html 中找不到 <script> 块");
-
-const app = new FakeEl();
-const run = new Function(
-  "document",
-  "location",
-  "sessionStorage",
-  "fetch",
-  "URLSearchParams",
-  scriptMatch[1],
-);
-run(
-  {
-    getElementById: (id: string) => (id === "app" ? app : new FakeEl()),
-    createElement: () => new FakeEl(),
-    querySelectorAll: () => [] as unknown[],
-  },
-  { search: "", pathname: "/resume", href: "" },
-  {
-    getItem: () => "preview",
-    setItem: () => {},
-    removeItem: () => {},
-  },
-  async (url: string) => ({
-    json: async () => (url.includes("/api/me") ? { isAdmin: true } : (data as ResumeData)),
-  }),
-  URLSearchParams,
-);
-await new Promise((r) => setTimeout(r, 50));
+const { app } = await mountResumePage(pageHtml, data as unknown);
 const rendered = app.renderedHtml ?? "";
 if (!rendered) throw new Error("渲染结果为空 —— 页面脚本没有产出 #app 内容");
 

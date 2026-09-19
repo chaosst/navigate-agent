@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { ResumeData, SectionType } from "../../resume/types.js";
+import { FakeEvent, mountResumePage } from "./resume-page-harness.js";
 
 /**
  * 回归背景：`resume.html` 的 experience/education 渲染分支只输出 title / subtitle /
@@ -10,68 +11,15 @@ import type { ResumeData, SectionType } from "../../resume/types.js";
  * 页面上表现为「这一节是空的」。
  *
  * 这类缺陷单元测试抓不到（解析层数据是好的），只有真正跑一遍渲染函数才暴露。
- * 下面用一个最小 DOM shim 执行 resume.html 里那段真实脚本，对渲染产物做断言。
+ * 下面用假 DOM 执行 resume.html 里那段真实脚本，对渲染产物做断言
+ * （shim 与 scripts/preview-resume-page.ts 共用一份，见 resume-page-harness.ts）。
  */
 
 const HTML_PATH = path.resolve(process.cwd(), "src/server/public/resume.html");
 
-/** 浏览器把文本节点的 innerHTML 序列化为转义后的字符串 */
-const escapeText = (s: string): string =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-class FakeEl {
-  textContent = "";
-  /** 被赋值 innerHTML 时捕获原始 HTML（用于读取 #app 的渲染结果） */
-  renderedHtml: string | null = null;
-
-  set innerHTML(v: string) {
-    this.renderedHtml = v;
-    this.textContent = "";
-  }
-  get innerHTML(): string {
-    return escapeText(this.textContent);
-  }
-}
-
-function extractScript(html: string): string {
-  const m = html.match(/<script>([\s\S]*?)<\/script>/);
-  if (!m) throw new Error("resume.html 中找不到 <script> 块");
-  return m[1];
-}
-
 /** 用假 DOM 跑一遍页面脚本，返回 #app 的渲染结果 */
 async function renderPage(data: ResumeData): Promise<string> {
-  const script = extractScript(readFileSync(HTML_PATH, "utf-8"));
-
-  const app = new FakeEl();
-  const fakeDocument = {
-    getElementById: (id: string) => (id === "app" ? app : new FakeEl()),
-    createElement: () => new FakeEl(),
-    querySelectorAll: () => [] as unknown[],
-  };
-  const session = new Map<string, string>([["navigate_token", "test-token"]]);
-  const fakeSessionStorage = {
-    getItem: (k: string) => session.get(k) ?? null,
-    setItem: (k: string, v: string) => void session.set(k, v),
-    removeItem: (k: string) => void session.delete(k),
-  };
-  const fakeLocation = { search: "", pathname: "/resume", href: "" };
-  const fakeFetch = async (url: string) => ({
-    json: async () => (url.includes("/api/me") ? { isAdmin: true } : data),
-  });
-
-  const run = new Function(
-    "document",
-    "location",
-    "sessionStorage",
-    "fetch",
-    "URLSearchParams",
-    script,
-  );
-  run(fakeDocument, fakeLocation, fakeSessionStorage, fakeFetch, URLSearchParams);
-
-  // loadResume() 是异步的（fetch → json → render），放行微任务后取渲染结果
-  await new Promise((r) => setTimeout(r, 20));
+  const { app } = await mountResumePage(readFileSync(HTML_PATH, "utf-8"), data);
   return app.renderedHtml ?? "";
 }
 
@@ -211,5 +159,40 @@ describe("resume.html 渲染：分节正文不得为空", () => {
     };
     const html = await renderPage(data);
     expect(html).toContain("第一行<br>第二行");
+  });
+});
+
+/**
+ * 回归背景：`#downloadPdf` 从写完那天起就只有 `id`、**没有任何监听器** ——
+ * 它是 `href="javascript:void(0)"` 的 `<a>`，点了既不下载也不报错，是个死按钮。
+ *
+ * 修复走「浏览器打印 → 目标选另存为 PDF」：不引 PDF 生成库（中文要嵌字体，体积与排版
+ * 成本都高），也不用 CDN 脚本（面试官网络受限时会白屏）。所以这里锁两件事：
+ * ① 点击真的走到 `window.print()`；② 打印样式存在（否则打出来是暗色稿 + 带导航栏）。
+ */
+describe("resume.html 下载 PDF 按钮", () => {
+  it("点击 #downloadPdf 会调用 window.print()", async () => {
+    // 注意：不要解构 printCalls —— 解构会立刻求值 getter，拿到的是挂载时的 0
+    const page = await mountResumePage(readFileSync(HTML_PATH, "utf-8"), fixture);
+    expect(page.pdfBtn.clickHandlers.length, "#downloadPdf 没有绑定任何 click 监听器").toBeGreaterThan(0);
+
+    const e = new FakeEvent();
+    for (const h of page.pdfBtn.clickHandlers) h(e);
+    expect(page.printCalls, "点击后没有调用 window.print()").toBe(1);
+    expect(e.defaultPrevented, "未阻止 <a href=\"javascript:void(0)\"> 的默认行为").toBe(true);
+  });
+
+  it("打印稿带上 @media print：覆盖回浅色 + 隐藏交互 chrome", () => {
+    const html = readFileSync(HTML_PATH, "utf-8");
+    expect(html, "缺少 @media print 打印样式").toContain("@media print");
+    const print = html.slice(html.indexOf("@media print"));
+
+    // prefers-color-scheme: dark 的变量会被带进打印稿 → 必须显式覆盖回浅色
+    expect(print, "--bg 没有在打印稿里覆盖回浅色").toMatch(/--bg:\s*#fff/);
+    // 导航栏 / 下载按钮是交互元素，不该进纸
+    expect(print, "导航栏没有在打印稿里隐藏").toMatch(/\.nav-bar[\s\S]{0,80}display:\s*none/);
+    expect(print, "下载按钮没有在打印稿里隐藏").toMatch(/#downloadPdf[\s\S]{0,40}display:\s*none/);
+    // 浏览器默认丢弃背景色 → 技能标签会变成白字白底，必须保住底色
+    expect(print, "技能标签没有保住底色（白字白底看不见）").toMatch(/print-color-adjust:\s*exact/);
   });
 });

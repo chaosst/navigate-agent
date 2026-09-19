@@ -138,6 +138,41 @@
   .btn:hover { border-color: var(--primary); color: var(--primary); }
   .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
   .btn-primary:hover { opacity: 0.9; color: #fff; }
+
+  /* ---------- 打印 / 「下载 PDF」----------
+     「下载 PDF」的实现 = 打开浏览器打印对话框，目标选「另存为 PDF」：
+     零依赖、中文不需要嵌字体、版式与屏幕共用同一份 CSS。
+     （换成服务端生成 PDF 要引 pdfkit + 内嵌 CJK 字体，或在 2C2G 容器里跑 headless
+       Chrome —— 都不划算；换成静态 resume.pdf 则内容会与 resume.md 漂移。）
+
+     三个必须显式处理的点：
+       ① prefers-color-scheme: dark 的变量会被带进打印稿 → 覆盖回浅色；
+       ② 打印时浏览器默认**丢弃背景色** → 技能标签会变成白字白底，用
+          print-color-adjust: exact 保住底色（Chrome/Edge/Firefox 均支持）；
+       ③ 导航栏 / 下载按钮是交互 chrome，不进纸；卡片与条目避免跨页断开。 */
+  @page { margin: 12mm; }
+  @media print {
+    :root {
+      --bg: #fff; --surface: #fff; --text: #000; --text-muted: #333;
+      --primary: #1d4ed8; --primary-light: #fff; --border: #ccc; --shadow: transparent;
+    }
+    body { padding: 0; background: #fff; color: #000; }
+    .container { max-width: none; }
+    .nav-bar, #downloadPdf { display: none !important; }
+    .card {
+      box-shadow: none; border: 1px solid var(--border);
+      padding: 18px; margin-bottom: 12px;
+      break-inside: avoid; page-break-inside: avoid;
+    }
+    .timeline-item, .project-card, .prose-item {
+      break-inside: avoid; page-break-inside: avoid;
+    }
+    .skill-tag {
+      -webkit-print-color-adjust: exact; print-color-adjust: exact;
+      border: 1px solid rgba(0,0,0,0.12);
+    }
+    .footer { padding: 8px 0 0; }
+  }
 </style>
 </head>
 <body>
@@ -178,6 +213,16 @@
     const href = a.getAttribute("href");
     if (href && !href.includes("token=") && href.startsWith("/")) a.setAttribute("href", href + "?token=" + TOKEN);
   });
+
+  // 下载 PDF：打开浏览器打印对话框，目标选「另存为 PDF」（样式见 <style> 的 @media print）。
+  // 历史缺陷：这个按钮只有 id 和样式、**从来没有 click 监听器** —— 点了既不下载也不报错。
+  const pdfBtn = document.getElementById("downloadPdf");
+  if (pdfBtn) {
+    pdfBtn.addEventListener("click", function (e) {
+      e.preventDefault();
+      window.print();
+    });
+  }
 
   // 体验账号不展示 Wiki 入口（Wiki 知识库仅管理员可访问，代理侧 403 兜底）
   (async () => {
