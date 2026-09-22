@@ -36,8 +36,14 @@ export type WorkflowEvent =
   | { type: "done" }
   | { type: "error"; message: string };
 
-/** 单事件 → SSE 帧。与 src/server/rag-ask.ts 的 formatSseEvent 同构。 */
-export function formatSseFrame(ev: { type: string }): string {
+/**
+ * 单事件 → SSE 帧。与 src/server/rag-ask.ts 的 formatSseEvent 同构。
+ *
+ * 形参刻意写成「任何带 type 的对象」而不是 `WorkflowEvent`：本函数只读 type 当帧名、
+ * 其余整体 JSON 序列化，不关心具体变体；写死 union 会让 catch 分支里现拼的
+ * `{ type:"error", message }` 撞上多余属性检查（TS2353）。
+ */
+export function formatSseFrame(ev: { type: string; [key: string]: unknown }): string {
   return `event: ${ev.type}\ndata: ${JSON.stringify(ev)}\n\n`;
 }
 
