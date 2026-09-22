@@ -75,14 +75,22 @@
   .error-msg { color:var(--err); font-size:.85rem; }
   @media (max-width:600px){ .wrap{padding:12px} }
 </style>
+<link rel="stylesheet" href="/nav.css">
+<script src="/nav.js" defer></script>
 </head>
 <body>
 <div class="nav-bar">
   <span class="title">🧠 跨文档并行问答</span>
   <a href="/">📄 文档</a>
-  <a href="/rag/ask" class="active">📑 多文档问答</a>
-  <a href="/resume/chat">💬 简历问答</a>
-  <a href="/resume/jd">🎯 JD匹配</a>
+  <details class="nav-menu">
+    <summary>✨ 能力演示 ▾</summary>
+    <div class="nav-menu-list">
+      <a href="/resume/chat">💬 简历问答</a>
+      <a href="/resume/jd">🎯 JD匹配</a>
+      <a href="/rag/ask" class="active">📑 多文档问答</a>
+      <a href="/agent/plan" data-admin-only>🕸️ 编排视图</a>
+    </div>
+  </details>
   <a href="/portfolio">🧩 功能介绍</a>
   <a href="/api/logout?next=/login" onclick="sessionStorage.removeItem('navigate_token')">🚪 退出</a>
 </div>

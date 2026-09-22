@@ -1,0 +1,81 @@
+/* ── 一级导航条上的折叠菜单（8 个 H5 页面共用这一份）─────────────────────────
+ *
+ * 用 <details>/<summary> 而不是自己写 div+JS：原生语义自带展开/收起、键盘可达
+ * （Tab → Enter/Space），并且 JS 挂掉时菜单依然能展开 —— 8 个页面里任何一页
+ * 出问题都不会退化成「菜单点不开」。
+ *
+ * nav.js 只补两件原生行为没有的事：点空白处/Esc 收起、非管理员隐藏 data-admin-only。
+ *
+ * 为什么用 var(..., fallback) 套两层：admin.html 的主题变量叫 --muted/--card，
+ * 其余页面叫 --text-muted/--surface，index.html 干脆没有 :root（靠行内样式）。
+ * 双层 fallback 让同一份 CSS 在这三套命名下都取到正确颜色，不必给每页抄一遍。
+ * 选择器刻意写成 .nav-bar .nav-menu-list a（0,2,1）压过各页自己的 .nav-bar a
+ * （0,1,1）—— 这样 nav.css 在 </head> 末尾加载，也不会被各页样式反压回去。
+ */
+.nav-bar .nav-menu {
+  position: relative;
+  display: inline-block; /* index.html 的 nav 是 text-align:center 的行内流，block 会另起一行 */
+  vertical-align: middle; /* index.html 没有 .nav-bar 规则，靠这个在行内流里对齐 */
+  align-self: center; /* 其余页面是 flex 容器（默认 align-items:stretch），别被拉高后文字顶到上沿 */
+  /* admin.html 有一组全局的 `details { margin-top: 12px }` / `summary { font-size: .85rem }`
+     （给页面体里那个「明细」折叠块用的），会顺带把这个菜单压低 12px、字号缩一档。
+     这里显式复位，不然该页导航会比兄弟链接低一截。 */
+  margin: 0;
+}
+
+.nav-bar .nav-menu > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  font-size: inherit;
+  padding: 6px 16px;
+  border-radius: 8px;
+  color: var(--text-muted, var(--muted, #6b7280));
+}
+.nav-bar .nav-menu > summary::-webkit-details-marker { display: none; }
+.nav-bar .nav-menu > summary:hover,
+.nav-bar .nav-menu[open] > summary {
+  background: var(--primary-light, #eff6ff);
+  color: var(--primary, #2563eb);
+}
+/* 当前页在这个菜单里 → 收起状态下 summary 也要显示「你在这里」（否则用户只看到
+   一个中性按钮，不知道自己正处在菜单内的某一页）。:has() 不支持时只是少个高亮。 */
+.nav-bar .nav-menu:has(.nav-menu-list > a.active) > summary {
+  color: var(--primary, #2563eb);
+  font-weight: 600;
+}
+
+.nav-bar .nav-menu-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 50;
+  margin-top: 6px;
+  min-width: 190px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--surface, var(--card, #fff));
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: var(--radius, 10px);
+  box-shadow: 0 8px 24px var(--shadow, rgba(17, 24, 39, 0.14));
+}
+
+.nav-bar .nav-menu-list a {
+  padding: 8px 12px;
+  border-radius: 8px;
+  white-space: nowrap;
+  color: var(--text-muted, var(--muted, #6b7280));
+}
+.nav-bar .nav-menu-list a:hover,
+.nav-bar .nav-menu-list a.active {
+  background: var(--primary-light, #eff6ff);
+  color: var(--primary, #2563eb);
+}
+
+/* 窄屏（手机）：菜单面板右对齐，避免从 320px 视口右侧溢出被裁 */
+@media (max-width: 480px) {
+  .nav-bar .nav-menu-list { left: auto; right: 0; }
+}

@@ -102,17 +102,25 @@
   .demo-banner .b-sub { font-size: 0.8rem; opacity: 0.92; margin-top: 2px; }
   .demo-banner .b-go { font-size: 0.85rem; font-weight: 600; white-space: nowrap; border: 1px solid rgba(255,255,255,.6); padding: 6px 14px; border-radius: 20px; }
 </style>
+<link rel="stylesheet" href="/nav.css">
+<script src="/nav.js" defer></script>
 </head>
 <body>
 <div class="nav-bar" style="text-align:center;margin-bottom:24px;font-size:0.9rem;">
   <a href="/" style="color:#2563eb;text-decoration:none;padding:6px 16px;border-radius:8px;font-weight:600;">📄 文档管理</a>
-  <a href="__WIKI_URL__" target="_blank" class="nav-wiki" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">📚 Wiki ↗</a>
-  <a href="/api/logout?next=/login" onclick="sessionStorage.removeItem('navigate_token')" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">🚪 退出</a>
+  <a href="__WIKI_URL__" class="nav-wiki" target="_blank" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">📚 Wiki ↗</a>
   <a href="/resume" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">👤 简历</a>
-  <a href="/resume/chat" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">💬 简历问答</a>
-  <a href="/resume/jd" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">🎯 JD匹配</a>
-  <a href="/rag/ask" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">📑 多文档问答</a>
+  <details class="nav-menu">
+    <summary>✨ 能力演示 ▾</summary>
+    <div class="nav-menu-list">
+      <a href="/resume/chat">💬 简历问答</a>
+      <a href="/resume/jd">🎯 JD匹配</a>
+      <a href="/rag/ask">📑 多文档问答</a>
+      <a href="/agent/plan" data-admin-only>🕸️ 编排视图</a>
+    </div>
+  </details>
   <a href="/portfolio" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">🧩 功能介绍</a>
+  <a href="/api/logout?next=/login" onclick="sessionStorage.removeItem('navigate_token')" style="color:#6b7280;text-decoration:none;padding:6px 16px;border-radius:8px;">🚪 退出</a>
 </div>
 <div class="container">
   <style>
