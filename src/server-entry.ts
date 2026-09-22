@@ -15,6 +15,7 @@ import type { JdMatchResult } from "./resume/jd-analyzer.js";
 import type { ResumeData } from "./resume/types.js";
 import { loadResumeSource } from "./resume/loader.js";
 import type { StructuredTool } from "@langchain/core/tools";
+import { HumanMessage } from "@langchain/core/messages";
 import { PgVectorStore } from "./storage/pg-vector-store.js";
 import { getPool } from "./storage/pool.js";
 import { createRagServer } from "./server/index.js";
@@ -30,6 +31,12 @@ import { PermissionWrapper } from "./tools/permission.js";
 import { ReadOnlyToolFilter } from "./tools/tool-filter.js";
 import { buildApproval, resolveApprovalMode } from "./tools/human-channel.js";
 import { createVisitLog } from "./server/visit-log.js";
+// 编排可视化（/agent/plan）专用装配依赖：只读工具面 + 双层循环 agent
+import { createHierarchicalAgent } from "./agent/loop.js";
+import { ReadFileTool } from "./tools/filesystem.js";
+import { ListFilesTool, SearchFilesTool } from "./tools/search.js";
+import { RagSearchTool } from "./rag/retriever.js";
+import type { PlanStreamFn } from "./server/plan-chat.js";
 
 async function main() {
   const config = loadConfig();
@@ -146,6 +153,43 @@ async function main() {
     );
   }
 
+  // ─── 编排可视化用的 plan agent（只读工具面）────────────────────────────
+  // 三层防御（详见 docs/superpowers/plans/2026-09-22-plan-workflow-visualization.md Task 3）：
+  //   ① 端点：/agent/plan 页面 ADMIN_ROLES + /api/agent/plan 接口 requireAdminApi；
+  //   ② 工具面**白名单**：本数组本身就是边界，绝不含 execute_command / write_file / edit_file；
+  //   ③ ReadOnlyToolFilter 第二层（依赖 wrapRead 给的 permission 属性，裸工具会被过滤成空）。
+  // 默认关闭：H5_PLAN_AGENT=on 才装配；未装配 → 接口 503，绝不回退全量工具集。
+  let planStream: PlanStreamFn | undefined;
+  if ((process.env.H5_PLAN_AGENT ?? "off") === "on") {
+    const planTools: StructuredTool[] = [
+      wrapRead(new ReadFileTool()),
+      wrapRead(new ListFilesTool()),
+      wrapRead(new SearchFilesTool()),
+      wrapRead(new RagSearchTool(ragStore)),
+    ];
+    const planAgent = createHierarchicalAgent(
+      llm,
+      planTools,
+      undefined, // tracer — 不落 trace，够用
+      undefined, // toolStatsRegistry — 不传，避免答案带主 agent 统计脚注
+      config.llmTimeoutMs,
+      new ReadOnlyToolFilter(), // toolFilter — 只读硬闸门（第 3 层）
+      {
+        maxTokens: config.planMaxTokens,
+        maxTimeMs: config.planMaxTimeMs,
+        maxSteps: config.planMaxSteps,
+      },
+    );
+    planStream = (question: string) =>
+      planAgent.stream({ messages: [new HumanMessage(question)] });
+    console.log(
+      `[plan-viz] 编排视图已装配：工具面 = [${planTools.map((t) => t.name).join(", ")}]（全只读）· ` +
+        `预算 ${config.planMaxTokens} tokens / ${config.planMaxTimeMs}ms / ${config.planMaxSteps} 步`,
+    );
+  } else {
+    console.log("[plan-viz] 编排视图未装配（H5_PLAN_AGENT=off）—— /api/agent/plan 返回 503");
+  }
+
   // JD 匹配诊断器：结构化紧凑序列化（serializeResumeForJd）而非 resume.md 原文——
   // 去 frontmatter/装饰噪音、token 更省；超过 MAX_JD_RESUME_CHARS 时 analyze
   // 抛 ResumeTooLongError，jd-match 路由转可读 400。
@@ -189,6 +233,7 @@ async function main() {
       parallelAsk: (question: string, docIds: string[]) =>
         answerAcrossDocs({ question, docIds, store: ragStore, llm, maxConcurrency }),
       visitLog,
+      planStream,
     },
   );
 

@@ -24,6 +24,7 @@ import { ContextManager } from "../memory/context-manager.js";
 import { sourcesFromChunk } from "./sse-sources.js";
 import { ResumeTooLongError, type JdMatchResult } from "../resume/jd-analyzer.js";
 import { buildRagAskHandler, type AskFn } from "./rag-ask.js";
+import { buildPlanChatHandler, type PlanStreamFn } from "./plan-chat.js";
 import type { VisitKind, VisitLog } from "./visit-log.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -126,7 +127,7 @@ export function createRagServer(
   apiAuth?: ApiKeyAuthConfig,
   resumeExecutor?: AgentExecutor,
   jdAnalyzer?: { analyze(jd: string): Promise<JdMatchResult> },
-  deps?: { parallelAsk?: AskFn; visitLog?: VisitLog },
+  deps?: { parallelAsk?: AskFn; visitLog?: VisitLog; planStream?: PlanStreamFn },
 ) {
   const app = express();
 
@@ -288,6 +289,13 @@ export function createRagServer(
   // 注意：路由必须先于 express.static 注册，否则 /portfolio 会被静态目录重定向成 /portfolio/
   app.get("/portfolio", requirePage(ALL_ROLES), (_req, res) => {
     sendHtml(res, "portfolio.html", { WIKI_URL: wikiPublicUrl });
+  });
+
+  // 编排可视化：plan 模式（HierarchicalAgentLangGraph）的结构化计划 + 工具调用实时视图。
+  // 门禁与 /admin 同级（ADMIN_ROLES）—— 这个页面的 agent 能读本地文件，
+  // 即使工具面已限制为只读，也不对 guest 开放（见计划的 §待决策 D1 取舍记录）。
+  app.get("/agent/plan", requirePage(ADMIN_ROLES), (_req, res) => {
+    sendHtml(res, "agent-plan.html", { WIKI_URL: wikiPublicUrl });
   });
 
   // 写操作（上传/重新索引/删除）仅管理员：体验账号点按钮前端提示，服务端同样 403 兜底
@@ -587,6 +595,11 @@ export function createRagServer(
     for await (const ev of deps.parallelAsk(question, docIds)) yield ev;
   }));
 
+  // 编排可视化：驱动 plan 引擎（HierarchicalAgentLangGraph），SSE 边跑边推。
+  // 双重门禁：requireAdminApi（本行）+ 页面 ADMIN_ROLES（上方 /agent/plan）。
+  // 未装配 → buildPlanChatHandler 内部返回 503（fail-closed，绝不回退全量工具集）。
+  app.post("/api/agent/plan", requireAdminApi, buildPlanChatHandler(deps?.planStream));
+
   // Chat history endpoint — load past messages by token
   app.get("/api/chat/history", requireToken, (req, res) => {
     const sid = (req as any).validToken;
@@ -704,12 +717,13 @@ export function createRagServer(
   });
 
   // 防止经 /index.html 等静态路径绕过登录门槛 → 重定向到带门槛的规范路由
-  app.get(["/index.html", "/resume.html", "/resume/chat.html", "/resume/jd.html", "/admin.html", "/rag-ask.html", "/portfolio.html"], (req, res) => {
+  app.get(["/index.html", "/resume.html", "/resume/chat.html", "/resume/jd.html", "/admin.html", "/rag-ask.html", "/portfolio.html", "/agent-plan.html"], (req, res) => {
     const map: Record<string, string> = {
       "/index.html": "/", "/resume.html": "/resume",
       "/resume/chat.html": "/resume/chat", "/resume/jd.html": "/resume/jd",
       "/admin.html": "/admin", "/rag-ask.html": "/rag/ask",
       "/portfolio.html": "/portfolio",
+      "/agent-plan.html": "/agent/plan",
     };
     res.redirect(302, map[req.path] || "/");
   });
