@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>编排视图</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+<style>
+  :root {
+    --bg:#f8f9fa; --surface:#fff; --text:#1a1a2e; --text-muted:#6b7280;
+    --primary:#2563eb; --primary-light:#eff6ff; --border:#e5e7eb;
+    --ok:#059669; --warn:#d97706; --err:#dc2626; --radius:12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#0f172a; --surface:#1e293b; --text:#f1f5f9; --text-muted:#94a3b8;
+      --primary:#60a5fa; --primary-light:#1e3a5f; --border:#334155;
+      --ok:#34d399; --warn:#fbbf24; --err:#f87171;
+    }
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         background:var(--bg); color:var(--text); line-height:1.6; min-height:100vh; }
+  .nav-bar { display:flex; gap:16px; padding:12px 24px; background:var(--surface);
+             border-bottom:1px solid var(--border); font-size:.9rem; align-items:center; flex-wrap:wrap; }
+  .nav-bar a { color:var(--text-muted); text-decoration:none; padding:6px 16px; border-radius:8px; }
+  .nav-bar a:hover, .nav-bar a.active { background:var(--primary-light); color:var(--primary); }
+  .nav-bar .title { font-weight:600; margin-right:auto; }
+  .wrap { max-width:1100px; margin:0 auto; padding:20px; display:flex; flex-direction:column; gap:16px; }
+  .panel { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px; }
+  .panel h2 { font-size:.95rem; margin-bottom:12px; color:var(--text-muted); font-weight:600; }
+  .hint { color:var(--text-muted); font-size:.78rem; margin-top:8px; }
+  .input-row { display:flex; gap:8px; }
+  .input-row input { flex:1; padding:10px 14px; border:1px solid var(--border); border-radius:8px;
+                     font-size:.92rem; outline:none; background:var(--bg); color:var(--text); }
+  .input-row input:focus { border-color:var(--primary); }
+  .input-row button { padding:10px 22px; border:none; border-radius:8px; background:var(--primary);
+                      color:#fff; font-size:.92rem; cursor:pointer; font-weight:500; white-space:nowrap; }
+  .input-row button:disabled { opacity:.5; cursor:not-allowed; }
+
+  /* ── 阶段条 ───────────────────────────────────────────── */
+  .phase-bar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:.85rem; }
+  .phase { padding:3px 12px; border-radius:20px; border:1px solid var(--border); color:var(--text-muted); }
+  .phase.active { border-color:var(--primary); color:var(--primary); background:var(--primary-light); font-weight:600; }
+  .phase.done { border-color:var(--ok); color:var(--ok); }
+  .metrics { margin-left:auto; color:var(--text-muted); font-size:.8rem; font-variant-numeric:tabular-nums; }
+
+  /* ── 编排图 ───────────────────────────────────────────── */
+  .graph { display:flex; flex-direction:column; }
+  .node { border:1px solid var(--border); border-left:4px solid var(--border); border-radius:10px;
+          background:var(--bg); padding:12px 14px; }
+  .node.planner { border-left-color:var(--primary); background:var(--primary-light); font-weight:600; }
+  .node.terminal { border-left-color:var(--text-muted); text-align:center; color:var(--text-muted); }
+  .node.pending  { border-left-color:var(--border); opacity:.65; }
+  .node.running  { border-left-color:var(--primary); box-shadow:0 0 0 3px var(--primary-light); }
+  .node.completed{ border-left-color:var(--ok); }
+  .node.failed   { border-left-color:var(--err); }
+  .node.skipped  { border-left-color:var(--text-muted); opacity:.65; }
+  .node-head { display:flex; align-items:baseline; gap:8px; }
+  .node-idx { font-weight:700; color:var(--text-muted); font-variant-numeric:tabular-nums; font-size:.82rem; }
+  .node-desc { flex:1; }
+  .node-count { color:var(--text-muted); font-size:.78rem; }
+  .node-tools { margin-top:8px; display:flex; flex-wrap:wrap; gap:6px; }
+  .tool-chip { font-size:.75rem; padding:2px 10px; border-radius:20px; border:1px solid var(--border);
+               background:var(--surface); color:var(--text-muted); cursor:pointer; }
+  .tool-chip:hover { border-color:var(--primary); color:var(--primary); }
+  .tool-chip.failed { color:var(--err); border-color:var(--err); }
+  .tool-chip[data-open="1"] { border-color:var(--primary); color:var(--primary); }
+  .tool-body { font-size:.78rem; white-space:pre-wrap; word-break:break-all;
+               background:var(--surface); border:1px dashed var(--border); border-radius:8px;
+               padding:8px 10px; max-height:220px; overflow:auto; display:none; }
+  .tool-body.open { display:block; }
+  .node-result { margin-top:8px; font-size:.82rem; color:var(--text-muted); white-space:pre-wrap; }
+  .node-result.err { color:var(--err); }
+  /* 节点之间的竖线连接：独立 div 比伪元素多几个节点，但节点数 ≤ 20，且更易读 */
+  .connector { width:2px; height:18px; background:var(--border); margin-left:22px; }
+  .connector.done { background:var(--ok); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.45} }
+  .node.running .node-desc::after { content:" …"; animation:pulse 1.2s infinite; }
+  .spinner { display:inline-block; width:12px; height:12px; margin-right:6px; vertical-align:-1px;
+             border:2px solid var(--border); border-top-color:var(--primary); border-radius:50%;
+             animation:spin .8s linear infinite; }
+  .spinner[hidden] { display:none; }
+  @keyframes spin { to { transform:rotate(360deg) } }
+
+  /* ── 最终答案 ─────────────────────────────────────────── */
+  #answer-box { font-size:.92rem; line-height:1.7; word-wrap:break-word; }
+  #answer-box ul, #answer-box ol { padding-left:1.6em; margin:.4em 0; }
+  #answer-box ul { list-style:disc; }
+  #answer-box ol { list-style:decimal; }
+  #answer-box li { margin:.15em 0; }
+  #answer-box p { margin:.4em 0; }
+  #answer-box h1, #answer-box h2, #answer-box h3 { margin:.7em 0 .35em; line-height:1.3; }
+  #answer-box code { background:var(--primary-light); padding:.1em .35em; border-radius:4px; font-size:.85em; }
+  #answer-box pre { background:var(--primary-light); padding:.7em .9em; border-radius:8px; overflow-x:auto; margin:.5em 0; }
+  #answer-box pre code { background:none; padding:0; }
+  #answer-box blockquote { border-left:3px solid var(--border); padding-left:.8em; margin:.4em 0; color:var(--text-muted); }
+  /* 表格：编排类答案常带汇总表，全局 reset 后需自己复原边框与内边距 */
+  #answer-box table { border-collapse:collapse; margin:.6em 0; font-size:.85rem; display:block; overflow-x:auto; }
+  #answer-box th, #answer-box td { border:1px solid var(--border); padding:.35em .6em; text-align:left; }
+  #answer-box th { background:var(--primary-light); }
+  .error-msg { color:var(--err); font-size:.85rem; }
+  @media (max-width:600px){ .wrap{padding:12px} }
+</style>
+</head>
+<body>
+<div class="nav-bar">
+  <span class="title">🕸️ 编排视图</span>
+  <a href="/">📄 文档</a>
+  <a href="/rag/ask">📑 多文档问答</a>
+  <a href="/resume/chat">💬 简历问答</a>
+  <a href="/resume/jd">🎯 JD匹配</a>
+  <a href="/portfolio">🧩 功能介绍</a>
+  <a href="/api/logout?next=/login" onclick="sessionStorage.removeItem('navigate_token')">🚪 退出</a>
+</div>
+
+<div class="wrap">
+  <div class="panel">
+    <h2>① 描述一个多步任务</h2>
+    <div class="input-row">
+      <input type="text" id="question" autofocus
+             placeholder="例如：读取 docs/ 目录下所有 md 文件的标题，按主题归类后汇总成一份索引">
+      <button id="run-btn">规划并执行 ▶</button>
+    </div>
+    <div class="hint">固定 plan 档（双层循环：planner → executor → planner …）· 工具面只读 · 单轮执行不追问</div>
+  </div>
+
+  <div class="panel">
+    <div class="phase-bar">
+      <span class="phase" id="phase-1">planning</span><span style="color:var(--text-muted)">→</span>
+      <span class="phase" id="phase-2">executing</span><span style="color:var(--text-muted)">→</span>
+      <span class="phase" id="phase-3">finalizing</span><span style="color:var(--text-muted)">→</span>
+      <span class="phase" id="phase-4">done</span>
+      <span class="metrics" id="metrics"></span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>② 编排图</h2>
+    <div class="graph" id="stage"></div>
+  </div>
+
+  <div class="panel" id="answer-panel" hidden>
+    <h2>③ 最终答案</h2>
+    <div id="answer-box"></div>
+  </div>
+</div>
+
+<script>
+/* ── token 引导：与其余 5 个 H5 页面同构 ───────────────────────── */
+const urlToken = new URLSearchParams(location.search).get("token");
+if (urlToken) sessionStorage.setItem("navigate_token", urlToken);
+const TOKEN = sessionStorage.getItem("navigate_token");
+if (!TOKEN) { location.href = "/login?next=" + encodeURIComponent(location.pathname + location.search); throw new Error("no token"); }
+document.querySelectorAll(".nav-bar a").forEach(function (a) {
+  const href = a.getAttribute("href");
+  if (href && href.indexOf("token=") === -1 && href.indexOf("http") !== 0) a.setAttribute("href", href + "?token=" + TOKEN);
+});
+
+const stageEl     = document.getElementById("stage");
+const metricsEl   = document.getElementById("metrics");
+const answerEl    = document.getElementById("answer-box");
+const answerPanel = document.getElementById("answer-panel");
+const inputEl     = document.getElementById("question");
+const runBtn      = document.getElementById("run-btn");
+const phaseEls    = [
+  document.getElementById("phase-1"),
+  document.getElementById("phase-2"),
+  document.getElementById("phase-3"),
+  document.getElementById("phase-4"),
+];
+
+/* ── 全局状态（单一数据源；render() 是它的纯投影）───────────────── */
+const S = {
+  phase: "idle",      // idle | planning | executing | finalizing | done | error
+  goal: "",
+  steps: [],          // [{ id, description, status, result, error, tools: [] }]
+  activeIdx: -1,      // 派生的「进行中」步骤索引（引擎观察不到 in_progress，见下）
+  lastCompletedIdx: -1,
+  answer: "",
+  error: "",
+  toolCount: 0,
+  startedAt: 0,
+  elapsedMs: 0,
+};
+
+const PHASES = ["planning", "executing", "finalizing", "done"];
+const PHASE_LABEL = { planning: "规划中", executing: "执行中", finalizing: "收口中", done: "完成" };
+const BADGE = { pending: "⏳", completed: "✅", failed: "❌", skipped: "⏭" };
+
+/** stepId → 已建好的 DOM 节点，避免每次重绘都重建（重建会让滚动位置与展开态丢失） */
+const nodeCache = new Map();
+/** 工具 chip 的展开态：`stepId#idx` → true（状态在 JS 里，DOM 只是投影，重绘不丢展开态） */
+const openTools = new Set();
+/** planner / terminal / spinner 节点只建一次，重绘复用 */
+let plannerEl = null;
+let terminalEl = null;
+let terminalTextEl = null;
+let spinnerEl = null;
+/** 答案/错误已渲染的源文本：内容没变就不重建 innerHTML（避免每帧重解析 markdown、并保住用户的文本选中） */
+let lastAnswer = null;
+let lastError = null;
+
+/* ── DOM 构建：结构一律 createElement，不用 innerHTML 拼（可测 + 天然免 XSS）── */
+
+/** 步骤节点：缓存子元素引用（`node.$`），不靠 querySelector 回读 */
+function createStepNode() {
+  const node = document.createElement("div");
+  const head = document.createElement("div");
+  head.className = "node-head";
+  const idx = document.createElement("span");   idx.className = "node-idx";
+  const badge = document.createElement("span"); badge.className = "node-badge";
+  const desc = document.createElement("span");  desc.className = "node-desc";
+  const count = document.createElement("span"); count.className = "node-count";
+  head.appendChild(idx); head.appendChild(badge); head.appendChild(desc); head.appendChild(count);
+
+  const tools = document.createElement("div");  tools.className = "node-tools";
+  const result = document.createElement("div"); result.className = "node-result";
+
+  node.appendChild(head);
+  node.appendChild(tools);
+  node.appendChild(result);
+  node.$ = { idx: idx, badge: badge, desc: desc, count: count, tools: tools, result: result };
+  return node;
+}
+
+function createTerminalNode() {
+  const node = document.createElement("div");
+  node.className = "node terminal";
+  spinnerEl = document.createElement("span");
+  spinnerEl.className = "spinner";
+  spinnerEl.hidden = true;
+  terminalTextEl = document.createElement("span");
+  terminalTextEl.className = "terminal-text";
+  node.appendChild(spinnerEl);
+  node.appendChild(terminalTextEl);
+  node.$ = { text: terminalTextEl, spinner: spinnerEl };
+  return node;
+}
+
+/**
+ * 应用一份新的 plan 快照。
+ *
+ * ⚠️ 绝不要用 plan.currentStepIndex —— 引擎从不推进它（恒为 0）。
+ *    权威计数器是 DualLoopState.currentStepIndex，**不在 plan 对象里**。
+ *    见 src/agent/hierarchical-agent-langgraph.ts:424 与计划的 §1 事实 4。
+ *    「当前步骤」一律从 steps[].status 派生。
+ */
+function applyPlan(plan) {
+  const prev = S.steps;
+  let changed = -1;
+
+  S.goal = plan.goal || S.goal;
+  S.steps = (plan.steps || []).map(function (s, i) {
+    const old = prev.find(function (p) { return p.id === s.id; });
+    const wasTerminal = old && isTerminal(old);
+    const nowTerminal = isTerminal(s);
+    if (!wasTerminal && nowTerminal) changed = i;   // 本步刚落地 → 本轮的工具调用归属它
+    return {
+      id: s.id,
+      description: s.description,
+      status: s.status,
+      result: s.result,
+      error: s.error,
+      tools: old ? old.tools : [],
+    };
+  });
+
+  S.lastCompletedIdx = changed;
+  S.activeIdx = S.steps.findIndex(function (s) { return !isTerminal(s); });
+
+  // 阶段推进：planning → executing；全终态 → finalizing（等 generateFinalAnswer 那次 invoke）
+  if (S.phase === "planning" || S.phase === "idle") S.phase = "executing";
+  if (S.activeIdx < 0 && S.phase === "executing") S.phase = "finalizing";
+  render();
+}
+
+/**
+ * 应用一次工具调用。
+ *
+ * 归属规则来自引擎的出流顺序：
+ *   executorNode 把「整步的工具调用」与该步完成的 plan **一起**返回，
+ *   stream() 先 yield plan（langgraph.ts:1170）再 yield intermediateSteps（:1177）。
+ * 所以工具归属「本轮刚变成终态的那一步」，而不是刚变活跃的下一步。
+ *
+ * 另：工具是**整步批量**到达（executeStep 在局部数组里收集完才 return），
+ * 不是一条条实时冒出来 —— 所以这里是「步骤完成后的产物」，不做打字机动画。
+ */
+function applyTool(ev) {
+  const owner = S.lastCompletedIdx >= 0 ? S.lastCompletedIdx : S.activeIdx;
+  if (owner >= 0 && S.steps[owner]) {
+    S.steps[owner].tools.push(ev);
+  } else {
+    // 极端兜底：plan 还没到就有工具（不该发生）→ 挂一个暂存步，别把数据丢了
+    S.steps.push({ id: "__orphan", description: "（未归属的工具调用）", status: "completed", tools: [ev] });
+  }
+  S.toolCount += 1;
+  render();
+}
+
+function applyEvent(ev) {
+  if (!ev || typeof ev !== "object") return;
+  if (ev.type === "plan") return applyPlan(ev.plan);
+  if (ev.type === "tool") return applyTool(ev);
+  if (ev.type === "answer") {
+    S.answer = ev.text;
+    S.phase = "done";
+    S.elapsedMs = Date.now() - S.startedAt;
+    return render();
+  }
+  if (ev.type === "error") {
+    S.error = ev.message;
+    S.phase = "error";
+    return render();
+  }
+  // "done" 是 SSE 正常结束的哨兵，由 run() 的 finally 收口，这里不处理
+}
+
+/* ── 渲染（DOM 差量更新：节点复用，重绘不重排、不闪烁）───────────── */
+function isTerminal(s) {
+  return s.status === "completed" || s.status === "failed" || s.status === "skipped";
+}
+
+function stepNodeClass(s, isActive) {
+  if (isTerminal(s)) return s.status;
+  return isActive ? "running" : "pending";
+}
+
+function renderPhase() {
+  const cur = PHASES.indexOf(S.phase);
+  PHASES.forEach(function (p, i) {
+    const el = phaseEls[i];
+    const passed = cur > i || S.phase === "done";
+    el.className = "phase" + (S.phase === p ? " active" : passed ? " done" : "");
+    el.textContent = (passed ? "✓ " : "") + p + (S.phase === p ? "（" + PHASE_LABEL[p] + "）" : "");
+  });
+  metricsEl.textContent =
+    (S.steps.length ? S.steps.length + " 步" : "") +
+    (S.steps.length && S.toolCount ? " · " : "") +
+    (S.toolCount ? S.toolCount + " 次工具" : "") +
+    (S.startedAt ? ((S.steps.length || S.toolCount) ? " · " : "") + ((S.elapsedMs || Date.now() - S.startedAt) / 1000).toFixed(1) + "s" : "");
+}
+
+function renderStep(s, i) {
+  let node = nodeCache.get(s.id);
+  if (!node) {
+    node = createStepNode();
+    nodeCache.set(s.id, node);
+  }
+  const refs = node.$;
+  const isActive = i === S.activeIdx && S.phase === "executing";
+
+  node.className = "node " + stepNodeClass(s, isActive);
+  refs.idx.textContent = "第 " + (i + 1) + " 步";
+  refs.badge.textContent = BADGE[s.status] || (isActive ? "▶" : "⏳");
+  refs.desc.textContent = s.description || "";
+  refs.count.textContent = s.tools.length ? s.tools.length + " 次工具" : "";
+
+  // 工具 chip：整步批量到达；展开态存 openTools（不在 DOM class 上），重绘不丢
+  refs.tools.textContent = "";   // 清空子节点（见 harness 对 textContent setter 的实现）
+  s.tools.forEach(function (t, ti) {
+    const key = s.id + "#" + ti;
+    const open = openTools.has(key);
+
+    const chip = document.createElement("span");
+    chip.className = "tool-chip" + (/^\s*(Error|错误)/.test(t.observation || "") ? " failed" : "");
+    chip.dataset.open = open ? "1" : "0";
+    chip.textContent = "▸ " + t.tool;
+    chip.onclick = function () {
+      if (openTools.has(key)) openTools.delete(key); else openTools.add(key);
+      render();
+    };
+    refs.tools.appendChild(chip);
+
+    if (open) {
+      const body = document.createElement("div");
+      body.className = "tool-body open";
+      body.textContent = "input: " + JSON.stringify(t.input) + "\n\n" + (t.observation || "");
+      refs.tools.appendChild(body);
+    }
+  });
+
+  if (s.error) {
+    refs.result.className = "node-result err";
+    refs.result.textContent = "❌ " + s.error;
+  } else {
+    refs.result.className = "node-result";
+    const r = s.result || "";
+    refs.result.textContent = r.length > 300 ? r.slice(0, 300) + "…" : r;
+  }
+  return node;
+}
+
+function conn(done) {
+  const d = document.createElement("div");
+  d.className = "connector" + (done ? " done" : "");
+  return d;
+}
+/** 连接线是否已「点亮」：第 i-1 步是否终态 */
+function stagePrev(i) {
+  const p = S.steps[i - 1];
+  return !!p && isTerminal(p);
+}
+
+function render() {
+  renderPhase();
+
+  // 差量更新：清空容器后 appendChild 复用缓存节点 = 「移动」而非「重建」
+  stageEl.textContent = "";
+
+  if (!plannerEl) {
+    plannerEl = document.createElement("div");
+    plannerEl.className = "node planner";
+  }
+  plannerEl.textContent = "🧭 PLANNER　目标：" + (S.goal || "（规划中…）");
+  stageEl.appendChild(plannerEl);
+
+  S.steps.forEach(function (s, i) {
+    stageEl.appendChild(conn(stagePrev(i)));
+    stageEl.appendChild(renderStep(s, i));
+  });
+
+  if (!terminalEl) terminalEl = createTerminalNode();
+  const allDone = S.steps.length > 0 && S.steps.every(isTerminal);
+  if (S.phase === "error") {
+    spinnerEl.hidden = true;
+    terminalTextEl.textContent = "⚠️ 执行中断";
+  } else if (S.phase === "finalizing") {
+    // 「所有步变绿」与「答案到达」之间还有一次完整 LLM 调用（generateFinalAnswer），
+    // 几秒到几十秒 —— 不给反馈用户会以为卡死（计划的 §1 事实 3）。
+    spinnerEl.hidden = false;
+    terminalTextEl.textContent = "🏁 FINALIZE · 正在综合最终答案…";
+  } else if (S.phase === "done") {
+    spinnerEl.hidden = true;
+    terminalTextEl.textContent = "🏁 FINALIZE · 完成";
+  } else if (S.phase === "idle") {
+    spinnerEl.hidden = true;
+    terminalTextEl.textContent = "🏁 FINALIZE";
+  } else {
+    spinnerEl.hidden = true;
+    const left = S.steps.filter(function (s) { return !isTerminal(s); }).length;
+    terminalTextEl.textContent = "🏁 FINALIZE · 等待所有步骤完成（" + left + " 步未完成）";
+  }
+  stageEl.appendChild(conn(allDone));
+  stageEl.appendChild(terminalEl);
+
+  if (S.answer && S.answer !== lastAnswer) {
+    lastAnswer = S.answer;
+    answerPanel.hidden = false;
+    answerEl.innerHTML = renderMarkdown(S.answer);
+  }
+  if (S.error && S.error !== lastError) {
+    lastError = S.error;
+    answerPanel.hidden = false;
+    answerEl.innerHTML = '<div class="error-msg">❌ ' + escapeHtml(S.error) + "</div>";
+  }
+}
+
+function renderMarkdown(text) {
+  if (!text) return "";
+  try { return DOMPurify.sanitize(marked.parse(text)); } catch (e) { return escapeHtml(text); }
+}
+function escapeHtml(s) {
+  const d = document.createElement("div");
+  d.textContent = s == null ? "" : String(s);
+  return d.innerHTML;
+}
+
+/* ── SSE 消费 + 阶段机 ──────────────────────────────────────── */
+async function run() {
+  const question = inputEl.value.trim();
+  if (!question) { alert("请先描述一个多步任务"); return; }
+
+  runBtn.disabled = true;
+  S.phase = "planning"; S.goal = ""; S.steps = []; S.activeIdx = -1;
+  S.lastCompletedIdx = -1; S.answer = ""; S.error = ""; S.toolCount = 0;
+  S.startedAt = Date.now(); S.elapsedMs = 0;
+  nodeCache.clear(); openTools.clear();
+  plannerEl = null; terminalEl = null; spinnerEl = null; terminalTextEl = null;
+  lastAnswer = null; lastError = null;
+  answerEl.textContent = "";
+  answerPanel.hidden = true;
+  render();
+
+  // 计时器：让阶段条数字在等待期间也动（首次 planner LLM 调用可能 10–30s，不刷新就像白屏死等）
+  const timer = setInterval(function () {
+    if (S.phase !== "done" && S.phase !== "error") render();
+  }, 200);
+
+  try {
+    const res = await fetch("/api/agent/plan?token=" + TOKEN, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: question }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(function () { return { error: res.statusText }; });
+      throw new Error(err.error || "请求失败");
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (line.indexOf("data: ") !== 0) continue;
+        let ev;
+        try { ev = JSON.parse(line.slice(6)); } catch (e) { continue; }
+        applyEvent(ev);
+      }
+    }
+  } catch (e) {
+    S.error = e.message; S.phase = "error";
+  } finally {
+    clearInterval(timer);
+    if (S.phase !== "error" && S.phase !== "done") S.phase = "done";
+    S.elapsedMs = Date.now() - S.startedAt;
+    render();
+    runBtn.disabled = false;
+  }
+}
+
+runBtn.addEventListener("click", run);
+inputEl.addEventListener("keydown", function (e) {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); run(); }
+});
+render();
+</script>
+</body>
+</html>

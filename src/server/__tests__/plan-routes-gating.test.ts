@@ -138,6 +138,14 @@ describe("编排视图已装配：三道门 + 静态绕过", () => {
     expect(body).toContain('"tool":"read_file"');
   });
 
+  it("③b 页面 /agent/plan：admin → 200 且真的送出编排视图页面（防文件名笔误）", async () => {
+    const res = await fetch(base + "/agent/plan", { headers: { cookie: adminCookie }, redirect: "manual" });
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("🕸️ 编排视图");
+    expect(html).toContain("/api/agent/plan");
+  });
+
   it("④ 直连 /agent-plan.html → 302 到带门禁的 /agent/plan（静态目录绕过防线）", async () => {
     const res = await fetch(base + "/agent-plan.html", { redirect: "manual" });
     expect(res.status).toBe(302);
