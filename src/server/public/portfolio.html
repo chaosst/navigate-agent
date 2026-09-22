@@ -115,6 +115,7 @@
     <a href="/resume/jd">🎯 JD匹配</a>
     <a href="/rag/ask">📑 多文档问答</a>
     <a href="/portfolio" class="active">🧩 功能介绍</a>
+    <a href="/agent/plan" class="nav-admin-plan">🕸️ 编排视图</a>
     <a href="/api/logout?next=/login" onclick="sessionStorage.removeItem('navigate_token')">🚪 退出</a>
   </div>
 
@@ -143,6 +144,27 @@
     </ul>
   </div>
 
+  <div class="card">
+    <div class="head">
+      <h1>🕸️ 编排视图（Plan 模式可视化）</h1>
+      <span class="meta">admin 专属</span>
+    </div>
+    <p class="sub">
+      plan 模式的双层循环（planner → executor → planner …）不再是黑盒：结构化计划与每次工具调用
+      经 SSE 实时推到浏览器，按步骤渲染成编排图 —— 规划中 / 进行中 / 已完成 / 失败四种状态一目了然，
+      点开工具 chip 可看该次调用的入参与原始返回。
+    </p>
+    <ul class="tips">
+      <li><b>引擎零改动</b>：复用的就是 TUI 在用的那三路 chunk（plan / intermediateSteps / output），
+        同一份契约两个前端消费者（Ink TUI 与浏览器），不是第二套引擎</li>
+      <li><b>诚实的图，不是花哨的假图</b>：步骤是线性推进的（无任意 DAG 拓扑），
+        所以做竖直流时间线而不做可拖拽画布 —— 后者等于假装有编排编辑能力</li>
+      <li><b>不闪烁的差量渲染</b>：节点按 stepId 复用（不重建），展开态与滚动位置重绘不丢</li>
+      <li><b>三层安全边界</b>：admin 双门禁 + 工具面白名单（全只读，绝不含 shell / 写文件）
+        + 只读过滤器；未装配时接口 503 而非降级到全量工具集</li>
+    </ul>
+  </div>
+
   <div class="footer">navigate · 功能介绍</div>
 </div>
 
@@ -165,11 +187,12 @@
     const href = a.getAttribute("href");
     if (href && !href.includes("token=") && href.startsWith("/")) a.setAttribute("href", href + "?token=" + TOKEN);
   });
-  // 体验账号不展示 Wiki 入口（Wiki 仅管理员可访问，代理侧 403 兜底）
+  // 体验账号不展示仅管理员可达的入口（Wiki 由代理侧 403 兜底；编排视图是 ADMIN_ROLES 门禁页面，
+  // 给 guest 留一个点进去必然 403 的链接是坏体验）
   (async () => {
     try {
       const me = await (await fetch(`/api/me?token=${TOKEN}`)).json();
-      if (!me.isAdmin) document.querySelectorAll(".nav-wiki").forEach((el) => { el.style.display = "none"; });
+      if (!me.isAdmin) document.querySelectorAll(".nav-wiki, .nav-admin-plan").forEach((el) => { el.style.display = "none"; });
     } catch { /* 网络异常时保留入口 */ }
   })();
 
