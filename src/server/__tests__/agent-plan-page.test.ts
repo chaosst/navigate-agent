@@ -95,6 +95,13 @@ describe("agent-plan.html 编排视图状态机", () => {
     expect(steps[1].className).not.toContain("pending");
     expect(steps[2].className).toContain("pending");   // 后续步仍等待
     expect(steps[0].className).not.toContain("running");
+
+    // 徽章：进行中 = ▶（而非 ⏳），等待 = ⏳，完成 = ✅
+    // —— 曾经写成 `BADGE[status] || …`，status 恒有值导致 ▶ 永远不显示（首轮视觉校验发现）
+    const badge = (i: number) => steps[i].byClass("node-badge")[0].textContent;
+    expect(badge(0)).toBe("✅");
+    expect(badge(1)).toBe("▶");
+    expect(badge(2)).toBe("⏳");
     await page.release();
   });
 

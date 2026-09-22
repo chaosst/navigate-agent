@@ -31,11 +31,14 @@
   .panel { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px; }
   .panel h2 { font-size:.95rem; margin-bottom:12px; color:var(--text-muted); font-weight:600; }
   .hint { color:var(--text-muted); font-size:.78rem; margin-top:8px; }
-  .input-row { display:flex; gap:8px; }
-  .input-row input { flex:1; padding:10px 14px; border:1px solid var(--border); border-radius:8px;
-                     font-size:.92rem; outline:none; background:var(--bg); color:var(--text); }
+  /* ⚠️ 窄屏坑（420px 视觉校验实测）：input 的 min-content 宽度 + 不换行的按钮
+     会把整页撑得比视口宽 → 右侧内容被裁（整页横向滚动）。修法三件套：
+     flex-wrap 让按钮另起一行、input 给 flex-basis 且 min-width:0 允许收缩。 */
+  .input-row { display:flex; flex-wrap:wrap; gap:8px; }
+  .input-row input { flex:1 1 220px; min-width:0; padding:10px 14px; border:1px solid var(--border);
+                     border-radius:8px; font-size:.92rem; outline:none; background:var(--bg); color:var(--text); }
   .input-row input:focus { border-color:var(--primary); }
-  .input-row button { padding:10px 22px; border:none; border-radius:8px; background:var(--primary);
+  .input-row button { flex:0 0 auto; padding:10px 22px; border:none; border-radius:8px; background:var(--primary);
                       color:#fff; font-size:.92rem; cursor:pointer; font-weight:500; white-space:nowrap; }
   .input-row button:disabled { opacity:.5; cursor:not-allowed; }
 
@@ -353,7 +356,10 @@ function renderStep(s, i) {
 
   node.className = "node " + stepNodeClass(s, isActive);
   refs.idx.textContent = "第 " + (i + 1) + " 步";
-  refs.badge.textContent = BADGE[s.status] || (isActive ? "▶" : "⏳");
+  // 进行中要优先于状态徽章：status 恒有值（pending/completed/…），
+  // 写成 `BADGE[s.status] || (isActive ? "▶" : "⏳")` 会让 fallback 永远走不到 ——
+  // 进行中的步只能显示 ⏳，和设计规定的「▶ + 脉冲」不符（首轮视觉校验发现）。
+  refs.badge.textContent = isActive ? "▶" : (BADGE[s.status] || "⏳");
   refs.desc.textContent = s.description || "";
   refs.count.textContent = s.tools.length ? s.tools.length + " 次工具" : "";
 
